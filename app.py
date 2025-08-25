@@ -260,58 +260,79 @@ def build_related_from_embeddings(
 # Hilfe / Tool-Dokumentation (Expander)
 # =============================
 with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
-    st.markdown(
-        """
-## Was macht die ONE Link Intelligence?
+    st.markdown("""
+## Was macht das Tool ONE Link Intelligence?
 
-**Zwei Analysen** unterstützen dich bei der Optimierung der internen Verlinkung:
+**ONE Link Intelligence** besteht aus zwei Analysen:  
 
-1) **Interne Links finden**  
-   Zeigt dir für jede Ziel-URL thematisch **ähnliche Quell-URLs** (Cosine Similarity) und ob bereits ein Link existiert. Zusätzlich wird ein **Linkpotenzial** aus vier Faktoren berechnet:
-   - Interner Link Score  
-   - PageRank Horder Score  
-   - Backlinks  
-   - Referring Domains  
-   (Die **Ähnlichkeit** wirkt als *Filter*, nicht als Gewicht.)
+1. **Interne Links finden**  
+   - Auf Basis semantischer Ähnlichkeit wird geprüft, ob thematisch verwandte Seiten bereits intern miteinander verlinkt sind.  
+   - Das Tool schlägt zusätzlich sinnvolle interne Links vor und bewertet deren Potenzial mit einem **Linkpotenzial-Score**.  
 
-2) **Unpassende Links identifizieren**  
-   Listet interne Links mit **niedriger semantischer Ähnlichkeit** (≤ Unähnlichkeits-Schwelle) und markiert Quellseiten je nach **PageRank-Waster-Logik** (vereinfachte Einschätzung, wo ausgehende Links reduziert werden könnten).
+2. **Unpassende Links identifizieren**  
+   - Analysiert bestehende interne Links und erkennt solche, die thematisch unpassend oder schwach sind.  
+   - Grundlage ist die semantische Ähnlichkeit sowie ein vereinfachter *PageRank-Waster-Ansatz* (Seiten mit vielen Outlinks, aber wenigen Inlinks).  
 
----
+Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein.
+""")
 
-### 🔄 Inputs & Spalten-Anforderungen
+    st.markdown("""
+### 🔄 Input-Dateien
 
-**Modus „URLs + Embeddings“ (wenn du keine fertigen „Related URLs“ hast):**
-- **Pflicht:** eine Datei (CSV/Excel) mit mind. **zwei Spalten**:
-  - **URL-Spalte** – erkannte Namen: `url`, `urls`, `page`, `seite`, `adresse`, `address`  
-  - **Embedding-Spalte** – erkannte Namen: `embedding`, `embeddings`, `vector`, `embedding_json`, `vec`  
-    (Format: JSON-Array `"[0.12, -0.03, ...]"` **oder** Zahlen, getrennt durch Komma/Whitespace/`;`/`|`)
-- **Pflicht:**  
-  - **All Inlinks** (CSV/Excel; Spalten inkl. *Source/Quelle*, *Destination/Ziel*, optional *Link Position/Linkposition*)  
-  - **Linkmetriken** (CSV/Excel; **erste 4 Spalten**: URL, Score, Inlinks, Outlinks – in dieser Reihenfolge)  
-  - **Backlinks** (CSV/Excel; **erste 3 Spalten**: URL, Backlinks, Referring Domains – in dieser Reihenfolge)
+- **Option 1: URLs + Embeddings**  
+  Tabelle mit mindestens zwei Spalten:  
+  - **URL** (Spaltenname: z. B. `URL`, `Adresse`, `Address`, `Page`, `Seite`)  
+  - **Embeddings** (Spaltenname: z. B. `Embedding`, `Embeddings`, `Vector`). Werte können als JSON-Array (`[0.1, 0.2, ...]`) oder durch Komma/Leerzeichen/`;`/`|` getrennt vorliegen.  
 
-**Modus „Related URLs“ (wenn du Screaming Frog „Semantisch ähnlich“ schon exportiert hast):**
-- **Related URLs** (CSV/Excel; **erste 3 Spalten**: Ziel-URL, Quellen-URL, Similarity [0..1])  
-- **All Inlinks**, **Linkmetriken**, **Backlinks** – wie oben
+  Zusätzlich erforderlich:  
+  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**  
+  - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Score**, **Inlinks**, **Outlinks**  
+  - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains**  
 
-> **Wichtig:**  
-> - Trennzeichen können Komma **oder** Semikolon sein – die App erkennt beides.  
-> - Encodings **UTF-8**, **UTF-8-SIG**, **Windows-1252/Latin-1** werden automatisch erkannt.  
-> - URLs werden **kanonisiert** (Protokoll ergänzt, `www.` entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
+- **Option 2: Related URLs**  
+  Tabelle mit mindestens drei Spalten:  
+  - **Ziel-URL**, **Quell-URL**, **Ähnlichkeitswert (0–1)** (z. B. aus Screaming Frog *Massenexport → Inhalt → Semantisch ähnlich*).  
 
----
-### ⚙️ Wie funktioniert’s?
-- **Cosine Similarity** mit L2-normalisierten Embeddings (exakt via NumPy; optional schnell via FAISS).
-- **Top-K** ähnliche Quell-URLs pro Ziel-URL, gefiltert mit **Ähnlichkeitsschwelle**.
-- **Linkpotenzial** = gewichtete Kombination (ILS, PR-Horder, Backlinks, Ref-Domains).  
-- **„Schwache Links“** = interne Links mit Similarity ≤ Unähnlichkeits-Schwelle, farblich priorisiert nach vereinfachtem PageRank-Waster.
+Hinweis: Spaltenerkennung ist tolerant gegenüber deutsch/englischen Varianten.  
+Trennzeichen (Komma/Semikolon) und Encodings (UTF-8/UTF-8-SIG/Windows-1252/Latin-1) werden automatisch erkannt.  
+URLs werden kanonisiert (Protokoll ergänzt, `www.` entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
+""")
 
-### 📤 Outputs
-- **Interne Verlinkungsmöglichkeiten** (Tabelle + CSV-Download)
-- **Potenziell zu entfernende Links** (Tabelle + CSV-Download)
-        """
-    )
+    st.markdown("""
+### ⚙️ Gewichtung (Linkpotenzial)
+
+Die Berechnung des Linkpotenzials basiert auf folgenden Faktoren:  
+
+- **Interner Link Score**  
+  Bewertet, wie wichtig eine Seite im internen Linkgraph ist (ähnlich dem Link Score in Screaming Frog). Je höher der Wert, desto stärker kann die Seite Linkpower weitergeben.  
+
+- **PageRank-Horder-Score**  
+  Was ist ein *PageRank-Horder*? Vereinfacht gesagt: Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, desto mehr Linkpower kann sie „vererben“. Das „Robin-Hood-Prinzip“ – take it from the rich, give it to the poor.  
+
+- **Backlinks** & **Referring Domains**  
+  Berücksichtigen externe Signale (Autorität/Vertrauen) der Quell-URL.  
+
+💡 **Interpretation des Linkpotenzials:**  
+Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen Vorschlägen, wie lukrativ ein Link wäre.  
+Je **höher** der Score im Vergleich zu den übrigen, desto sinnvoller ist die Verlinkung.
+""")
+
+    st.markdown("""
+### 🚫 Unpassende Links
+
+Die zweite Analyse identifiziert interne Links, die thematisch nicht passen oder potenziell „SEO-Power verschwenden“.  
+- Maßstab: **Semantische Ähnlichkeit** (unterhalb der gewählten Unähnlichkeitsschwelle).  
+- Zusätzlich fließt ein vereinfachter *PageRank-Waster-Wert* ein (viele Outlinks, wenige Inlinks → Kandidat).  
+""")
+
+    st.markdown("""
+### 📤 Output (Ergebnisse)
+
+1. **Interne Verlinkungsmöglichkeiten** — vorgeschlagene interne Links inkl. Linkpotenzial **und Ähnlichkeitswert**.  
+2. **Potenziell zu entfernende Links** — bestehende Links, die thematisch unpassend sind oder von „PageRank-Wastern“ ausgehen.  
+
+Beide Ergebnisse sind als CSV downloadbar.
+""")
 
     st.markdown(
         """
@@ -328,9 +349,15 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
 # Sidebar Controls (mit Tooltips)
 # ===============================
 with st.sidebar:
+    # Logo robust laden
+    try:
+        st.image("https://onebeyondsearch.com/img/ONE_beyond_search%C3%94%C3%87%C3%B4gradient%20%282%29.png", width=220)
+    except Exception:
+        pass
+
     st.header("Einstellungen")
 
-    # Matching-Backend nach oben ziehen – mit ausführlicher Hilfe
+    # Matching-Backend (weiter oben, ausführliche Hilfe)
     try:
         import faiss  # type: ignore
         faiss_available = True
@@ -338,17 +365,14 @@ with st.sidebar:
         faiss_available = False
 
     backend = st.radio(
-        "Matching-Backend",
+        "Matching-Backend ℹ️",
         ["Exakt (NumPy)", "Schnell (FAISS)"],
         horizontal=True,
-        help=(
-            "Wähle die Methode zur Ermittlung semantisch ähnlicher URLs (Cosine Similarity):\n"
-            "- Exakt (NumPy): Berechnet alle Paar-Ähnlichkeiten (O(N²)). Gut für kleinere/mittlere Datensätze.\n"
-            "  Richtwert: bis ~5.000–10.000 URLs (abhängig von RAM & Embedding-Dimension).\n"
-            "- Schnell (FAISS): Annähernde Nachbarsuche mit Inner-Product-Index. Deutlich schneller & speichereffizienter.\n"
-            "  Empfohlen ab ~10.000–15.000 URLs oder wenn es bei NumPy eng wird.\n"
-            "Hinweis: FAISS benötigt das Paket 'faiss-cpu'. Ist es nicht installiert, fällt die App automatisch auf NumPy zurück."
-        ),
+        help=("Bestimmt, wie semantische Nachbarn ermittelt werden (Cosine Similarity):\n\n"
+              "- **Exakt (NumPy)**: O(N²), sehr genau. Gut bis ca. 2.000–5.000 URLs (abhängig von RAM & Dim.).\n"
+              "- **Schnell (FAISS)**: Approximate Nearest Neighbor, sehr schnell & speichereffizient. "
+              "Empfohlen ab ~5.000–10.000 URLs oder wenn NumPy zu langsam wird.\n\n"
+              "Beide liefern Cosine-Similarity (0–1). Wenn 'faiss-cpu' nicht installiert ist, fällt die App automatisch auf NumPy zurück.")
     )
     if not faiss_available and backend == "Schnell (FAISS)":
         st.warning("FAISS ist in dieser Umgebung nicht verfügbar – wechsle auf 'Exakt (NumPy)'.")
@@ -357,85 +381,60 @@ with st.sidebar:
     st.subheader("Gewichtung (Linkpotenzial)")
     st.caption(
         "Das Linkpotenzial gewichtet die Autorität/Relevanz der **Quell-URL**. "
-        "Zur Einordnung des **Interner Link Score** siehe Screaming Frog: Link Score Modellierung eines internen Linkflusses."
+        "Zur Einordnung des Interner-Link-Score siehe Screaming Frog (Link Score)."
     )
     w_ils = st.slider(
-        "Interner Link Score",
-        0.0,
-        1.0,
-        0.30,
-        0.01,
-        help=(
-            "Interner Link Score (Screaming Frog): ein PageRank-ähnliches Maß für die interne Linkpopularität, "
-            "berechnet aus dem Crawl (Dämpfung/Verteilung über interne Links). "
-            "Höherer ILS ⇒ Quelle kann mehr interne Linkkraft vererben."
-        ),
+        "Interner Link Score ℹ️",
+        0.0, 1.0, 0.30, 0.01,
+        help=("Interner Link Score (Screaming Frog): PageRank-ähnliches Maß für interne Linkpopularität aus dem Crawl. "
+              "Höherer ILS ⇒ Quelle kann mehr interne Linkkraft vererben.")
     )
     w_pr = st.slider(
-        "PageRank Horder Score",
-        0.0,
-        1.0,
-        0.35,
-        0.01,
-        help=(
-            "Was ist ein PageRank-Horder?\n\n"
-            "Vereinfacht gesagt: Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, "
-            "desto mehr Linkpower hat diese zu „vererben”. Das „Robin Hood Prinzip” quasi – take it from the rich, give it to the poor. "
-            "Solche URLs werden in der Kalkulation des Linkpotenzials höher priorisiert."
-        ),
+        "PageRank-Horder-Score ℹ️",
+        0.0, 1.0, 0.35, 0.01,
+        help=("Was ist ein PageRank-Horder?\n\n"
+              "Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, "
+              "desto mehr Linkpower kann sie „vererben“. Das „Robin-Hood-Prinzip“ – take it from the rich, give it to the poor. "
+              "Solche URLs werden in der Linkpotenzial-Kalkulation höher priorisiert.")
     )
     w_rd = st.slider(
-        "Referring Domains",
-        0.0,
-        1.0,
-        0.20,
-        0.01,
-        help="Gewichtung externer verweisender Domains der Quell-URL.",
+        "Referring Domains ℹ️",
+        0.0, 1.0, 0.20, 0.01,
+        help="Externe verweisende Domains der Quell-URL (Autorität/Vertrauen)."
     )
     w_bl = st.slider(
-        "Backlinks",
-        0.0,
-        1.0,
-        0.15,
-        0.01,
-        help="Gewichtung externer Backlinks der Quell-URL.",
+        "Backlinks ℹ️",
+        0.0, 1.0, 0.15, 0.01,
+        help="Externe Backlinks der Quell-URL."
     )
-
     w_sum = w_ils + w_pr + w_rd + w_bl
     if not math.isclose(w_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
         st.warning(f"Gewichtungs-Summe = {w_sum:.2f} (sollte 1.0 sein)")
 
     st.subheader("Schwellen & Limits (Related-Ermittlung)")
     sim_threshold = st.slider(
-        "Ähnlichkeitsschwelle (Related URLs)",
-        0.0,
-        1.0,
-        0.80,
-        0.01,
-        help="Nur Paare mit Cosine Similarity ≥ diesem Wert gelten als 'related'.",
+        "Ähnlichkeitsschwelle ℹ️",
+        0.0, 1.0, 0.80, 0.01,
+        help="Nur Paare mit Cosine Similarity ≥ diesem Wert gelten als „related“."
     )
     max_related = st.number_input(
-        "Anzahl Related URLs",
-        min_value=1,
-        max_value=50,
-        value=10,
-        step=1,
-        help='Wie viele URLs sollen in die Analyse zur Identifizierung der internen Verlinkungsmöglichkeiten einbezogen werden',
+        "Anzahl Related URLs ℹ️",
+        min_value=1, max_value=50, value=10, step=1,
+        help="Wie viele semantisch ähnliche Seiten sollen pro Ziel-URL in die Analyse einbezogen werden?"
     )
 
     st.subheader("Entfernung von Links")
     not_similar_threshold = st.slider(
-        "Unähnlichkeits-Schwelle (schwache Links)",
-        0.0,
-        1.0,
-        0.60,
-        0.01,
-        help="Interne Links mit Similarity ≤ diesem Wert werden als 'schwach' gelistet.",
+        "Unähnlichkeits-Schwelle (schwache Links) ℹ️",
+        0.0, 1.0, 0.60, 0.01,
+        help=("Interne Links gelten als schwach, wenn deren semantische Ähnlichkeit ≤ diesem Wert liegt. "
+              "Beispiel: 0.60 → alle Links ≤ 0.60 werden als potenziell zu entfernend gelistet.")
     )
     backlink_weight_2x = st.checkbox(
-        "Backlinks/Ref. Domains doppelt gewichten (nur 'schwache Links')",
+        "Backlinks/Ref. Domains doppelt gewichten ℹ️",
         value=False,
-        help="Erhöht den Dämpfungseffekt externer Autorität auf den Waster-Score.",
+        help=("Erhöht den Dämpfungseffekt externer Autorität auf den Waster-Score. "
+              "Wenn aktiv, wirken Backlinks & Ref. Domains doppelt so stark.")
     )
 
 # etwas CSS für den roten Button
@@ -512,6 +511,14 @@ run_clicked = st.button("Let's Go", type="secondary")  # durch CSS rot
 if not run_clicked:
     st.info("Bitte Dateien hochladen und auf **Let's Go** klicken, um die Analysen zu starten.")
     st.stop()
+
+# GIF anzeigen, solange gerechnet wird
+placeholder = st.empty()
+placeholder.image(
+    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3dXYwYmxiYjg3b2x4anRwczh3em5yM3UyNThiM2h3c2R4OG9zNWIwcyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/UERqWUj6MNI3u/giphy.gif",
+    caption="Berechnungen laufen – wir geben Gas …",
+    use_column_width=True
+)
 
 # ===============================
 # Validierung & ggf. Ableitung Related aus Embeddings
@@ -689,9 +696,14 @@ st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
 
 cols = ["Ziel-URL"]
 for i in range(1, int(max_related) + 1):
-    cols.extend(
-        [f"Related URL {i}", f"überhaupt verlinkt {i}?", f"aus Inhalt heraus verlinkt {i}?", f"Linkpotenzial {i}"]
-    )
+    cols.extend([
+        f"Related URL {i}",
+        f"Ähnlichkeit {i}",
+        f"überhaupt verlinkt {i}?",
+        f"aus Inhalt heraus verlinkt {i}?",
+        f"Linkpotenzial {i}",
+    ])
+
 
 rows = []
 
@@ -720,7 +732,7 @@ for target, related_list in sorted(related_map.items()):
         final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
         final_score = round(final_score, 2)
 
-        row.extend([source, anywhere, from_content, final_score])
+        row.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
 
     # pad
     while len(row) < len(cols):
@@ -835,3 +847,7 @@ st.download_button(
     file_name="potenziell_zu_entfernende_links.csv",
     mime="text/csv",
 )
+
+# Am Ende der Berechnungen:
+placeholder.empty()
+st.success("✅ Berechnung abgeschlossen!")
