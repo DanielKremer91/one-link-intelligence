@@ -10,6 +10,14 @@ import streamlit as st
 # ===============================
 st.set_page_config(page_title="ONE Link Intelligence", layout="wide")
 
+# Session-State initialisieren (für persistente Outputs)
+if "ready" not in st.session_state:
+    st.session_state.ready = False
+if "res1_df" not in st.session_state:
+    st.session_state.res1_df = None
+if "out_df" not in st.session_state:
+    st.session_state.out_df = None
+
 # Remote-Logo robust laden (kein Crash, wenn Bild nicht geht)
 try:
     st.image(
@@ -502,17 +510,19 @@ elif mode == "Related URLs":
 # ===============================
 run_clicked = st.button("Let's Go", type="secondary")  # durch CSS rot
 
-if not run_clicked:
+# Wenn noch nichts gerechnet wurde UND Button nicht geklickt: Hinweis & Abbruch
+if not run_clicked and not st.session_state.ready:
     st.info("Bitte Dateien hochladen und auf **Let's Go** klicken, um die Analysen zu starten.")
     st.stop()
 
-# GIF anzeigen, solange gerechnet wird
-placeholder = st.empty()
-placeholder.image(
-    "https://media.giphy.com/media/.../giphy.gif",
-    caption="Berechnungen laufen – wir geben Gas …",
-    use_container_width=True
-)
+# GIF nur anzeigen, wenn jetzt gerechnet wird
+if run_clicked:
+    placeholder = st.empty()
+    placeholder.image(
+        "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNDJweGExcHhhOWZneTZwcnAxZ211OWJienY5cWQ1YmpwaHR0MzlydiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dBRaPog8yxFWU/giphy.gif",
+        caption="Die Berechnungen laufen – Zeit für eine kleine Stärkung, bevor es losgeht …",
+        use_container_width=True
+    )
 
 # ===============================
 # Validierung & ggf. Ableitung Related aus Embeddings
@@ -734,114 +744,4 @@ for target, related_list in sorted(related_map.items()):
     rows.append(row)
 
 res1_df = pd.DataFrame(rows, columns=cols)
-st.dataframe(res1_df, use_container_width=True, hide_index=True)
-
-csv1 = res1_df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
-    data=csv1,
-    file_name="interne_verlinkungsmoeglichkeiten.csv",
-    mime="text/csv",
-)
-
-# ===============================
-# Analyse 2: Potenziell zu entfernende Links
-# ===============================
-st.markdown("## Analyse 2: Potenziell zu entfernende Links")
-
-# Build similarity map for both directions
-sim_map: Dict[str, float] = {}
-processed_pairs2 = set()
-
-for _, r in related_df.iterrows():
-    a = normalize_url(r.iloc[1])  # Quelle (wie im GAS)
-    b = normalize_url(r.iloc[0])  # Ziel   (wie im GAS)
-    try:
-        sim = float(str(r.iloc[2]).replace(",", "."))
-    except Exception:
-        continue
-    if not a or not b:
-        continue
-    pair_key = "↔".join(sorted([a, b]))
-    if pair_key in processed_pairs2:
-        continue
-    sim_map[f"{a}→{b}"] = sim
-    sim_map[f"{b}→{a}"] = sim
-    processed_pairs2.add(pair_key)
-
-# PageRank-Waster-ähnlicher Rohwert und backlink-adjusted Score
-raw_score_map: Dict[str, float] = {}
-for _, r in metrics_df.iterrows():
-    u = normalize_url(r.iloc[0])
-    inl = float(pd.to_numeric(r.iloc[2], errors="coerce") or 0)
-    outl = float(pd.to_numeric(r.iloc[3], errors="coerce") or 0)
-    raw_score_map[u] = outl - inl
-
-adjusted_score_map: Dict[str, float] = {}
-for u, raw in raw_score_map.items():
-    bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-    impact = bl.get("backlinks", 0.0) * 0.5 + bl.get("referringDomains", 0.0) * 0.5
-    factor = 2.0 if backlink_weight_2x else 1.0
-    malus = 5.0 * factor if impact == 0 else 0.0
-    adjusted = (raw or 0.0) - (factor * impact) + malus
-    adjusted_score_map[u] = adjusted
-
-# Build output
-out_rows = []
-rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
-out_header = ["Quelle", "Ziel", "PageRank Waster (Farbindikator)", "Semantische Ähnlichkeit", *rest_cols]
-
-for _, r in inlinks_df.iterrows():
-    quelle = normalize_url(r.iloc[src_idx])
-    ziel = normalize_url(r.iloc[dst_idx])
-    if not quelle or not ziel:
-        continue
-
-    k1 = f"{quelle}→{ziel}"
-    k2 = f"{ziel}→{quelle}"
-    sim = sim_map.get(k1, sim_map.get(k2, np.nan))
-
-    # Weak links: similarity ≤ threshold OR missing
-    if not (isinstance(sim, (int, float)) and not np.isnan(sim)):
-        sim_display = "Ähnlichkeit unter Schwelle oder nicht erfasst"
-        is_weak = True
-    else:
-        sim_display = sim
-        is_weak = sim <= not_similar_threshold
-
-    if not is_weak:
-        continue
-
-    rest = [r.iloc[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-    out_rows.append([quelle, ziel, "", sim_display, *rest])
-
-out_df = pd.DataFrame(out_rows, columns=out_header)
-
-# Coloring by adjusted score (simple buckets) – als Spalte
-colors = []
-for _, row in out_df.iterrows():
-    q = row["Quelle"]
-    score = adjusted_score_map.get(q)
-    if score is None or (isinstance(score, float) and np.isnan(score)):
-        colors.append("#ffffff")
-    elif score >= 50:
-        colors.append("#ffcccc")
-    elif score >= 25:
-        colors.append("#fff2cc")
-    else:
-        colors.append("#ccffcc")
-
-out_df["Farbcode (intern)"] = colors
-st.dataframe(out_df, use_container_width=True, hide_index=True)
-
-csv2 = out_df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    "Download 'Potenziell zu entfernende Links' (CSV)",
-    data=csv2,
-    file_name="potenziell_zu_entfernende_links.csv",
-    mime="text/csv",
-)
-
-# Am Ende der Berechnungen:
-placeholder.empty()
-st.success("✅ Berechnung abgeschlossen!")
+st.dataframe
