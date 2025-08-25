@@ -509,9 +509,9 @@ if not run_clicked:
 # GIF anzeigen, solange gerechnet wird
 placeholder = st.empty()
 placeholder.image(
-    "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3dXYwYmxiYjg3b2x4anRwczh3em5yM3UyNThiM2h3c2R4OG9zNWIwcyZlcD12MV9naWZzX3NlYXJjaCZjdD1n/UERqWUj6MNI3u/giphy.gif",
+    "https://media.giphy.com/media/.../giphy.gif",
     caption="Berechnungen laufen – wir geben Gas …",
-    use_column_width=True
+    use_container_width=True
 )
 
 # ===============================
