@@ -147,35 +147,39 @@ def parse_vec(x) -> Optional[np.ndarray]:
 
 # --- Robuster Datei-Leser mit Encoding- und Delimiter-Erkennung ---
 def read_any_file(f) -> Optional[pd.DataFrame]:
-    """CSV/Excel robust lesen: probiert mehrere Encodings; snifft Delimiter."""
+    """CSV/Excel robust lesen: probiert mehrere Encodings; snifft Delimiter (Komma/Semikolon)."""
     if f is None:
         return None
     name = (getattr(f, "name", "") or "").lower()
     try:
         if name.endswith(".csv"):
-            # Wir müssen bei jedem Versuch den Pointer zurücksetzen
+            # Mehrere Encodings probieren
             for enc in ["utf-8-sig", "utf-8", "cp1252", "latin1"]:
                 try:
                     f.seek(0)
+                    # Delimiter sniffer braucht den python-Parser
                     return pd.read_csv(
                         f,
-                        sep=None,               # Delimiter sniffer
-                        engine="python",        # nötig für sep=None
+                        sep=None,            # Trenner automatisch erkennen
+                        engine="python",     # nötig für sep=None
                         encoding=enc,
-                        on_bad_lines="skip",    # robust gegen Ausreißer
-                        low_memory=False,
+                        on_bad_lines="skip", # robust gegen Ausreißer
                     )
                 except UnicodeDecodeError:
                     continue
-            # Fallback: semikolon
-            f.seek(0)
-            return pd.read_csv(
-                f,
-                sep=";",
-                encoding="latin1",
-                on_bad_lines="skip",
-                low_memory=False,
-            )
+                except Exception:
+                    # Fallback auf Standard-Trenner (mit gleichem Encoding)
+                    try:
+                        f.seek(0)
+                        return pd.read_csv(
+                            f, sep=";", engine="python", encoding=enc, on_bad_lines="skip"
+                        )
+                    except Exception:
+                        f.seek(0)
+                        return pd.read_csv(
+                            f, sep=",", engine="python", encoding=enc, on_bad_lines="skip"
+                        )
+            raise ValueError("Kein passendes Encoding/Trennzeichen gefunden.")
         else:
             f.seek(0)
             return pd.read_excel(f)
@@ -263,7 +267,7 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
 **Zwei Analysen** unterstützen dich bei der Optimierung der internen Verlinkung:
 
 1) **Interne Links finden**  
-   Zeigt dir für jede Ziel-URL thematisch **ähnliche Quell-URLs** (basierend auf Cosine Similarity) und ob bereits ein Link existiert. Zusätzlich wird ein **Linkpotenzial** aus vier Faktoren berechnet:
+   Zeigt dir für jede Ziel-URL thematisch **ähnliche Quell-URLs** (Cosine Similarity) und ob bereits ein Link existiert. Zusätzlich wird ein **Linkpotenzial** aus vier Faktoren berechnet:
    - Interner Link Score  
    - PageRank Horder Score  
    - Backlinks  
@@ -277,7 +281,7 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
 
 ### 🔄 Inputs & Spalten-Anforderungen
 
-**Modus „URLs + Embeddings“ (empfohlen, wenn du keine „Related URLs“-Datei hast):**
+**Modus „URLs + Embeddings“ (wenn du keine fertigen „Related URLs“ hast):**
 - **Pflicht:** eine Datei (CSV/Excel) mit mind. **zwei Spalten**:
   - **URL-Spalte** – erkannte Namen: `url`, `urls`, `page`, `seite`, `adresse`, `address`  
   - **Embedding-Spalte** – erkannte Namen: `embedding`, `embeddings`, `vector`, `embedding_json`, `vec`  
@@ -326,14 +330,46 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
 with st.sidebar:
     st.header("Einstellungen")
 
-    st.subheader("Gewichtungen (Linkpotenzial)")
+    # Matching-Backend nach oben ziehen – mit ausführlicher Hilfe
+    try:
+        import faiss  # type: ignore
+        faiss_available = True
+    except Exception:
+        faiss_available = False
+
+    backend = st.radio(
+        "Matching-Backend",
+        ["Exakt (NumPy)", "Schnell (FAISS)"],
+        horizontal=True,
+        help=(
+            "Wähle die Methode zur Ermittlung semantisch ähnlicher URLs (Cosine Similarity):\n"
+            "- Exakt (NumPy): Berechnet alle Paar-Ähnlichkeiten (O(N²)). Gut für kleinere/mittlere Datensätze.\n"
+            "  Richtwert: bis ~5.000–10.000 URLs (abhängig von RAM & Embedding-Dimension).\n"
+            "- Schnell (FAISS): Annähernde Nachbarsuche mit Inner-Product-Index. Deutlich schneller & speichereffizienter.\n"
+            "  Empfohlen ab ~10.000–15.000 URLs oder wenn es bei NumPy eng wird.\n"
+            "Hinweis: FAISS benötigt das Paket 'faiss-cpu'. Ist es nicht installiert, fällt die App automatisch auf NumPy zurück."
+        ),
+    )
+    if not faiss_available and backend == "Schnell (FAISS)":
+        st.warning("FAISS ist in dieser Umgebung nicht verfügbar – wechsle auf 'Exakt (NumPy)'.")
+        backend = "Exakt (NumPy)"
+
+    st.subheader("Gewichtung (Linkpotenzial)")
+    st.caption(
+        "Das Linkpotenzial gewichtet die Autorität/Relevanz der **Quell-URL**. "
+        "Zur Einordnung des **Interner Link Score** siehe Screaming Frog: Link Score Modellierung eines internen Linkflusses."
+    )
     w_ils = st.slider(
         "Interner Link Score",
         0.0,
         1.0,
         0.30,
         0.01,
-        help="Gewichtung des ILS (0–1). Summe aller Gewichte = 1.",
+        help=(
+            "Interner Link Score (Screaming Frog): ein PageRank-ähnliches Maß für die interne Linkpopularität, "
+            "berechnet aus dem Crawl (Dämpfung/Verteilung über interne Links). "
+            "Höherer ILS ⇒ Quelle kann mehr interne Linkkraft vererben."
+        ),
     )
     w_pr = st.slider(
         "PageRank Horder Score",
@@ -341,7 +377,12 @@ with st.sidebar:
         1.0,
         0.35,
         0.01,
-        help="Gewichtung für (Inlinks − Outlinks) als Proxy.",
+        help=(
+            "Was ist ein PageRank-Horder?\n\n"
+            "Vereinfacht gesagt: Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, "
+            "desto mehr Linkpower hat diese zu „vererben”. Das „Robin Hood Prinzip” quasi – take it from the rich, give it to the poor. "
+            "Solche URLs werden in der Kalkulation des Linkpotenzials höher priorisiert."
+        ),
     )
     w_rd = st.slider(
         "Referring Domains",
@@ -364,7 +405,7 @@ with st.sidebar:
     if not math.isclose(w_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
         st.warning(f"Gewichtungs-Summe = {w_sum:.2f} (sollte 1.0 sein)")
 
-    st.subheader("Schwellen & Limits")
+    st.subheader("Schwellen & Limits (Related-Ermittlung)")
     sim_threshold = st.slider(
         "Ähnlichkeitsschwelle (Related URLs)",
         0.0,
@@ -374,13 +415,15 @@ with st.sidebar:
         help="Nur Paare mit Cosine Similarity ≥ diesem Wert gelten als 'related'.",
     )
     max_related = st.number_input(
-        "Max. Related pro Ziel",
+        "Anzahl Related URLs",
         min_value=1,
         max_value=50,
         value=10,
         step=1,
-        help="Anzahl der Quell-URLs pro Ziel-URL in der Ergebnisliste.",
+        help='Wie viele URLs sollen in die Analyse zur Identifizierung der internen Verlinkungsmöglichkeiten einbezogen werden',
     )
+
+    st.subheader("Entfernung von Links")
     not_similar_threshold = st.slider(
         "Unähnlichkeits-Schwelle (schwache Links)",
         0.0,
@@ -394,23 +437,6 @@ with st.sidebar:
         value=False,
         help="Erhöht den Dämpfungseffekt externer Autorität auf den Waster-Score.",
     )
-
-    st.subheader("Matching-Backend")
-    backend = st.radio(
-        "Methode",
-        ["Exakt (NumPy)", "Schnell (FAISS)"],
-        horizontal=True,
-        help="NumPy = exakte Suche; FAISS = schnelle Approximate-Suche (empfohlen für große N).",
-    )
-    try:
-        import faiss  # type: ignore
-
-        faiss_available = True
-    except Exception:
-        faiss_available = False
-        if backend == "Schnell (FAISS)":
-            st.warning("FAISS ist in dieser Umgebung nicht verfügbar – wechsle auf 'Exakt (NumPy)'.")
-            backend = "Exakt (NumPy)"
 
 # etwas CSS für den roten Button
 st.markdown(
@@ -463,7 +489,7 @@ if mode == "URLs + Embeddings":
 elif mode == "Related URLs":
     st.write(
         "Lade die vier Tabellen: **Related URLs**, **All Inlinks**, **Linkmetriken**, **Backlinks** "
-        "(CSV/Excel; Trennzeichen werden automatisch erkannt)."
+        "(CSV/Excel; Trennzeichen & Encodings werden automatisch erkannt)."
     )
     col1, col2 = st.columns(2)
     with col1:
