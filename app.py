@@ -212,24 +212,37 @@ elif mode == "URLs + Embeddings":
         if emb_col is None and len(cols) >= 2:
             emb_col = cols[1]
 
-        def parse_vec(x):
+                def parse_vec(x):
             import json
+            import numpy as np
+
             if isinstance(x, (list, tuple, np.ndarray)):
                 return np.asarray(x, dtype=float)
+
             s = str(x).strip()
             if not s:
                 return None
-            try:
-                if s.startswith("[") and s.endswith("]"):
+
+            # 1) JSON-Array wie "[0.12, -0.03, ...]"
+            if s.startswith("[") and s.endswith("]"):
+                try:
                     return np.asarray(json.loads(s), dtype=float)
-            except Exception:
-                pass
-            # try comma/space split
+                except Exception:
+                    pass
+
+            # 2) Flexible Fallback: Klammern entfernen, ESCAPED Newlines/Tabs neutralisieren,
+            #    dann erst Komma-, sonst Whitespace-Split
+            s_clean = (
+                s.replace("[", "").replace("]", "")
+                 .replace("\\n", " ").replace("\\t", " ")
+                 .replace(";", " ").replace("|", " ")
+            )
+
+            parts = [p for p in s_clean.split(",") if p.strip()]
+            if len(parts) <= 1:
+                parts = s_clean.split()  # beliebiger Whitespace
+
             try:
-                parts = [p for p in s.replace("[", "").replace("]", "").replace("
-", " ").replace("	", " ").replace(";", " ").replace("|", " ").split(" ") if p]
-                if len(parts) <= 1:
-                    parts = [p for p in s.split(",") if p]
                 vec = np.asarray([float(p) for p in parts], dtype=float)
                 return vec if vec.size > 0 else None
             except Exception:
