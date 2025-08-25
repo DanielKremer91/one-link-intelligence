@@ -312,7 +312,7 @@ Die Berechnung des Linkpotenzials basiert auf folgenden Faktoren:
 - **Backlinks** & **Referring Domains**  
   Berücksichtigen externe Signale (Autorität/Vertrauen) der Quell-URL.  
 
-💡 **Interpretation des Linkpotenzials:**  
+💡 **Interpretation des Linkpotenzial-Scores in der Output-Datei:**  
 Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen Vorschlägen, wie lukrativ ein Link wäre.  
 Je **höher** der Score im Vergleich zu den übrigen, desto sinnvoller ist die Verlinkung.
 """)
@@ -349,11 +349,6 @@ Beide Ergebnisse sind als CSV downloadbar.
 # Sidebar Controls (mit Tooltips)
 # ===============================
 with st.sidebar:
-    # Logo robust laden
-    try:
-        st.image("https://onebeyondsearch.com/img/ONE_beyond_search%C3%94%C3%87%C3%B4gradient%20%282%29.png", width=220)
-    except Exception:
-        pass
 
     st.header("Einstellungen")
 
@@ -365,7 +360,7 @@ with st.sidebar:
         faiss_available = False
 
     backend = st.radio(
-        "Matching-Backend ℹ️",
+        "Matching-Backend",
         ["Exakt (NumPy)", "Schnell (FAISS)"],
         horizontal=True,
         help=("Bestimmt, wie semantische Nachbarn ermittelt werden (Cosine Similarity):\n\n"
@@ -381,16 +376,15 @@ with st.sidebar:
     st.subheader("Gewichtung (Linkpotenzial)")
     st.caption(
         "Das Linkpotenzial gewichtet die Autorität/Relevanz der **Quell-URL**. "
-        "Zur Einordnung des Interner-Link-Score siehe Screaming Frog (Link Score)."
     )
     w_ils = st.slider(
-        "Interner Link Score ℹ️",
+        "Interner Link Score",
         0.0, 1.0, 0.30, 0.01,
         help=("Interner Link Score (Screaming Frog): PageRank-ähnliches Maß für interne Linkpopularität aus dem Crawl. "
               "Höherer ILS ⇒ Quelle kann mehr interne Linkkraft vererben.")
     )
     w_pr = st.slider(
-        "PageRank-Horder-Score ℹ️",
+        "PageRank-Horder-Score",
         0.0, 1.0, 0.35, 0.01,
         help=("Was ist ein PageRank-Horder?\n\n"
               "Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, "
@@ -398,12 +392,12 @@ with st.sidebar:
               "Solche URLs werden in der Linkpotenzial-Kalkulation höher priorisiert.")
     )
     w_rd = st.slider(
-        "Referring Domains ℹ️",
+        "Referring Domains",
         0.0, 1.0, 0.20, 0.01,
         help="Externe verweisende Domains der Quell-URL (Autorität/Vertrauen)."
     )
     w_bl = st.slider(
-        "Backlinks ℹ️",
+        "Backlinks",
         0.0, 1.0, 0.15, 0.01,
         help="Externe Backlinks der Quell-URL."
     )
@@ -413,25 +407,25 @@ with st.sidebar:
 
     st.subheader("Schwellen & Limits (Related-Ermittlung)")
     sim_threshold = st.slider(
-        "Ähnlichkeitsschwelle ℹ️",
+        "Ähnlichkeitsschwelle",
         0.0, 1.0, 0.80, 0.01,
         help="Nur Paare mit Cosine Similarity ≥ diesem Wert gelten als „related“."
     )
     max_related = st.number_input(
-        "Anzahl Related URLs ℹ️",
+        "Anzahl Related URLs",
         min_value=1, max_value=50, value=10, step=1,
         help="Wie viele semantisch ähnliche Seiten sollen pro Ziel-URL in die Analyse einbezogen werden?"
     )
 
     st.subheader("Entfernung von Links")
     not_similar_threshold = st.slider(
-        "Unähnlichkeits-Schwelle (schwache Links) ℹ️",
+        "Unähnlichkeits-Schwelle (schwache Links)",
         0.0, 1.0, 0.60, 0.01,
         help=("Interne Links gelten als schwach, wenn deren semantische Ähnlichkeit ≤ diesem Wert liegt. "
               "Beispiel: 0.60 → alle Links ≤ 0.60 werden als potenziell zu entfernend gelistet.")
     )
     backlink_weight_2x = st.checkbox(
-        "Backlinks/Ref. Domains doppelt gewichten ℹ️",
+        "Backlinks/Ref. Domains doppelt gewichten",
         value=False,
         help=("Erhöht den Dämpfungseffekt externer Autorität auf den Waster-Score. "
               "Wenn aktiv, wirken Backlinks & Ref. Domains doppelt so stark.")
