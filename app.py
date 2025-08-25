@@ -6,6 +6,33 @@ import pandas as pd
 import streamlit as st
 
 # ===============================
+# Page config & Branding
+# ===============================
+st.set_page_config(page_title="ONE Link Intelligence", layout="wide")
+
+# Remote-Logo robust laden (kein Crash, wenn Bild nicht geht)
+try:
+    st.image(
+        "https://onebeyondsearch.com/img/ONE_beyond_search%C3%94%C3%87%C3%B4gradient%20%282%29.png",
+        width=250,
+    )
+except Exception:
+    pass
+
+st.title("ONE Link Intelligence")
+
+st.markdown(
+    """
+<div style="background-color: #f2f2f2; color: #000000; padding: 15px 20px; border-radius: 6px; font-size: 1.2em; max-width: 900px; margin-bottom: 1.5em; line-height: 1.5;">
+  Entwickelt von <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">Daniel Kremer</a> von <a href="https://onebeyondsearch.com/" target="_blank">ONE Beyond Search</a> &nbsp;|&nbsp;
+  Folge mir auf <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">LinkedIn</a> für mehr SEO-Insights und Tool-Updates
+</div>
+<hr>
+""",
+    unsafe_allow_html=True,
+)
+
+# ===============================
 # Helpers
 # ===============================
 
@@ -22,8 +49,9 @@ def find_column_index(header: List[str], possible_names: List[str]) -> int:
     return -1
 
 
-def normalize_url(u: str, remove_www: bool = False) -> str:
-    """URL-Kanonisierung: Protokoll ergänzen, Tracking-Parameter entfernen, Query sortieren, Trailing Slash normalisieren."""
+def normalize_url(u: str) -> str:
+    """URL-Kanonisierung: Protokoll ergänzen, Tracking-Parameter entfernen, Query sortieren,
+    Trailing Slash normalisieren, www. entfernen."""
     try:
         s = str(u or "").strip()
         if not s:
@@ -58,7 +86,8 @@ def normalize_url(u: str, remove_www: bool = False) -> str:
         query = urlencode(qs)
 
         hostname = (p.hostname or "").lower()
-        if remove_www and hostname.startswith("www."):
+        # www. automatisch entfernen
+        if hostname.startswith("www."):
             hostname = hostname[4:]
 
         path = p.path or "/"
@@ -85,8 +114,8 @@ def parse_vec(x) -> Optional[np.ndarray]:
     """
     Robust gegen verschiedene Formate:
     - JSON-Array: "[0.1, -0.2, ...]"
-    - Kommagetrennt: "0.1, -0.2, ..."
-    - Whitespace/; / | getrennt
+    - Komma-getrennt: "0.1, -0.2, ..."
+    - Whitespace / ; / | getrennt
     """
     import json
     import re
@@ -103,7 +132,6 @@ def parse_vec(x) -> Optional[np.ndarray]:
         try:
             return np.asarray(json.loads(s), dtype=float)
         except Exception:
-            # Fallback unten versuchen
             pass
 
     # Klammern raus, dann an Komma/Whitespace/; / | splitten
@@ -117,14 +145,39 @@ def parse_vec(x) -> Optional[np.ndarray]:
         return None
 
 
+# --- Robuster Datei-Leser mit Encoding- und Delimiter-Erkennung ---
 def read_any_file(f) -> Optional[pd.DataFrame]:
+    """CSV/Excel robust lesen: probiert mehrere Encodings; snifft Delimiter."""
     if f is None:
         return None
     name = (getattr(f, "name", "") or "").lower()
     try:
         if name.endswith(".csv"):
-            return pd.read_csv(f)
+            # Wir müssen bei jedem Versuch den Pointer zurücksetzen
+            for enc in ["utf-8-sig", "utf-8", "cp1252", "latin1"]:
+                try:
+                    f.seek(0)
+                    return pd.read_csv(
+                        f,
+                        sep=None,               # Delimiter sniffer
+                        engine="python",        # nötig für sep=None
+                        encoding=enc,
+                        on_bad_lines="skip",    # robust gegen Ausreißer
+                        low_memory=False,
+                    )
+                except UnicodeDecodeError:
+                    continue
+            # Fallback: semikolon
+            f.seek(0)
+            return pd.read_csv(
+                f,
+                sep=";",
+                encoding="latin1",
+                on_bad_lines="skip",
+                low_memory=False,
+            )
         else:
+            f.seek(0)
             return pd.read_excel(f)
     except Exception as e:
         st.error(f"Fehler beim Lesen von {getattr(f, 'name', 'Datei')}: {e}")
@@ -145,7 +198,6 @@ def build_related_from_embeddings(
     """
     n = V.shape[0]
     if n < 2:
-        # keine Paare möglich
         return pd.DataFrame(columns=["Ziel", "Quelle", "Similarity"])
 
     K = int(top_k)
@@ -155,7 +207,7 @@ def build_related_from_embeddings(
         import faiss  # type: ignore
 
         dim = V.shape[1]
-        index = faiss.IndexFlatIP(dim)  # Inner Product == Cosine (bei L2-Norm)
+        index = faiss.IndexFlatIP(dim)  # Inner Product == Cosine bei L2-Norm
         Vf = V.astype("float32")
         index.add(Vf)
         topk = min(K + 1, n)  # +1, Self-Match fällt raus
@@ -200,39 +252,156 @@ def build_related_from_embeddings(
     return df_rel
 
 
-# ===============================
-# UI / Settings
-# ===============================
+# =============================
+# Hilfe / Tool-Dokumentation (Expander)
+# =============================
+with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
+    st.markdown(
+        """
+## Was macht die ONE Link Intelligence?
 
-st.set_page_config(page_title="ONE Link Intelligence (Streamlit)", layout="wide")
-st.title("ONE Link Intelligence – Streamlit Edition")
-st.caption("Konvertiert die Google Apps Script Logik in eine lokale, dateibasierte Streamlit-App.")
+**Zwei Analysen** unterstützen dich bei der Optimierung der internen Verlinkung:
 
+1) **Interne Links finden**  
+   Zeigt dir für jede Ziel-URL thematisch **ähnliche Quell-URLs** (basierend auf Cosine Similarity) und ob bereits ein Link existiert. Zusätzlich wird ein **Linkpotenzial** aus vier Faktoren berechnet:
+   - Interner Link Score  
+   - PageRank Horder Score  
+   - Backlinks  
+   - Referring Domains  
+   (Die **Ähnlichkeit** wirkt als *Filter*, nicht als Gewicht.)
+
+2) **Unpassende Links identifizieren**  
+   Listet interne Links mit **niedriger semantischer Ähnlichkeit** (≤ Unähnlichkeits-Schwelle) und markiert Quellseiten je nach **PageRank-Waster-Logik** (vereinfachte Einschätzung, wo ausgehende Links reduziert werden könnten).
+
+---
+
+### 🔄 Inputs & Spalten-Anforderungen
+
+**Modus „URLs + Embeddings“ (empfohlen, wenn du keine „Related URLs“-Datei hast):**
+- **Pflicht:** eine Datei (CSV/Excel) mit mind. **zwei Spalten**:
+  - **URL-Spalte** – erkannte Namen: `url`, `urls`, `page`, `seite`, `adresse`, `address`  
+  - **Embedding-Spalte** – erkannte Namen: `embedding`, `embeddings`, `vector`, `embedding_json`, `vec`  
+    (Format: JSON-Array `"[0.12, -0.03, ...]"` **oder** Zahlen, getrennt durch Komma/Whitespace/`;`/`|`)
+- **Pflicht:**  
+  - **All Inlinks** (CSV/Excel; Spalten inkl. *Source/Quelle*, *Destination/Ziel*, optional *Link Position/Linkposition*)  
+  - **Linkmetriken** (CSV/Excel; **erste 4 Spalten**: URL, Score, Inlinks, Outlinks – in dieser Reihenfolge)  
+  - **Backlinks** (CSV/Excel; **erste 3 Spalten**: URL, Backlinks, Referring Domains – in dieser Reihenfolge)
+
+**Modus „Related URLs“ (wenn du Screaming Frog „Semantisch ähnlich“ schon exportiert hast):**
+- **Related URLs** (CSV/Excel; **erste 3 Spalten**: Ziel-URL, Quellen-URL, Similarity [0..1])  
+- **All Inlinks**, **Linkmetriken**, **Backlinks** – wie oben
+
+> **Wichtig:**  
+> - Trennzeichen können Komma **oder** Semikolon sein – die App erkennt beides.  
+> - Encodings **UTF-8**, **UTF-8-SIG**, **Windows-1252/Latin-1** werden automatisch erkannt.  
+> - URLs werden **kanonisiert** (Protokoll ergänzt, `www.` entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
+
+---
+### ⚙️ Wie funktioniert’s?
+- **Cosine Similarity** mit L2-normalisierten Embeddings (exakt via NumPy; optional schnell via FAISS).
+- **Top-K** ähnliche Quell-URLs pro Ziel-URL, gefiltert mit **Ähnlichkeitsschwelle**.
+- **Linkpotenzial** = gewichtete Kombination (ILS, PR-Horder, Backlinks, Ref-Domains).  
+- **„Schwache Links“** = interne Links mit Similarity ≤ Unähnlichkeits-Schwelle, farblich priorisiert nach vereinfachtem PageRank-Waster.
+
+### 📤 Outputs
+- **Interne Verlinkungsmöglichkeiten** (Tabelle + CSV-Download)
+- **Potenziell zu entfernende Links** (Tabelle + CSV-Download)
+        """
+    )
+
+    st.markdown(
+        """
+<div style="margin-top: 0.5rem; background:#fff8e6; border:1px solid #ffd28a; border-radius:8px; padding:10px 12px; color:#000;">
+  <strong>❗WICHTIG:</strong> Achte beim Export aus Screaming Frog / Excel auf echte Spaltentrenner (Komma/Semikolon). 
+  Falls du Ein-Spalten-CSVs bekommst, als <em>UTF-8</em> oder <em>Windows-1252 (Latin-1)</em> neu speichern. 
+  Die App kann beides lesen, überspringt aber defekte Zeilen.
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+# ===============================
+# Sidebar Controls (mit Tooltips)
+# ===============================
 with st.sidebar:
     st.header("Einstellungen")
-    remove_www = st.checkbox("www. beim Normalisieren entfernen", value=False)
-    show_numbers_in_heatmap = st.checkbox("Linkpotenzial-Zahlen anzeigen", value=True)
 
-    st.subheader("Gewichtungen (nur für Linkpotenzial)")
-    w_ils = st.slider("Interner Link Score", 0.0, 1.0, 0.30, 0.01)
-    w_pr = st.slider("PageRank Horder Score", 0.0, 1.0, 0.35, 0.01)
-    w_rd = st.slider("Referring Domains", 0.0, 1.0, 0.20, 0.01)
-    w_bl = st.slider("Backlinks", 0.0, 1.0, 0.15, 0.01)
+    st.subheader("Gewichtungen (Linkpotenzial)")
+    w_ils = st.slider(
+        "Interner Link Score",
+        0.0,
+        1.0,
+        0.30,
+        0.01,
+        help="Gewichtung des ILS (0–1). Summe aller Gewichte = 1.",
+    )
+    w_pr = st.slider(
+        "PageRank Horder Score",
+        0.0,
+        1.0,
+        0.35,
+        0.01,
+        help="Gewichtung für (Inlinks − Outlinks) als Proxy.",
+    )
+    w_rd = st.slider(
+        "Referring Domains",
+        0.0,
+        1.0,
+        0.20,
+        0.01,
+        help="Gewichtung externer verweisender Domains der Quell-URL.",
+    )
+    w_bl = st.slider(
+        "Backlinks",
+        0.0,
+        1.0,
+        0.15,
+        0.01,
+        help="Gewichtung externer Backlinks der Quell-URL.",
+    )
 
     w_sum = w_ils + w_pr + w_rd + w_bl
     if not math.isclose(w_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
         st.warning(f"Gewichtungs-Summe = {w_sum:.2f} (sollte 1.0 sein)")
 
     st.subheader("Schwellen & Limits")
-    sim_threshold = st.slider("Ähnlichkeitsschwelle (Related URLs)", 0.0, 1.0, 0.80, 0.01)
-    max_related = st.number_input("Max. Related pro Ziel", min_value=1, max_value=50, value=10, step=1)
-    not_similar_threshold = st.slider(
-        "Unähnlichkeits-Schwelle (zweite Analyse) – Links ≤ Wert gelten als schwach", 0.0, 1.0, 0.60, 0.01
+    sim_threshold = st.slider(
+        "Ähnlichkeitsschwelle (Related URLs)",
+        0.0,
+        1.0,
+        0.80,
+        0.01,
+        help="Nur Paare mit Cosine Similarity ≥ diesem Wert gelten als 'related'.",
     )
-    backlink_weight_2x = st.checkbox("Backlink-Gewicht in 'schwache Links' verdoppeln", value=False)
+    max_related = st.number_input(
+        "Max. Related pro Ziel",
+        min_value=1,
+        max_value=50,
+        value=10,
+        step=1,
+        help="Anzahl der Quell-URLs pro Ziel-URL in der Ergebnisliste.",
+    )
+    not_similar_threshold = st.slider(
+        "Unähnlichkeits-Schwelle (schwache Links)",
+        0.0,
+        1.0,
+        0.60,
+        0.01,
+        help="Interne Links mit Similarity ≤ diesem Wert werden als 'schwach' gelistet.",
+    )
+    backlink_weight_2x = st.checkbox(
+        "Backlinks/Ref. Domains doppelt gewichten (nur 'schwache Links')",
+        value=False,
+        help="Erhöht den Dämpfungseffekt externer Autorität auf den Waster-Score.",
+    )
 
     st.subheader("Matching-Backend")
-    backend = st.radio("Methode", ["Exakt (NumPy)", "Schnell (FAISS)"], horizontal=True)
+    backend = st.radio(
+        "Methode",
+        ["Exakt (NumPy)", "Schnell (FAISS)"],
+        horizontal=True,
+        help="NumPy = exakte Suche; FAISS = schnelle Approximate-Suche (empfohlen für große N).",
+    )
     try:
         import faiss  # type: ignore
 
@@ -243,72 +412,39 @@ with st.sidebar:
             st.warning("FAISS ist in dieser Umgebung nicht verfügbar – wechsle auf 'Exakt (NumPy)'.")
             backend = "Exakt (NumPy)"
 
-st.markdown("---")
+# etwas CSS für den roten Button
+st.markdown(
+    """
+<style>
+div.stButton > button[kind="secondary"] {
+  background-color: #e02424 !important;
+  color: white !important;
+  border: 1px solid #e02424 !important;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
 
 # ===============================
 # Data ingestion
 # ===============================
-
+st.markdown("---")
 st.subheader("Daten laden")
+
 mode = st.radio(
-    "Eingabemodus", ["Ein Excel mit Tabs", "Einzeltabellen hochladen", "URLs + Embeddings"], horizontal=True
+    "Eingabemodus",
+    ["URLs + Embeddings", "Related URLs"],
+    horizontal=True,
+    help="Entweder Embeddings hochladen (App berechnet 'Related URLs') oder bereits vorliegende 'Related URLs' nutzen.",
 )
 
 related_df = inlinks_df = metrics_df = backlinks_df = None
 emb_df = None
 
-if mode == "Ein Excel mit Tabs":
-    xls = st.file_uploader(
-        "Excel hochladen (enthält Tabs: Related URLs, All Inlinks, Linkmetriken, Backlinks)",
-        type=["xlsx", "xlsm", "xls"],
-    )
-    if xls is not None:
-        try:
-            xls_obj = pd.ExcelFile(xls)
-
-            def get_sheet_like(candidates):
-                low = [s.lower() for s in xls_obj.sheet_names]
-                for cand in candidates:
-                    if cand.lower() in low:
-                        return xls_obj.sheet_names[low.index(cand.lower())]
-                return None
-
-            tab_related = get_sheet_like(["Related URLs", "Related", "related urls"]) or xls_obj.sheet_names[0]
-            tab_inlinks = get_sheet_like(["All Inlinks", "Inlinks", "all inlinks"]) or xls_obj.sheet_names[
-                1 if len(xls_obj.sheet_names) > 1 else 0
-            ]
-            tab_metrics = get_sheet_like(["Linkmetriken", "Metrics", "linkmetriken"]) or xls_obj.sheet_names[
-                2 if len(xls_obj.sheet_names) > 2 else 0
-            ]
-            tab_backlinks = get_sheet_like(["Backlinks", "Ref Domains", "backlinks"]) or xls_obj.sheet_names[
-                3 if len(xls_obj.sheet_names) > 3 else 0
-            ]
-
-            related_df = pd.read_excel(xls_obj, sheet_name=tab_related)
-            inlinks_df = pd.read_excel(xls_obj, sheet_name=tab_inlinks)
-            metrics_df = pd.read_excel(xls_obj, sheet_name=tab_metrics)
-            backlinks_df = pd.read_excel(xls_obj, sheet_name=tab_backlinks)
-            st.success("Excel erfolgreich gelesen.")
-        except Exception as e:
-            st.error(f"Fehler beim Lesen der Excel-Datei: {e}")
-
-elif mode == "Einzeltabellen hochladen":
-    col1, col2 = st.columns(2)
-    with col1:
-        related_up = st.file_uploader("Related URLs (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="rel")
-        metrics_up = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="met")
-    with col2:
-        inlinks_up = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="inl")
-        backlinks_up = st.file_uploader("Backlinks (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="bl")
-
-    related_df = read_any_file(related_up)
-    inlinks_df = read_any_file(inlinks_up)
-    metrics_df = read_any_file(metrics_up)
-    backlinks_df = read_any_file(backlinks_up)
-
-elif mode == "URLs + Embeddings":
+if mode == "URLs + Embeddings":
     st.write(
-        "Lade eine Tabelle mit **URL** und **Embedding** (JSON-Array oder durch Komma/Leerzeichen getrennte Zahlen). "
+        "Lade eine Datei mit **URL** und **Embedding** (JSON-Array oder Zahlen, getrennt durch Komma/Whitespace/`;`/`|`). "
         "Zusätzlich werden **All Inlinks**, **Linkmetriken** und **Backlinks** benötigt."
     )
     up_emb = st.file_uploader("URLs + Embeddings (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="embs")
@@ -324,7 +460,41 @@ elif mode == "URLs + Embeddings":
     metrics_df = read_any_file(metrics_up)
     backlinks_df = read_any_file(backlinks_up)
 
-    # Wenn Embeddings geladen wurden: Related-URLs aus Embeddings ableiten
+elif mode == "Related URLs":
+    st.write(
+        "Lade die vier Tabellen: **Related URLs**, **All Inlinks**, **Linkmetriken**, **Backlinks** "
+        "(CSV/Excel; Trennzeichen werden automatisch erkannt)."
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        related_up = st.file_uploader("Related URLs (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="rel")
+        metrics_up = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="met")
+    with col2:
+        inlinks_up = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="inl")
+        backlinks_up = st.file_uploader("Backlinks (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="bl")
+
+    related_df = read_any_file(related_up)
+    inlinks_df = read_any_file(inlinks_up)
+    metrics_df = read_any_file(metrics_up)
+    backlinks_df = read_any_file(backlinks_up)
+
+# ===============================
+# Let's Go Button (startet Berechnungen)
+# ===============================
+run_clicked = st.button("Let's Go", type="secondary")  # durch CSS rot
+
+if not run_clicked:
+    st.info("Bitte Dateien hochladen und auf **Let's Go** klicken, um die Analysen zu starten.")
+    st.stop()
+
+# ===============================
+# Validierung & ggf. Ableitung Related aus Embeddings
+# ===============================
+if mode == "URLs + Embeddings":
+    if emb_df is None or any(df is None for df in [inlinks_df, metrics_df, backlinks_df]):
+        st.error("Bitte alle benötigten Dateien hochladen (Embeddings, All Inlinks, Linkmetriken, Backlinks).")
+        st.stop()
+
     if emb_df is not None and not emb_df.empty:
         # Spalten erkennen: URL + Embedding
         cols = [c for c in emb_df.columns]
@@ -345,7 +515,7 @@ elif mode == "URLs + Embeddings":
         urls: List[str] = []
         vecs: List[np.ndarray] = []
         for _, r in emb_df.iterrows():
-            u = normalize_url(r[url_col], remove_www)
+            u = normalize_url(r[url_col])
             v = parse_vec(r[emb_col])
             if not u or v is None:
                 continue
@@ -354,34 +524,33 @@ elif mode == "URLs + Embeddings":
 
         if len(vecs) < 2:
             st.error("Zu wenige gültige Embeddings erkannt (mindestens 2 benötigt).")
-            related_df = pd.DataFrame(columns=["Ziel", "Quelle", "Similarity"])
-        else:
-            # auf gleiche Dimensionalität bringen (pad/truncate)
-            max_dim = max(v.size for v in vecs)
-            V = np.zeros((len(vecs), max_dim), dtype=float)
-            for i, v in enumerate(vecs):
-                d = min(max_dim, v.size)
-                V[i, :d] = v[:d]
+            st.stop()
 
-            # L2-Norm
-            norms = np.linalg.norm(V, axis=1, keepdims=True)
-            norms[norms == 0] = 1.0
-            V = V / norms
+        # auf gleiche Dimensionalität bringen (pad/truncate)
+        max_dim = max(v.size for v in vecs)
+        V = np.zeros((len(vecs), max_dim), dtype=float)
+        for i, v in enumerate(vecs):
+            d = min(max_dim, v.size)
+            V[i, :d] = v[:d]
 
-            related_df = build_related_from_embeddings(
-                urls=urls,
-                V=V,
-                top_k=int(max_related),
-                sim_threshold=float(sim_threshold),
-                backend=backend,
-                faiss_available=bool(faiss_available),
-            )
+        # L2-Norm
+        norms = np.linalg.norm(V, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        V = V / norms
+
+        related_df = build_related_from_embeddings(
+            urls=urls,
+            V=V,
+            top_k=int(max_related),
+            sim_threshold=float(sim_threshold),
+            backend=backend,
+            faiss_available=bool(faiss_available),
+        )
 
 # Prüfen, ob alles da ist
 have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
-
 if not have_all:
-    st.info("Bitte alle benötigten Tabellen laden, um die Analysen zu starten.")
+    st.error("Bitte alle benötigten Tabellen bereitstellen.")
     st.stop()
 
 # ===============================
@@ -404,7 +573,7 @@ min_ils, max_ils = float("inf"), float("-inf")
 min_prd, max_prd = float("inf"), float("-inf")
 
 for _, r in metrics_df.iterrows():
-    u = normalize_url(r.iloc[0], remove_www)
+    u = normalize_url(r.iloc[0])
     if not u:
         continue
     score = float(pd.to_numeric(r.iloc[1], errors="coerce") or 0)
@@ -426,7 +595,7 @@ min_rd, max_rd = float("inf"), float("-inf")
 min_bl, max_bl = float("inf"), float("-inf")
 
 for _, r in backlinks_df.iterrows():
-    u = normalize_url(r.iloc[0], remove_www)
+    u = normalize_url(r.iloc[0])
     if not u:
         continue
     bl = float(pd.to_numeric(r.iloc[1], errors="coerce") or 0)
@@ -451,8 +620,8 @@ all_links = set()
 content_links = set()
 
 for _, r in inlinks_df.iterrows():
-    source = normalize_url(r.iloc[src_idx], remove_www)
-    target = normalize_url(r.iloc[dst_idx], remove_www)
+    source = normalize_url(r.iloc[src_idx])
+    target = normalize_url(r.iloc[dst_idx])
     if not source or not target:
         continue
     key = f"{source}→{target}"
@@ -470,8 +639,8 @@ related_map: Dict[str, List[Tuple[str, float]]] = {}
 processed_pairs = set()
 
 for _, r in related_df.iterrows():
-    urlA = normalize_url(r.iloc[0], remove_www)
-    urlB = normalize_url(r.iloc[1], remove_www)
+    urlA = normalize_url(r.iloc[0])
+    urlB = normalize_url(r.iloc[1])
     try:
         sim = float(str(r.iloc[2]).replace(",", "."))
     except Exception:
@@ -490,7 +659,6 @@ for _, r in related_df.iterrows():
 # ===============================
 # Analyse 1: Interne Verlinkungsmöglichkeiten
 # ===============================
-
 st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
 
 cols = ["Ziel-URL"]
@@ -511,7 +679,7 @@ for target, related_list in sorted(related_map.items()):
 
         m = metrics_map.get(source, {"score": 0.0, "prDiff": 0.0})
         ils_raw = float(m.get("score", 0.0))
-        pr_raw = float(m.get("PrDiff".lower(), m.get("prDiff", 0.0)))  # robust gegen Key-Case
+        pr_raw = float(m.get("prDiff", 0.0))
 
         bl = backlink_map.get(source, {"backlinks": 0.0, "referringDomains": 0.0})
         bl_raw = float(bl.get("backlinks", 0.0))
@@ -526,7 +694,6 @@ for target, related_list in sorted(related_map.items()):
         final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
         final_score = round(final_score, 2)
 
-        # Hinweis: Streamlit bietet keine Heatmap im DataFrame. Wir zeigen die Zahl an.
         row.extend([source, anywhere, from_content, final_score])
 
     # pad
@@ -548,7 +715,6 @@ st.download_button(
 # ===============================
 # Analyse 2: Potenziell zu entfernende Links
 # ===============================
-
 st.markdown("## Analyse 2: Potenziell zu entfernende Links")
 
 # Build similarity map for both directions
@@ -556,8 +722,8 @@ sim_map: Dict[str, float] = {}
 processed_pairs2 = set()
 
 for _, r in related_df.iterrows():
-    a = normalize_url(r.iloc[1], remove_www)  # Quelle (wie im GAS)
-    b = normalize_url(r.iloc[0], remove_www)  # Ziel   (wie im GAS)
+    a = normalize_url(r.iloc[1])  # Quelle (wie im GAS)
+    b = normalize_url(r.iloc[0])  # Ziel   (wie im GAS)
     try:
         sim = float(str(r.iloc[2]).replace(",", "."))
     except Exception:
@@ -574,7 +740,7 @@ for _, r in related_df.iterrows():
 # PageRank-Waster-ähnlicher Rohwert und backlink-adjusted Score
 raw_score_map: Dict[str, float] = {}
 for _, r in metrics_df.iterrows():
-    u = normalize_url(r.iloc[0], remove_www)
+    u = normalize_url(r.iloc[0])
     inl = float(pd.to_numeric(r.iloc[2], errors="coerce") or 0)
     outl = float(pd.to_numeric(r.iloc[3], errors="coerce") or 0)
     raw_score_map[u] = outl - inl
@@ -594,8 +760,8 @@ rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
 out_header = ["Quelle", "Ziel", "PageRank Waster (Farbindikator)", "Semantische Ähnlichkeit", *rest_cols]
 
 for _, r in inlinks_df.iterrows():
-    quelle = normalize_url(r.iloc[src_idx], remove_www)
-    ziel = normalize_url(r.iloc[dst_idx], remove_www)
+    quelle = normalize_url(r.iloc[src_idx])
+    ziel = normalize_url(r.iloc[dst_idx])
     if not quelle or not ziel:
         continue
 
@@ -603,7 +769,7 @@ for _, r in inlinks_df.iterrows():
     k2 = f"{ziel}→{quelle}"
     sim = sim_map.get(k1, sim_map.get(k2, np.nan))
 
-    # Weak links: similarity <= threshold OR missing
+    # Weak links: similarity ≤ threshold OR missing
     if not (isinstance(sim, (int, float)) and not np.isnan(sim)):
         sim_display = "Ähnlichkeit unter Schwelle oder nicht erfasst"
         is_weak = True
@@ -619,7 +785,7 @@ for _, r in inlinks_df.iterrows():
 
 out_df = pd.DataFrame(out_rows, columns=out_header)
 
-# Coloring by adjusted score (simple buckets)
+# Coloring by adjusted score (simple buckets) – als Spalte
 colors = []
 for _, row in out_df.iterrows():
     q = row["Quelle"]
@@ -642,14 +808,4 @@ st.download_button(
     data=csv2,
     file_name="potenziell_zu_entfernende_links.csv",
     mime="text/csv",
-)
-
-st.markdown(
-    """
-**Hinweise**
-- Die Linkpotenzial-Berechnung nutzt **nur** die vier Metriken (Interner Link Score, PageRank Horder Score, Backlinks, Referring Domains). Die Ähnlichkeit wirkt als **Filter** über die Schwelle.
-- Für Heatmaps innerhalb von Streamlit wird hier der Score angezeigt; echte Zell-Hintergründe wie in Google Sheets sind in CSV-Exports natürlich nicht enthalten.
-- Die Spaltenerkennung in *All Inlinks* ist robust gegen deutsch/englische Varianten (Quelle/Source, Ziel/Destination, Position).
-- Für bestmögliche Konsistenz sollten alle URLs im Input einheitlich sein (gleiche Protokolle, www-Konvention). Optional kannst du "www." während der Normalisierung entfernen.
-"""
 )
