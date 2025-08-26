@@ -420,8 +420,7 @@ with st.sidebar:
     )
 
 # etwas CSS für den roten Button (wir nutzen ihn später für „Let's Go“)
-st.markdown(
-    """
+CSS_RED_BUTTON = '''
 <style>
 div.stButton > button[kind="secondary"] {
   background-color: #e02424 !important;
@@ -429,9 +428,9 @@ div.stButton > button[kind="secondary"] {
   border: 1px solid #e02424 !important;
 }
 </style>
-""",
-    unsafe_allow_html=True,
-)
+'''
+st.markdown(CSS_RED_BUTTON, unsafe_allow_html=True)
+
 
 # ===============================
 # Data ingestion
