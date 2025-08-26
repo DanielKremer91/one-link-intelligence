@@ -355,9 +355,11 @@ with st.sidebar:
     except Exception:
         faiss_available = False
 
+    backend_default = "Schnell (FAISS)" if faiss_available else "Exakt (NumPy)"
     backend = st.radio(
         "Matching-Backend",
         ["Exakt (NumPy)", "Schnell (FAISS)"],
+        index=0 if backend_default=="Exakt (NumPy)" else 1,
         horizontal=True,
         help=("Bestimmt, wie semantische Nachbarn ermittelt werden (Cosine Similarity):\n\n"
               "- **Exakt (NumPy)**: O(N²), sehr genau. Gut bis ca. 2.000–5.000 URLs (abhängig von RAM & Dim.).\n"
@@ -506,11 +508,15 @@ if not run_clicked and not st.session_state.ready:
 # GIF nur anzeigen, wenn jetzt gerechnet wird
 if run_clicked:
     placeholder = st.empty()
-    placeholder.image(
-        "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNDJweGExcHhhOWZneTZwcnAxZ211OWJienY5cWQ1YmpwaHR0MzlydiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dBRaPog8yxFWU/giphy.gif",
-        caption="Die Berechnungen laufen – Zeit für eine kleine Stärkung, bevor es losgeht …",
-        use_container_width=True
-    )
+    # kleiner + mittig anzeigen
+    with placeholder.container():
+        c1, c2, c3 = st.columns([1,2,1])
+        with c2:
+            st.image(
+                "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNDJweGExcHhhOWZneTZwcnAxZ211OWJienY5cWQ1YmpwaHR0MzlydiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dBRaPog8yxFWU/giphy.gif",
+                width=280
+            )
+        st.caption("Die Berechnungen laufen – Zeit für eine kleine Stärkung …")
 
 # ===============================
 # Validierung & ggf. Ableitung Related aus Embeddings
@@ -565,6 +571,8 @@ if run_clicked or st.session_state.ready:
             norms = np.linalg.norm(V, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             V = V / norms
+            V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)  # <- robust gegen NaN/Inf
+
 
             if shorter > 0:
                 st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
@@ -766,11 +774,18 @@ if run_clicked or st.session_state.ready:
 
         # pad
         while len(row) < len(cols):
-            row.append("")
+            row.append(np.nan)
+
         rows.append(row)
 
     res1_df = pd.DataFrame(rows, columns=cols)
     st.session_state.res1_df = res1_df  # -> persistieren
+    
+    # Arrow-kompatibel: Similarity-Spalten numeric casten
+    sim_cols = [c for c in res1_df.columns if c.startswith("Ähnlichkeit ")]
+    for c in sim_cols:
+        res1_df[c] = pd.to_numeric(res1_df[c], errors="coerce")
+        
     st.dataframe(res1_df, use_container_width=True, hide_index=True)
 
     csv1 = res1_df.to_csv(index=False).encode("utf-8-sig")
@@ -891,7 +906,7 @@ if run_clicked or st.session_state.ready:
 # NEU: Gems & Empfehlungen
 # =========================================================
 st.markdown("---")
-st.subheader("Analyse 3: Gems & Empfehlungen (Optional)")
+st.subheader("Analyse 3: Starke Linkgeber („Gems“) & priorisierte Link-Empfehlungen")
 
 with st.expander("ℹ️ Erklärung Gems & Opportunity-Score", expanded=False):
     st.markdown("""
@@ -912,14 +927,42 @@ Der Gesamtscore lautet:
 """)
 
 # Steuerung: Perzentil-Slider
-gem_pct = st.slider("Top-X % als Gems auswählen", 1, 30, 10, step=1,
-                    help="Die obersten X % nach Linkpotenzial werden als Gems genutzt. Maximal 30 %.")
+gem_pct = st.slider(
+    "Anteil starker Linkgeber (Top-X %)",
+    1, 30, 10, step=1,
+    help="Definiert, welche obersten X % der Seiten (nach Linkpotenzial) als „Gems“ gelten. Nur diese dürfen Links vergeben."
+)
 
 # Optional: GSC-Datei laden
 gsc_up = st.file_uploader("Optional: GSC-Daten (CSV/Excel)", type=["csv", "xlsx"], key="gsc_up")
-alpha = st.slider("α Gewicht für Similarity", 0.0, 1.0, 0.6, 0.05)
-beta = st.slider("β Gewicht für Opportunity", 0.0, 1.0, 0.4, 0.05)
-min_impr = st.number_input("Min. Impressions (für Opportunity-Berechnung)", 0, 10000, 100, step=50)
+# Neu: Limit in Tabelle „Gems & Empfehlungen“
+max_targets_per_gem = st.number_input(
+    "Max. vorgeschlagene Ziel-URLs pro Gem",
+    min_value=1, max_value=50, value=10, step=1,
+    help="Begrenzt, wie viele Ziele pro starkem Linkgeber in der Tabelle (Analyse 3) empfohlen werden. Sortierung siehe unten."
+)
+
+st.caption(
+    "Empfehlungen pro Gem werden nach **Rank = α·Similarity + β·Opportunity** sortiert. "
+    "Ohne GSC-Datei entspricht das reines Similarity-Ranking."
+)
+
+
+alpha = st.slider(
+    "Gewichtung: thematische Nähe α (Similarity)",
+    0.0, 1.0, 0.6, 0.05,
+    help="Höhere α = stärker nach semantischer Nähe priorisieren. α wirkt auf den Similarity-Wert (0–1)."
+)
+beta = st.slider(
+    "Gewichtung: Chance β (GSC-Opportunity)",
+    0.0, 1.0, 0.4, 0.05,
+    help="Höhere β = stärker nach Opportunity priorisieren. Opportunity = normierte Impressions × (1 − CTR)."
+)
+min_impr = st.number_input(
+    "Mindest-Impressions (für Opportunity-Berechnung)",
+    0, 100000, 100, step=50,
+    help="URLs mit weniger Impressions werden von der Opportunity-Berechnung ausgeschlossen, um Rauschen zu vermeiden."
+)
 
 # Gems bestimmen
 source_potential_map = st.session_state.get("_source_potential_map", {})
@@ -935,6 +978,8 @@ gsc_map = {}
 if gsc_up is not None:
     gsc_df = read_any_file(gsc_up)
     if gsc_df is not None and not gsc_df.empty and gsc_df.shape[1] >= 3:
+        st.session_state["__gsc_df_raw__"] = gsc_df.copy()  # <-- hier speichern
+        
         # Erste Spalte: URL, dann Impressions, Clicks
         gsc_df.iloc[:, 0] = gsc_df.iloc[:, 0].astype(str)
         urls_norm = gsc_df.iloc[:, 0].map(normalize_url)
@@ -975,6 +1020,19 @@ if isinstance(res1, pd.DataFrame) and not res1.empty and gems:
                 rank_score = alpha * float(simv) + beta * float(oppv)
 
                 gem_rows.append([gem, target, simv, potv, oppv, rank_score, exists])
+
+# Nach gem_rows-Erstellung: pro Gem limitieren und erneut sortieren
+if gem_rows:
+    import itertools
+    # group by gem
+    gem_rows.sort(key=lambda r: r[0])  # sort by Gem first
+    final_rows = []
+    for gem_key, group in itertools.groupby(gem_rows, key=lambda r: r[0]):
+        grp = list(group)
+        # sort each gem-group by rank_score desc, then similarity
+        grp = sorted(grp, key=lambda r: (r[5], r[2]), reverse=True)[:max_targets_per_gem]
+        final_rows.extend(grp)
+    gem_rows = final_rows
 
 # Ausgabe-Tabelle
 if gem_rows:
@@ -1088,32 +1146,51 @@ else:
             help="Empfehlung: Linkpotenzial. Alternativ konstant oder eine numerische Spalte aus einer Datei."
         )
 
-        perf_up = None
+        # Robuste Defaults für Knotengrößen (werden ggf. in der Performance-Variante überschrieben)
+        size_min, size_max = 6, 14
+
         perf_df = None
         perf_numeric_cols = []
+        perf_source = "GSC"
+
         if bubble_mode == "Performance-Spalte (optional)":
+            # 1) Versuche GSC-Datei zu nutzen
+            gsc_df_saved = st.session_state.get("__gsc_df_raw__")
+            if gsc_df_saved is not None:
+                # heuristisch: numerische Spalten finden
+                for c in gsc_df_saved.columns:
+                    s = pd.to_numeric(pd.Series(gsc_df_saved[c]), errors="coerce")
+                    if s.notna().mean() > 0.6 and s.nunique(dropna=True) > 5:
+                        perf_numeric_cols.append(c)
+                perf_df = gsc_df_saved.copy()
+            # 2) Optional: eigene Performance-Datei erlaubt (überschreibt GSC)
             perf_up = st.file_uploader(
-                "Performance-Datei für Bubble-Skalierung (CSV/Excel)",
+                "Optional statt GSC: eigene Performance-Datei (CSV/Excel)",
                 type=["csv", "xlsx", "xlsm", "xls"],
                 key="viz_perf2"
             )
             if perf_up is not None:
-                perf_df = read_any_file(perf_up)
-                if perf_df is not None and not perf_df.empty:
-                    # Finde numerische Spalten robust
+                pf = read_any_file(perf_up)
+                if pf is not None and not pf.empty:
+                    perf_df = pf
+                    perf_numeric_cols = []
                     for c in perf_df.columns:
-                        if c is None:
-                            continue
                         s = pd.to_numeric(pd.Series(perf_df[c]), errors="coerce")
                         if s.notna().mean() > 0.6 and s.nunique(dropna=True) > 5:
                             perf_numeric_cols.append(c)
-        if bubble_mode == "Performance-Spalte (optional)" and perf_numeric_cols:
-            size_by = st.selectbox("Bubble-Größe nach Spalte", perf_numeric_cols, index=0)
-            size_min = st.slider("Min-Blasengröße (px)", 2, 20, 4)
-            size_max = st.slider("Max-Blasengröße (px)", 6, 40, 14)
-        else:
-            size_by = None
-            size_min, size_max = 6, 14
+                    perf_source = "Custom"
+
+            if bubble_mode == "Performance-Spalte (optional)" and perf_df is not None and perf_numeric_cols:
+                size_by = st.selectbox(
+                    f"Bubble-Größe nach Spalte ({'GSC' if perf_source=='GSC' else 'eigene Datei'})",
+                    perf_numeric_cols, index=0
+                )
+                size_min = st.slider("Min-Blasengröße (px)", 2, 20, 4)
+                size_max = st.slider("Max-Blasengröße (px)", 6, 40, 14)
+            else:
+                size_by = None
+                size_min, size_max = 6, 14
+
 
         # Interaktive Suche
         st.markdown("#### Suche & Highlight")
@@ -1121,8 +1198,10 @@ else:
 
         # --- Daten vorbereiten ---
         urls = st.session_state["_emb_urls"]
-        X = st.session_state["_emb_matrix"]  # float32, L2-normalisiert
+        X = st.session_state["_emb_matrix"].astype(np.float32, copy=False)
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
         idx_by_url = st.session_state.get("_emb_index_by_url", {u: i for i, u in enumerate(urls)})
+
 
         # IST-Kanten (nur Content, wenn gewünscht)
         all_links = st.session_state.get("_all_links", set())
@@ -1202,180 +1281,185 @@ else:
             # global sortieren & cutten
             final_suggested = sorted(per_gem_lists, key=lambda x: (x[5], x[2]), reverse=True)[:max_new_total]
 
-        # Bubble-Size vorbereiten
+        # Bubble-Size vorbereiten (global, in URL-Reihenfolge)
         node_sizes = np.full(len(urls), float(size_min), dtype=float)
+
         if bubble_mode == "Linkpotenzial":
             for i, u in enumerate(urls):
-                node_sizes[i] = size_min + (size_max - size_min) * source_potential_map.get(normalize_url(u), 0.0)
-        elif bubble_mode == "Performance-Spalte (optional)" and perf_df is not None and size_by is not None:
-            perf_df_local = perf_df.copy()
-            perf_df_local["__join"] = perf_df_local.iloc[:, 0].astype(str).apply(normalize_url)
-            perf_df_local["__val"] = pd.to_numeric(perf_df_local[size_by], errors="coerce")
-            perf_df_local = perf_df_local.dropna(subset=["__val"])
-            mvals: Dict[str, float] = {normalize_url(r["__join"]): float(r["__val"]) for _, r in perf_df_local.iterrows() if isinstance(r["__join"], str)}
-            vals = np.array([mvals.get(normalize_url(u), np.nan) for u in urls], dtype=float)
-            valid = ~np.isnan(vals)
-            if valid.any():
-                v = vals[valid]
-                lo, hi = np.percentile(v, 5), np.percentile(v, 95)
-                v = np.clip(v, lo, hi)
-                if hi > lo:
-                    v = (v - lo) / (hi - lo)
-                else:
-                    v = np.zeros_like(v)
-                v = size_min + v * (size_max - size_min)
-                node_sizes[valid] = v
+                node_sizes[i] = size_min + (size_max - size_min) * \
+                    float(source_potential_map.get(normalize_url(u), 0.0))
 
-        # 2D-Layout berechnen (nur einmal pro Einstellung)
+        elif bubble_mode == "Performance-Spalte (optional)" and perf_df is not None and perf_numeric_cols:
+            # Wenn eine Spalte gewählt wurde: Werte -> [5.,95.] winsorize -> Min-Max -> auf [size_min, size_max] skalieren
+            if 'size_by' in locals() and size_by is not None:
+                df_local = perf_df.copy()
+                df_local["__join"] = df_local.iloc[:, 0].astype(str).map(normalize_url)
+                df_local["__val"]  = pd.to_numeric(df_local[size_by], errors="coerce")
+                df_local = df_local.dropna(subset=["__val"])
+
+                mvals: Dict[str, float] = {
+                    normalize_url(r["__join"]): float(r["__val"])
+                    for _, r in df_local.iterrows()
+                }
+
+                vals = np.array([mvals.get(normalize_url(u), np.nan) for u in urls], dtype=float)
+                valid = ~np.isnan(vals)
+                if valid.any():
+                    v = vals[valid]
+                    lo, hi = np.percentile(v, 5), np.percentile(v, 95)
+                    v = np.clip(v, lo, hi)
+                    v = np.zeros_like(v) if hi <= lo else (v - lo) / (hi - lo)
+                    node_sizes[valid] = size_min + v * (size_max - size_min)
+
+
+        
+                # --- [NEU] Layout mit Sampling & Visualisierung ---------------------------------
+
+        # Kanten für die Darstellung wählen (IST vs. Zukunft)
+        if future_only:
+            # nur neue empfohlene Links zeigen
+            edges = [(s, t) for (s, t, *_rest) in final_suggested]
+        else:
+            # IST-Kanten (optional gefiltert auf Content)
+            edges = list(ist_edges)
+
+
+        # 1) UI: Limit für Layout-Knoten
+        max_nodes_layout = st.slider(
+            "Max. Knoten für Layout-Berechnung",
+            500, 10000, 3000, step=500,
+            help="Zur Beschleunigung: Wenn mehr Seiten vorhanden sind, wird zufällig auf diese Anzahl gesampelt (nur fürs Layout)."
+        )
+
+        # 2) Sampling vorbereiten (arbeitet nur fürs 2D-Layout; Berechnungen bleiben auf Vollmenge)
+        n_total = X.shape[0]
+        if n_total > max_nodes_layout:
+            rng = np.random.default_rng(42)
+            keep_idx = np.sort(rng.choice(n_total, size=max_nodes_layout, replace=False))
+        else:
+            keep_idx = np.arange(n_total)
+
+        X_layout = X[keep_idx]
+        urls_layout = [urls[i] for i in keep_idx]
+        idx_by_url_layout = {u: i for i, u in enumerate(urls_layout)}
+
+        # 3) 2D-Layout (UMAP falls vorhanden, sonst t-SNE) – mit Cache
         @st.cache_data(show_spinner=False)
         def compute_layout(X_in: np.ndarray, algo: str):
             from sklearn.manifold import TSNE
             if algo.startswith("UMAP"):
-                import umap  # type: ignore
-                reducer = umap.UMAP(
-                    n_components=2, n_neighbors=15, min_dist=0.1, metric="euclidean", random_state=42
-                )
-                Y = reducer.fit_transform(X_in)
-                return Y
-            else:
-                n = X_in.shape[0]
-                perplexity = max(5, min(30, n - 1))
-                tsne = TSNE(
-                    n_components=2,
-                    metric="euclidean",
-                    method="barnes_hut",
-                    init="pca",
-                    learning_rate="auto",
-                    n_iter=600,
-                    random_state=42,
-                    perplexity=perplexity
-                )
-                Y = tsne.fit_transform(X_in)
-                return Y
+                try:
+                    import umap  # type: ignore
+                    reducer = umap.UMAP(
+                        n_components=2, n_neighbors=15, min_dist=0.1,
+                        metric="euclidean", random_state=42
+                    )
+                    Y = reducer.fit_transform(X_in)
+                    return Y
+                except Exception as e:
+                    st.warning(f"UMAP nicht verfügbar/fehlgeschlagen ({e}). Fallback auf t-SNE.")
+            # t-SNE (Fallback/Default)
+            n = X_in.shape[0]
+            perplexity = max(5, min(30, n - 1))
+            tsne = TSNE(
+                n_components=2,
+                metric="euclidean",
+                method="barnes_hut",
+                init="pca",
+                learning_rate="auto",
+                n_iter=500,  # etwas schneller
+                random_state=42,
+                perplexity=perplexity
+            )
+            Y = tsne.fit_transform(X_in)
+            return Y
 
-        Y = compute_layout(X, layout_algo)
+        Y = compute_layout(X_layout, layout_algo)
         xs, ys = Y[:, 0], Y[:, 1]
 
-        # Helper: baue Linien-Trace
-        def build_edge_trace(edge_list, color, width=1.0, opacity=0.25, cap=10000):
-            Xs, Ys = [], []
-            cnt = 0
-            for (a, b) in edge_list:
-                if cnt >= cap:
-                    break
-                ia = idx_by_url.get(a)
-                ib = idx_by_url.get(b)
-                if ia is None or ib is None:
-                    continue
-                Xs += [xs[ia], xs[ib], None]
-                Ys += [ys[ia], ys[ib], None]
-                cnt += 1
-            return go.Scattergl(
-                x=Xs, y=Ys,
-                mode="lines",
-                line=dict(color=color, width=width),
-                opacity=opacity,
-                hoverinfo="skip",
-                showlegend=False
+        # 4) Attribute für die Layout-Stichprobe übernehmen
+        node_sizes_layout = node_sizes[keep_idx]  # aus globalen Größen gesampelt
+        node_colors_layout = ["#1f77b4"] * len(urls_layout)  # Default-Farbe
+        hover_text_layout  = urls_layout                      # Hover = URL
+
+
+        # 5) Kanten auf die Layout-Stichprobe filtern
+        edges_layout = []
+        if "edges" in locals() and edges:
+            sset = set(urls_layout)
+            for (src, dst) in edges:
+                if (src in sset) and (dst in sset):
+                    edges_layout.append((src, dst))
+
+        # 6) Plotly-Graph zeichnen
+        fig_data = []
+
+        if edges_layout:
+            x_lines, y_lines = [], []
+            for (src, dst) in edges_layout:
+                i = idx_by_url_layout[src]
+                j = idx_by_url_layout[dst]
+                x_lines += [xs[i], xs[j], None]
+                y_lines += [ys[i], ys[j], None]
+            fig_data.append(
+                go.Scatter(
+                    x=x_lines, y=y_lines,
+                    mode="lines",
+                    line=dict(width=1, color="rgba(150,150,150,0.35)"),
+                    hoverinfo="skip",
+                    name="Verbindungen"
+                )
             )
 
-        # Kanten für Anzeige vorbereiten
-        ist_pairs = list(ist_edges)
-        # Entfernte Kanten im Zukunftsmodus nicht anzeigen (werden ohnehin durch future_only ausgeblendet)
-        if future_only:
-            ist_pairs = []
-
-        # Neue Kanten (grün)
-        new_pairs = [(s, t) for (s, t, *_rest) in final_suggested]
-
-        # Suche / Highlight bestimmen
-        highlight_nodes = set()
-        neighbor_nodes = set()
-        if search_q:
-            # Match per Teilstring auf normalisierten URLs
-            candidates = [u for u in urls if search_q.lower() in normalize_url(u).lower()]
-            if candidates:
-                # nimm den ersten besten Treffer (oder erweitern zu Multiselect, falls gewünscht)
-                focus = normalize_url(candidates[0])
-                highlight_nodes.add(focus)
-                # Nachbarn: eingehend/ausgehend aus IST + neuen Kanten
-                for (a, b) in list(ist_edges) + new_pairs:
-                    if a == focus:
-                        neighbor_nodes.add(b)
-                    if b == focus:
-                        neighbor_nodes.add(a)
-
-        # Basis-Node-Trace (grau, wenn Suche aktiv)
-        base_colors = []
-        base_sizes = []
-        for u in urls:
-            nu = normalize_url(u)
-            if search_q:
-                if nu in highlight_nodes:
-                    base_colors.append("#ff8c00")  # Fokus (orange)
-                elif nu in neighbor_nodes:
-                    base_colors.append("#ffd08a")  # Nachbarn (heller)
-                else:
-                    base_colors.append("#cfcfcf")  # grau
-            else:
-                base_colors.append("#4F8EF7")
-            base_sizes.append(node_sizes[idx_by_url.get(nu, 0)])
-
-        node_trace = go.Scattergl(
-            x=xs, y=ys,
-            mode="markers",
-            marker=dict(
-                size=base_sizes,
-                color=base_colors,
-                line=dict(width=0.5, color="white"),
-                opacity=0.9 if search_q else 0.8
-            ),
-            text=urls,
-            hovertemplate="%{text}",
-            name="Seiten"
+        fig_data.append(
+            go.Scatter(
+                x=xs, y=ys,
+                mode="markers",
+                text=hover_text_layout,
+                hoverinfo="text",
+                marker=dict(
+                    size=node_sizes_layout,
+                    color=node_colors_layout,
+                    opacity=0.9,
+                    line=dict(width=0.5, color="rgba(0,0,0,0.3)")
+                ),
+                name="Seiten"
+            )
         )
 
-        # Edge-Traces
-        ist_trace = build_edge_trace(ist_pairs, color="lightgray", width=1.0, opacity=0.25, cap=10000)
-        new_trace = build_edge_trace(new_pairs, color="#2ecc71", width=2.0, opacity=0.7, cap=max_new_total)  # grün
-
-        # Figur aufbauen
-        fig = go.Figure()
-        if not future_only and len(ist_pairs) > 0:
-            fig.add_trace(ist_trace)
-        if len(new_pairs) > 0:
-            fig.add_trace(new_trace)
-        fig.add_trace(node_trace)
-        fig.update_layout(
-            title="Interne Verlinkung – Zukunftsszenario" if future_only else "Interne Verlinkung – IST + empfohlene neue Links",
-            template="plotly_white",
-            height=780,
-            margin=dict(l=10, r=10, t=50, b=10),
-            showlegend=False
+        fig_layout = go.Layout(
+            title=None,
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            showlegend=False,
+            margin=dict(l=10, r=10, t=10, b=10),
+            hoverlabel=dict(bgcolor="white")
         )
+
+        fig = go.Figure(data=fig_data, layout=fig_layout)
         st.plotly_chart(fig, use_container_width=True)
 
-        # Export
-        html_bytes = fig.to_html(include_plotlyjs="cdn").encode("utf-8")
-        fname = "interne_verlinkung_zukunft.html" if future_only else "interne_verlinkung_ist_plus_neu.html"
-        st.download_button(
-            "📥 HTML-Export der Visualisierung",
-            data=html_bytes,
-            file_name=fname,
-            mime="text/html"
-        )
+        # 7) Optional: URL-Suche nach der Grafik
+        with st.expander("URL-Suche / Hervorheben"):
+            query = st.text_input("URL oder Teilstring suchen:", "")
+            if query:
+                q = query.strip().lower()
+                hits = [u for u in urls_layout if q in u.lower()]
+                st.write(f"{len(hits)} Treffer in der Visualisierung.")
+                if hits:
+                    st.caption("Hinweis: Treffer sind in der Visualisierung enthalten; für echtes Hervorheben kannst du eine zweite Marker-Schicht rendern.")
+                    hi_idx = [idx_by_url_layout[u] for u in hits]
+                    fig.add_trace(go.Scatter(
+                        x=xs[hi_idx], y=ys[hi_idx],
+                        mode="markers",
+                        marker=dict(size=np.array(node_sizes_layout)[hi_idx] + 6, color="rgba(255,0,0,0.6)"),
+                        hoverinfo="text", text=[hover_text_layout[i] for i in hi_idx],
+                        name="Treffer"
+                    ))
+                    st.plotly_chart(fig, use_container_width=True)
 
-        # Sanfte Hinweise bei Limits
-        if len(ist_edges) > 10000 and not future_only:
-            st.info("Hinweis: IST-Kanten wurden auf 10.000 begrenzt, um die Darstellung performant zu halten.")
-        if len(new_pairs) >= max_new_total:
-            st.info(f"Hinweis: Neue Links wurden auf N={max_new_total} begrenzt. Passe N/M an, um mehr/anders zu sehen.")
-        # Kleine KPI-Zusammenfassung zur Einordnung
-        with st.container():
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Gems (Quelle)", f"{len(gems_vis)}")
-            c2.metric("Neue Links (gezeigt)", f"{len(new_pairs)}", help="Anzahl grüner Kanten im aktuellen Setting.")
-            c3.metric("IST-Kanten einbezogen", f"{0 if future_only else min(len(ist_edges), 10000)}")
+        # --- [ENDE NEU] ----------------------------------------------------------------
+
 
         # Einsteiger-Hinweise
         with st.expander("❓ Hinweise für Einsteiger (Ranking & Opportunity)", expanded=False):
