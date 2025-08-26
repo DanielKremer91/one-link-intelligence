@@ -904,78 +904,101 @@ if run_clicked or st.session_state.ready:
         st.session_state.ready = True
 
 # =========================================================
-# NEU: Gems & Empfehlungen
+# Analyse 3 (gemergt): Gems + priorisierte Link-Empfehlungen (Similarity ⨉ Dringlichkeit)
 # =========================================================
 st.markdown("---")
 st.subheader("Analyse 3: Starke Linkgeber („Gems“) & priorisierte Link-Empfehlungen")
 
-with st.expander("Erklärung Gems & Opportunity-Score", expanded=False):
+with st.expander("ℹ️ Erklärung & Priorisierungslogik", expanded=False):
     st.markdown("""
-**Was sind „Gems“?**  
-„Gems“ sind die **besten internen Linkgeber** – Seiten, die besonders gut Linkkraft weitergeben können.  
-In diesem Tool bestimmen wir sie über den **Linkpotenzial-Score** (Mix aus internem Link-Score, PageRank-Horder, Backlinks, Ref. Domains).
+**Ziel:** Für jede starke Linkgeber-Seite (**Gem**) die besten Ziel-URLs finden – thematisch passend **und** mit **hoher Dringlichkeit**.
 
-**Was ist die „Opportunity“ (aus GSC)?**  
-Opportunity zeigt, **wo bei Ziel-URLs noch Potenzial liegt**:
-- `CTR = Clicks / (Impressions + 1)`  
-- `normImpr = Min-Max( log1p(Impressions) )`  
-- **Opportunity** = `normImpr × (1 − CTR)`
+**Gems** bestimmen wir über den **Linkpotenzial-Score** (aus ILS, PageRank-Horder, Backlinks, Ref. Domains).  
+**Dringlichkeit** („PRIO“) setzt sich aus folgenden Signalen (∈ [0,1]) zusammen:
 
-Interpretation:
-- Viele Impressions bei niedriger CTR ⇒ **hohe Opportunity** (viel Sichtbarkeit, aber (noch) wenig Klicks).
-- Wenige Impressions ⇒ niedrige Opportunity.
-- Sehr hohe CTR ⇒ (1 − CTR) klein ⇒ eher geringe Opportunity.
+- **Opportunity (Opp)** = `MinMax(log1p(Impressions)) × (1 − CTR)`  
+  → viel Sichtbarkeit, aber (noch) wenig Klicks ⇒ hohes Potenzial.
+- **Low-ILS-High-Demand (LIHD)** = `(1 − ILS_norm) × Demand_norm`
+  → viel Nachfrage, aber intern unterversorgt.
+- **Inlinks-Defizit (similarity-gewichtet)**  
+  → Anteil der **nahen** Quellen (Related), die **noch nicht** auf die Ziel-URL verlinken.
+- **Ranking-Sweet-Spot** (Standard **8–20**):  
+  URLs mit durchschnittlicher Position im Bereich **8–20** werden bevorzugt (einstellbar).
+- **Orphan/Thin-Linking:**  
+  Orphan = keine Inlinks; Thin = Inlinks ≤ K.
 
-**Warum mit Similarity kombinieren?**  
-Neue Links sollen **thematisch passen** (Similarity) **und** spürbaren Effekt haben (Opportunity).  
-Daher optionales Ranking: `Rank = α · Similarity + β · Opportunity`  
-- Höheres **α** → stärkere Priorisierung thematischer Nähe.  
-- Höheres **β** → stärkere Priorisierung von „viel Potenzial, bislang niedrige CTR“.
-
-**Praxis-Tipp:**  
-Nutze Gems, um wenige, sehr starke Quellen für wichtige Ziele zu wählen.  
-Markiere in Reports, wenn **mindestens eine Gem-Quelle** für ein High-Opportunity-Ziel verfügbar ist (Quick-Win).
+**Ranking je (Gem, Ziel):**  
+`Rank = α · Similarity + (1 − α) · PRIO(target)`  
+(β/Opportunity entfällt, weil Opp schon in **PRIO** steckt.)
 """)
 
-# Steuerung: Gem-Perzentil (welche Quellen als Gems gelten)
+# --------------------------
+# UI: Gems + Zielanzahl
+# --------------------------
 gem_pct = st.slider(
     "Anteil starker Linkgeber (Top-X %)",
     1, 30, 10, step=1,
-    help="Definiert, welche obersten X % der Seiten (nach Linkpotenzial) als „Gems“ gelten. Nur diese dürfen Links vergeben."
+    help="Welche obersten X % nach Linkpotenzial gelten als „Gems“?"
 )
-
-# Optional: GSC-Datei fürs Opportunity-Signal
-gsc_up = st.file_uploader("Optional: GSC-Daten (CSV/Excel) für Opportunity (URL, Impressions, Clicks)", type=["csv", "xlsx"], key="gsc_up")
-
-# Wie viele Ziele je Gem in der breiten Tabelle (ähnlich Analyse 1) gezeigt werden
 max_targets_per_gem = st.number_input(
     "Top-Ziele je Gem (Anzahl Spalten)",
     min_value=1, max_value=50, value=10, step=1,
-    help="Zeigt die Top-Z Ziel-URLs pro Gem nebeneinander – wie bei Analyse 1."
+    help="Wie viele Ziel-URLs pro Gem in der Breiten-Tabelle gezeigt werden."
 )
 
-st.caption(
-    "Sortierung pro Gem: **Rank = α·Similarity + β·Opportunity** (ohne GSC ≙ reines Similarity-Ranking)."
+# --------------------------
+# UI: Gewichtung der Dringlichkeits-Signale (PRIO)
+# --------------------------
+st.markdown("#### Gewichtung Dringlichkeit (PRIO)")
+colA, colB, colC = st.columns(3)
+with colA:
+    w_opp   = st.slider("Gewicht: Opportunity",     0.0, 1.0, 0.50, 0.05)
+    w_lihd  = st.slider("Gewicht: LIHD",            0.0, 1.0, 0.30, 0.05)
+with colB:
+    w_def   = st.slider("Gewicht: Inlinks-Defizit", 0.0, 1.0, 0.20, 0.05)
+    w_rank  = st.slider("Gewicht: Ranking 8–20",    0.0, 1.0, 0.20, 0.05,
+                        help="Bevorzugt Seiten mit durchschnittlicher Position im eingestellten Bereich (unten).")
+with colC:
+    w_orph  = st.slider("Gewicht: Orphan/Thin",     0.0, 1.0, 0.10, 0.05)
+    thin_k  = st.slider("Thin-Schwelle K (Inlinks ≤ K)", 0, 10, 2, 1)
+
+# Ranking-Sweet-Spot (8–20) inkl. weichem Rand
+rank_minmax = st.slider(
+    "Ranking-Sweet-Spot (Positionen)", 1, 50, (8, 20), 1,
+    help="Bereich der durchschnittlichen Position, der als „sweet spot“ gilt (Standard 8–20)."
+)
+rank_falloff = st.slider(
+    "Weicher Rand (Falloff, ± Positionen)", 0, 10, 2, 1,
+    help="Außerhalb des Sweet-Spot fällt das Gewicht innerhalb dieses Randes linear auf 0 ab."
 )
 
+# --------------------------
+# UI: Ranking-Mischung (Similarity vs. PRIO)
+# --------------------------
 alpha = st.slider(
-    "Gewichtung α (Similarity)",
+    "Balance α: Similarity ↔ Dringlichkeit (PRIO)",
     0.0, 1.0, 0.6, 0.05,
-    help="Höhere α = stärker nach thematischer Nähe priorisieren."
-)
-beta = st.slider(
-    "Gewichtung β (Opportunity)",
-    0.0, 1.0, 0.4, 0.05,
-    help="Höhere β = stärker nach GSC-Opportunity priorisieren."
-)
-min_impr = st.number_input(
-    "Mindest-Impressions (für Opportunity-Berechnung)",
-    0, 1_000_000, 100, step=50,
-    help="URLs mit weniger Impressions werden für Opportunity ignoriert (Rauschfilter)."
+    help="α höher = stärker nach semantischer Nähe sortieren; α niedriger = stärker nach Dringlichkeit (PRIO)."
 )
 
-# Gems bestimmen (aus dem zuvor berechneten Linkpotenzial)
-source_potential_map = st.session_state.get("_source_potential_map", {})
+# --------------------------
+# Optional: GSC-Datei laden (URL, Impressions, Clicks[, Position])
+# --------------------------
+gsc_up = st.file_uploader(
+    "Optional: GSC-Daten (CSV/Excel) – Spalten: URL, Impressions, Clicks, [Position]",
+    type=["csv", "xlsx"], key="gsc_up_merged"
+)
+
+# =========================================================
+# Daten holen (aus früheren Schritten)
+# =========================================================
+res1_df: Optional[pd.DataFrame] = st.session_state.get("res1_df")
+source_potential_map: Dict[str, float] = st.session_state.get("_source_potential_map", {})
+metrics_map: Dict[str, Dict[str, float]] = st.session_state.get("_metrics_map", {})
+norm_ranges: Dict[str, Tuple[float, float]] = st.session_state.get("_norm_ranges", {})
+all_links: set = st.session_state.get("_all_links", set())
+
+# Gems bestimmen
 if source_potential_map:
     sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
     cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
@@ -983,245 +1006,99 @@ if source_potential_map:
 else:
     gems = []
 
-# GSC verarbeiten (falls hochgeladen)
-gsc_map: Dict[str, float] = {}
-if gsc_up is not None:
-    gsc_df = read_any_file(gsc_up)
-    if gsc_df is not None and not gsc_df.empty and gsc_df.shape[1] >= 3:
-        # Rohdaten speichern (z. B. für andere Bereiche wiederverwendbar)
-        st.session_state["__gsc_df_raw__"] = gsc_df.copy()
-
-        # Heuristik: Spalten 0=URL, 1=Impressions, 2=Clicks (robust gecastet)
-        gsc_df.iloc[:, 0] = gsc_df.iloc[:, 0].astype(str)
-        urls_norm = gsc_df.iloc[:, 0].map(normalize_url)
-        impressions = pd.to_numeric(gsc_df.iloc[:, 1], errors="coerce").fillna(0)
-        clicks = pd.to_numeric(gsc_df.iloc[:, 2], errors="coerce").fillna(0)
-
-        # log1p + Min-Max
-        log_impr = np.log1p(impressions)
-        if log_impr.max() > log_impr.min():
-            norm_impr = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
-        else:
-            norm_impr = np.zeros_like(log_impr)
-
-        ctr = clicks / (impressions + 1)
-        opp = norm_impr * (1 - ctr)
-
-        for u, o, imp in zip(urls_norm, opp, impressions):
-            if u and imp >= min_impr:
-                gsc_map[u] = float(o)
-
-# Empfehlungen pro Gem aus Analyse 1 ableiten (Similarity je Ziel)
-res1 = st.session_state.get("res1_df")
-gem_rows: List[List] = []
-if isinstance(res1, pd.DataFrame) and not res1.empty and gems:
-    for gem in gems:
-        # durch alle Zielzeilen laufen und prüfen, ob 'gem' als Related-Quelle vorkommt
-        for _, row in res1.iterrows():
-            target = normalize_url(row["Ziel-URL"])
-            for i in range(1, int(max_targets_per_gem) + 50):  # Sicherheitsreserve, falls max_related > max_targets_per_gem
-                col_src = f"Related URL {i}"
-                col_sim = f"Ähnlichkeit {i}"
-                col_any = f"überhaupt verlinkt {i}?"
-                col_pot = f"Linkpotenzial {i}"
-                if col_src not in res1.columns:
-                    break
-                src = normalize_url(row.get(col_src, ""))
-                if not src or src != gem:
-                    continue
-                simv = row.get(col_sim, 0.0)
-                potv = row.get(col_pot, 0.0)
-                exists = row.get(col_any, "nein")
-                oppv = gsc_map.get(target, 0.0)
-                try:
-                    simf = float(simv)
-                except Exception:
-                    simf = 0.0
-                rank_score = alpha * simf + beta * float(oppv)
-                gem_rows.append([gem, target, simf, float(potv), float(oppv), float(rank_score), exists])
-
-# Pro Gem auf Top-N begrenzen und sortieren
-if gem_rows:
-    import itertools
-    gem_rows.sort(key=lambda r: r[0])  # nach Gem gruppierbar machen
-    final_rows: List[List] = []
-    for gem_key, group in itertools.groupby(gem_rows, key=lambda r: r[0]):
-        grp = list(group)
-        grp = sorted(grp, key=lambda r: (r[5], r[2]), reverse=True)[:int(max_targets_per_gem)]  # Rank, dann Similarity
-        final_rows.extend(grp)
-    gem_rows = final_rows
-
-# Ausgabe: breite Tabelle wie Analyse 1 (Top-Z Ziele nebeneinander)
-if gem_rows:
-    from collections import defaultdict
-
-    by_gem: Dict[str, List[Tuple[str, float, float, float, str, float]]] = defaultdict(list)
-    for gem, target, simv, potv, oppv, rnk, exists in gem_rows:
-        by_gem[gem].append((target, float(simv), float(oppv), float(rnk), str(exists), float(potv)))
-
-    # Spaltenkopf bauen
-    cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
-    for i in range(1, int(max_targets_per_gem) + 1):
-        cols += [
-            f"Ziel {i}",
-            f"Similarity {i}",
-            f"Opportunity {i}",
-            f"Rank {i}",
-            f"Bereits verlinkt {i}?",
-        ]
-
-    # Reihen bauen (pro Gem eine)
-    def pot_for(g: str) -> float:
-        return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
-
-    ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
-    rows = []
-    for gem in ordered_gems:
-        items = by_gem[gem]
-        items = sorted(items, key=lambda t: (t[3], t[1]), reverse=True)[: int(max_targets_per_gem)]
-        pot_gem = pot_for(gem)
-        row = [gem, round(pot_gem, 3)]
-        for i in range(int(max_targets_per_gem)):
-            if i < len(items):
-                target, simv, oppv, rnk, exists, _pot = items[i]
-                row += [target, round(simv, 3), round(oppv, 3), round(rnk, 3), exists]
-            else:
-                row += [np.nan, np.nan, np.nan, np.nan, ""]
-        rows.append(row)
-
-    gem_wide_df = pd.DataFrame(rows, columns=cols)
-    st.dataframe(gem_wide_df, use_container_width=True, hide_index=True)
-
-    csv_gem = gem_wide_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-    st.download_button(
-        "Download 'Gems & Empfehlungen (breit)' (CSV)",
-        data=csv_gem,
-        file_name="gems_empfehlungen_breit.csv",
-        mime="text/csv",
-    )
-else:
-    st.caption("Keine Gems-Empfehlungen gefunden – ggf. Gem-Perzentil anpassen oder GSC laden.")
-
-
 # =========================================================
-# Analyse 4: Dringend verlinken (Opportunity-gestützt)
+# GSC verarbeiten → Opp/Demand/Position ermitteln
+# (robuste Spaltenerkennung)
 # =========================================================
-st.markdown("---")
-st.subheader("Analyse 4: Seiten mit hoher Dringlichkeit für interne Links")
-
-with st.expander("ℹ️ Erklärung der Signale & Score", expanded=False):
-    st.markdown("""
-**Ziel:** Seiten finden, die **dringend interne Links** brauchen – v. a. wegen starker Nachfrage (GSC) bei zu schwacher interner Unterstützung.
-
-**Signale (alle ∈ [0,1]):**
-- **Opportunity (Opp)**: `Opp = MinMax(log1p(Impr)) × (1 − CTR)` – viel Sichtbarkeit bei niedriger CTR ⇒ hohes Potenzial.
-- **Low-ILS-High-Demand (LIHD)**: `(1 − ILS_norm) × Demand_norm`, bevorzugt Seiten mit hoher Nachfrage & schwachem internem Link-Score.
-- **Inlinks-Defizit (similarity-gewichtet)**: Anteil der **nahen** Quellen (Related), die **noch nicht** auf die Seite verlinken.
-- **Near-Top Opportunity** (ehem. „SERP-Lücke“): Gewicht um Position ~10, multipliziert mit Nachfrage.
-- **Orphan/Thin-Linking**: Orphan = 1 (keine Inlinks), Thin = 1, wenn Inlinks ≤ K; `OrphanScore = max(Orphan, thin_weight·Thin)`.
-
-**Priorität** = gewichteter Mittelwert der aktiven Signale.  
-Außerdem: Flag, ob es **mindestens eine Gem-Quelle** als potenziellen Linkgeber gibt (💎).
-""")
-
-# --------------------------
-# UI: Gewichte & Parameter
-# --------------------------
-st.markdown("#### Gewichtung & Parameter")
-
-colA, colB, colC = st.columns(3)
-with colA:
-    w_opp   = st.slider("Gewicht: Opportunity", 0.0, 1.0, 0.50, 0.05)
-    w_lihd  = st.slider("Gewicht: LIHD",        0.0, 1.0, 0.30, 0.05)
-with colB:
-    w_def   = st.slider("Gewicht: Inlinks-Defizit", 0.0, 1.0, 0.20, 0.05)
-    w_nt    = st.slider("Gewicht: Near-Top",        0.0, 1.0, 0.20, 0.05)
-with colC:
-    w_orph  = st.slider("Gewicht: Orphan/Thin",     0.0, 1.0, 0.10, 0.05)
-    thin_k  = st.slider("Thin-Schwelle K (Inlinks ≤ K)", 0, 10, 2, 1)
-thin_weight = st.slider("Gewicht für ThinFlag im Orphan-Score", 0.0, 1.0, 0.5, 0.05)
-
-top_n_priority = st.number_input("Top-N Ziele anzeigen", 10, 5000, 200, 10)
-only_with_opp  = st.checkbox("Nur Ziele mit Opportunity > 0 zeigen", value=False)
-
-# --------------------------
-# Datenquellen aus Session
-# --------------------------
-res1_df: Optional[pd.DataFrame] = st.session_state.get("res1_df")
-metrics_map: Dict[str, Dict[str, float]] = st.session_state.get("_metrics_map", {})
-norm_ranges: Dict[str, Tuple[float, float]] = st.session_state.get("_norm_ranges", {})
-all_links: set = st.session_state.get("_all_links", set())
-source_potential_map: Dict[str, float] = st.session_state.get("_source_potential_map", {})
-
-# Gems (wie in Analyse 3, falls Slider dort gesetzt)
-try:
-    sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
-    cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))  # gem_pct aus Analyse 3
-    gems_set = {u for u, _ in sorted_sources[:cutoff_idx]}
-except Exception:
-    gems_set = set()
-
-# --------------------------
-# GSC: Opp, Demand, Position
-# --------------------------
-gsc_df_raw: Optional[pd.DataFrame] = st.session_state.get("__gsc_df_raw__")
 opp_map: Dict[str, float] = {}
 demand_map: Dict[str, float] = {}
 pos_map: Dict[str, float] = {}
 
-if gsc_df_raw is not None and not gsc_df_raw.empty:
-    df = gsc_df_raw.copy()
-    df.iloc[:, 0] = df.iloc[:, 0].astype(str).map(normalize_url)
-    impr = pd.to_numeric(df.iloc[:, 1], errors="coerce").fillna(0)
-    clicks = pd.to_numeric(df.iloc[:, 2], errors="coerce").fillna(0)
+if gsc_up is not None:
+    gsc_df = read_any_file(gsc_up)
+    if gsc_df is not None and not gsc_df.empty:
+        df = gsc_df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
 
-    # Demand (normierte log(Impr))
-    log_impr = np.log1p(impr)
-    if log_impr.max() > log_impr.min():
-        demand_norm = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
-    else:
-        demand_norm = np.zeros_like(log_impr)
+        # Spalten indices heuristisch
+        def _find_col(cands: List[str], default_idx: Optional[int]=None) -> Optional[int]:
+            low = [c.lower() for c in df.columns]
+            for k in cands:
+                if k in low:
+                    return low.index(k)
+            return default_idx
 
-    ctr = clicks / (impr + 1)
-    opp_vals = demand_norm * (1 - ctr)
+        url_idx = 0  # URL = erste Spalte, falls nicht anders gefunden
+        impr_idx = _find_col(
+            ["impressions", "impr", "anzeigen", "impressionen"], default_idx=1 if df.shape[1] > 1 else 0
+        )
+        clk_idx = _find_col(
+            ["clicks", "klicks", "click"], default_idx=2 if df.shape[1] > 2 else None
+        )
+        pos_idx = _find_col(
+            ["position", "avg position", "average position", "ranking", "durchschnittliche position", "rang"],
+            default_idx=None
+        )
 
-    for u, d, o in zip(df.iloc[:, 0], demand_norm, opp_vals):
-        demand_map[u] = float(d)
-        opp_map[u] = float(o)
+        # URLs normieren
+        df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
+        urls_series = df.iloc[:, url_idx]
 
-    # Position (falls vorhanden als 4. Spalte)
-    if df.shape[1] >= 4:
-        pos_series = pd.to_numeric(df.iloc[:, 3], errors="coerce")
-        for u, p in zip(df.iloc[:, 0], pos_series):
-            if pd.notna(p):
-                pos_map[u] = float(p)
+        # Impressions/Clicks robust casten
+        impr = pd.to_numeric(df.iloc[:, impr_idx], errors="coerce").fillna(0) if impr_idx is not None else pd.Series([0]*len(df))
+        clicks = pd.to_numeric(df.iloc[:, clk_idx],  errors="coerce").fillna(0) if clk_idx is not None else pd.Series([0]*len(df))
 
-# --------------------------
-# Inbound-Counts (Orphan/Thin)
-# --------------------------
+        # Demand = Min-Max von log1p(Impressions)
+        log_impr = np.log1p(impr)
+        if (log_impr.max() - log_impr.min()) > 0:
+            demand_norm = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
+        else:
+            demand_norm = np.zeros_like(log_impr)
+
+        ctr = clicks / (impr + 1)
+        opp_vals = demand_norm * (1 - ctr)
+
+        for u, d, o in zip(urls_series, demand_norm, opp_vals):
+            if u:
+                demand_map[str(u)] = float(d)
+                opp_map[str(u)] = float(o)
+
+        # Position (optional)
+        if pos_idx is not None:
+            pos_series = pd.to_numeric(df.iloc[:, pos_idx], errors="coerce")
+            for u, p in zip(urls_series, pos_series):
+                if pd.notna(p) and str(u):
+                    pos_map[str(u)] = float(p)
+
+        # Für ggf. spätere Nutzung merken
+        st.session_state["__gsc_df_raw__"] = df.copy()
+
+# =========================================================
+# Hilfsfunktionen für PRIO-Signale
+# =========================================================
 from collections import defaultdict
 
+# Inbound-Counts für Orphan/Thin
 inbound_count = defaultdict(int)
 for s, t in all_links:
     inbound_count[t] += 1
 
-# --------------------------
-# Helfer: ILS_norm
-# --------------------------
 min_ils, max_ils = norm_ranges.get("ils", (0.0, 1.0))
+
 def ils_norm_for(u: str) -> float:
     m = metrics_map.get(u)
     if not m:
         return 0.0
     x = float(m.get("score", 0.0))
     if max_ils > min_ils:
-        return max(0.0, min(1.0, (x - min_ils) / (max_ils - min_ils)))
+        return float(np.clip((x - min_ils) / (max_ils - min_ils), 0.0, 1.0))
     return 0.0
 
-# --------------------------
-# Inlinks-Defizit (similarity-gewichtet)
-# -> aus res1_df (Related pro Ziel)
-# --------------------------
+def lihd_for(u: str) -> float:
+    if u not in demand_map:
+        return 0.0
+    return float((1.0 - ils_norm_for(u)) * demand_map[u])
+
 def deficit_weighted_for(target: str) -> float:
     if not isinstance(res1_df, pd.DataFrame):
         return 0.0
@@ -1229,9 +1106,7 @@ def deficit_weighted_for(target: str) -> float:
     if row.empty:
         return 0.0
     r = row.iloc[0]
-    sum_all, sum_missing = 0.0, 0.0
-    # dynamisch über vorhandene Spalten iterieren
-    i = 1
+    sum_all, sum_missing, i = 0.0, 0.0, 1
     while True:
         col_sim = f"Ähnlichkeit {i}"
         col_src = f"Related URL {i}"
@@ -1256,115 +1131,142 @@ def deficit_weighted_for(target: str) -> float:
         return 0.0
     return float(np.clip(sum_missing / sum_all, 0.0, 1.0))
 
-# --------------------------
-# Near-Top Opportunity (um Pos ~10)
-# --------------------------
-def near_top_for(u: str) -> float:
-    if u not in demand_map or u not in pos_map:
+def rank_sweetspot_for(u: str, lo: int, hi: int, falloff: int) -> float:
+    """Gewicht 1.0 im [lo,hi]; außerhalb linearer Abfall über 'falloff' Positionen auf 0."""
+    p = pos_map.get(u)
+    if p is None:
         return 0.0
-    pos = pos_map[u]
-    # glatte Glocke um 10; linearer Clip wie spezifiziert
-    w_rank = max(0.0, min(1.0, 1.0 - abs(pos - 10.0) / 5.0))  # = 1 bei 10, 0 bei <=5 bzw. >=15
-    return float(w_rank * demand_map[u])
+    # im Sweet-Spot
+    if lo <= p <= hi:
+        return 1.0
+    # links vom Spot
+    if falloff > 0 and (lo - falloff) <= p < lo:
+        return float(1.0 - (lo - p) / falloff)
+    # rechts vom Spot
+    if falloff > 0 and hi < p <= (hi + falloff):
+        return float(1.0 - (p - hi) / falloff)
+    return 0.0
 
-# --------------------------
-# Orphan/Thin-Score
-# --------------------------
-def orphan_score_for(u: str) -> float:
+def orphan_score_for(u: str, k: int) -> float:
     inl = int(inbound_count.get(u, 0))
     orphan = 1.0 if inl == 0 else 0.0
-    thin   = 1.0 if inl <= thin_k else 0.0
-    return float(max(orphan, thin_weight * thin))
+    thin   = 1.0 if inl <= k else 0.0
+    # leichtes Gewicht für Thin; Vollgewicht für Orphan
+    return float(max(orphan, 0.5 * thin))
 
-# --------------------------
-# LIHD
-# --------------------------
-def lihd_for(u: str) -> float:
-    if u not in demand_map:
-        return 0.0
-    ilsn = ils_norm_for(u)
-    return float((1.0 - ilsn) * demand_map[u])
+# =========================================================
+# PRIO je Ziel berechnen und cachen
+# =========================================================
+target_priority_map: Dict[str, float] = {}
 
-# --------------------------
-# Gem-Marker (gibt es mind. eine Gem-Quelle?)
-# --------------------------
-def has_gem_source(target: str) -> Tuple[bool, List[str]]:
-    if not isinstance(res1_df, pd.DataFrame):
-        return (False, [])
-    row = res1_df.loc[res1_df["Ziel-URL"] == target]
-    if row.empty:
-        return (False, [])
-    r = row.iloc[0]
-    gems_hit = []
-    i = 1
-    while True:
-        col_src = f"Related URL {i}"
-        if col_src not in res1_df.columns:
-            break
-        src_val = normalize_url(r.get(col_src, ""))
-        if not src_val:
-            i += 1
-            continue
-        if src_val in gems_set:
-            gems_hit.append(src_val)
-        i += 1
-    return (len(gems_hit) > 0, gems_hit)
-
-# --------------------------
-# Score je Ziel berechnen
-# --------------------------
-rows = []
 if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
     for _, row in res1_df.iterrows():
         u = normalize_url(row["Ziel-URL"])
+        if not u:
+            continue
 
         opp  = float(opp_map.get(u, 0.0))
         lihd = lihd_for(u)
         ddef = deficit_weighted_for(u)
-        ntop = near_top_for(u)
-        orph = orphan_score_for(u)
+        rnk  = rank_sweetspot_for(u, lo=rank_minmax[0], hi=rank_minmax[1], falloff=rank_falloff)
+        orph = orphan_score_for(u, thin_k)
 
-        # gewichteter Mittelwert (nur aktive Gewichte)
-        weights = np.array([w_opp, w_lihd, w_def, w_nt, w_orph], dtype=float)
-        comps   = np.array([opp,   lihd,  ddef,  ntop, orph ], dtype=float)
+        weights = np.array([w_opp, w_lihd, w_def, w_rank, w_orph], dtype=float)
+        comps   = np.array([opp,   lihd,  ddef,  rnk,   orph  ], dtype=float)
         denom = weights.sum()
         prio = float((weights @ comps) / denom) if denom > 0 else 0.0
 
-        has_gem, gems_hit = has_gem_source(u)
-        gem_flag = "💎 ja" if has_gem else "—"
-        gem_list = ", ".join(gems_hit[:3])
+        target_priority_map[u] = prio
 
-        if (not only_with_opp) or (opp > 0):
-            rows.append([
-                u, round(opp,3), round(lihd,3), round(ddef,3), round(ntop,3),
-                round(orph,3), round(prio,3), gem_flag, gem_list, inbound_count.get(u, 0)
-            ])
+# =========================================================
+# Empfehlungen pro Gem bauen (Rank = α·Sim + (1−α)·PRIO(target))
+# =========================================================
+gem_rows: List[List] = []
+if isinstance(res1_df, pd.DataFrame) and not res1_df.empty and gems:
+    for gem in gems:
+        for _, row in res1_df.iterrows():
+            target = normalize_url(row["Ziel-URL"])
+            i = 1
+            while True:
+                col_src = f"Related URL {i}"
+                col_sim = f"Ähnlichkeit {i}"
+                col_any = f"überhaupt verlinkt {i}?"
+                if col_src not in res1_df.columns:
+                    break
+                src = normalize_url(row.get(col_src, ""))
+                if not src or src != gem:
+                    i += 1
+                    continue
+                simv = row.get(col_sim, 0.0)
+                try:
+                    simf = float(simv)
+                except Exception:
+                    simf = 0.0
+                prio_t = float(target_priority_map.get(target, 0.0))
+                rank_score = alpha * simf + (1.0 - alpha) * prio_t
+                exists = str(row.get(col_any, "nein"))
+                gem_rows.append([gem, target, simf, prio_t, rank_score, exists])
+                i += 1
 
-# --------------------------
-# Ausgabe
-# --------------------------
-if rows:
-    prio_cols = [
-        "Ziel-URL", "Opportunity", "LIHD", "Inlinks-Defizit", "Near-Top",
-        "Orphan/Thin", "Priorität", "Gem-Quelle vorhanden?", "Gem-Kandidaten (Top 3)", "Interne Inlinks"
-    ]
-    prio_df = pd.DataFrame(rows, columns=prio_cols).sort_values("Priorität", ascending=False)
-    st.dataframe(prio_df.head(top_n_priority), use_container_width=True, hide_index=True)
+# Pro Gem top-N schneiden & sortieren (nach Rank, dann Similarity)
+if gem_rows:
+    import itertools
+    gem_rows.sort(key=lambda r: r[0])
+    final_rows: List[List] = []
+    for gem_key, group in itertools.groupby(gem_rows, key=lambda r: r[0]):
+        grp = list(group)
+        grp = sorted(grp, key=lambda r: (r[4], r[2]), reverse=True)[:int(max_targets_per_gem)]
+        final_rows.extend(grp)
+    gem_rows = final_rows
 
-    csv_prio = prio_df.to_csv(index=False).encode("utf-8-sig")
+# =========================================================
+# Ausgabe: breite Tabelle wie Analyse 1
+# =========================================================
+if gem_rows:
+    from collections import defaultdict
+    by_gem: Dict[str, List[Tuple[str, float, float, float, str]]] = defaultdict(list)
+    for gem, target, simv, prio_t, rankv, exists in gem_rows:
+        by_gem[gem].append((target, float(simv), float(prio_t), float(rankv), str(exists)))
+
+    # Spaltenkopf
+    cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
+    for i in range(1, int(max_targets_per_gem) + 1):
+        cols += [
+            f"Ziel {i}",
+            f"Similarity {i}",
+            f"PRIO {i}",
+            f"Rank {i}",
+            f"Bereits verlinkt {i}?",
+        ]
+
+    def pot_for(g: str) -> float:
+        return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
+
+    ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
+    rows = []
+    for gem in ordered_gems:
+        items = sorted(by_gem[gem], key=lambda t: (t[3], t[1]), reverse=True)[: int(max_targets_per_gem)]
+        row = [gem, round(pot_for(gem), 3)]
+        for i in range(int(max_targets_per_gem)):
+            if i < len(items):
+                target, simv, prio_t, rankv, exists = items[i]
+                row += [target, round(simv, 3), round(prio_t, 3), round(rankv, 3), exists]
+            else:
+                row += [np.nan, np.nan, np.nan, np.nan, ""]
+        rows.append(row)
+
+    gem_wide_df = pd.DataFrame(rows, columns=cols)
+    st.dataframe(gem_wide_df, use_container_width=True, hide_index=True)
+
+    csv_gem = gem_wide_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        "Download 'Dringend verlinken' (CSV)",
-        data=csv_prio,
-        file_name="dringend_verlinken.csv",
+        "Download 'Gems & Empfehlungen (breit)' (CSV)",
+        data=csv_gem,
+        file_name="gems_empfehlungen_breit.csv",
         mime="text/csv",
     )
-
-    # Hinweise zur Datenlage
-    if not opp_map:
-        st.caption("ℹ️ Kein GSC-Upload vorhanden → Opportunity/LIHD/Near-Top = 0. Lade GSC (URL, Impressions, Clicks [Position optional]).")
-    elif not pos_map and w_nt > 0:
-        st.caption("ℹ️ GSC-Positionsspalte nicht gefunden → Near-Top = 0. Lege Position als 4. Spalte im GSC-Export ab.")
 else:
-    st.caption("Keine Ziele gefunden. Prüfe GSC-Upload, Relateds/Similarity und die Gewichte.")
+    st.caption("Keine Gems-Empfehlungen gefunden – prüfe GSC-Upload/Signale oder Gem-Perzentil.")
+
 
 
