@@ -328,9 +328,6 @@ Je **höher** der Score im Vergleich zu den übrigen, desto sinnvoller ist die V
 *Hinweis:* Die Ermittlung **zu entfernender Links** berücksichtigt **alle Similarities** (nicht nur ≥ Schwelle), damit auch sehr schwache Verbindungen sichtbar werden.
 """)
 
-    st.markdown(
-        """
-
 # ===============================
 # Sidebar Controls (mit Tooltips)
 # ===============================
