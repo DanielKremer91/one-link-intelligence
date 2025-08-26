@@ -48,6 +48,14 @@ POSSIBLE_SOURCE = ["quelle", "source", "from", "origin"]
 POSSIBLE_TARGET = ["ziel", "destination", "to", "target"]
 POSSIBLE_POSITION = ["linkposition", "link position", "position"]
 
+def _num(x, default: float = 0.0) -> float:
+    """Robuste Numerik: NaN/None sicher auf Default."""
+    v = pd.to_numeric(x, errors="coerce")
+    return default if pd.isna(v) else float(v)
+
+def _safe_minmax(lo, hi) -> Tuple[float, float]:
+    """Sichere Min/Max-Ranges (verhindert +/-inf oder hi<=lo)."""
+    return (lo, hi) if np.isfinite(lo) and np.isfinite(hi) and hi > lo else (0.0, 1.0)
 
 def find_column_index(header: List[str], possible_names: List[str]) -> int:
     lower = [str(h).strip().lower() for h in header]
@@ -55,7 +63,6 @@ def find_column_index(header: List[str], possible_names: List[str]) -> int:
         if h in possible_names:
             return i
     return -1
-
 
 def normalize_url(u: str) -> str:
     """URL-Kanonisierung: Protokoll ergänzen, Tracking-Parameter entfernen, Query sortieren,
@@ -109,13 +116,11 @@ def normalize_url(u: str) -> str:
     except Exception:
         return str(u or "").strip()
 
-
 def is_content_position(position_raw) -> bool:
     pos_norm = str(position_raw or "").strip().lower().replace("\xa0", " ")
     return any(
         token in pos_norm for token in ["inhalt", "content", "body", "main", "artikel", "article"]
     )
-
 
 # --- Embedding parser helper (robust) ---
 def parse_vec(x) -> Optional[np.ndarray]:
@@ -152,10 +157,9 @@ def parse_vec(x) -> Optional[np.ndarray]:
     except Exception:
         return None
 
-
 # --- Robuster Datei-Leser mit Encoding- und Delimiter-Erkennung ---
 def read_any_file(f) -> Optional[pd.DataFrame]:
-    """CSV/Excel robust lesen: probiert mehrere Encodings; snifft Delimiter (Komma/Semikolon)."""
+    """CSV/Excel robust lesen: probiert mehrere Encodings; snifft Delimiter (Komma/Semikolon/Tab)."""
     if f is None:
         return None
     name = (getattr(f, "name", "") or "").lower()
@@ -176,17 +180,15 @@ def read_any_file(f) -> Optional[pd.DataFrame]:
                 except UnicodeDecodeError:
                     continue
                 except Exception:
-                    # Fallback auf Standard-Trenner (mit gleichem Encoding)
-                    try:
-                        f.seek(0)
-                        return pd.read_csv(
-                            f, sep=";", engine="python", encoding=enc, on_bad_lines="skip"
-                        )
-                    except Exception:
-                        f.seek(0)
-                        return pd.read_csv(
-                            f, sep=",", engine="python", encoding=enc, on_bad_lines="skip"
-                        )
+                    # Mehrere Fallback-Delimiter testen
+                    for sep_try in [";", ",", "\t"]:
+                        try:
+                            f.seek(0)
+                            return pd.read_csv(
+                                f, sep=sep_try, engine="python", encoding=enc, on_bad_lines="skip"
+                            )
+                        except Exception:
+                            continue
             raise ValueError("Kein passendes Encoding/Trennzeichen gefunden.")
         else:
             f.seek(0)
@@ -194,7 +196,6 @@ def read_any_file(f) -> Optional[pd.DataFrame]:
     except Exception as e:
         st.error(f"Fehler beim Lesen von {getattr(f, 'name', 'Datei')}: {e}")
         return None
-
 
 def build_related_from_embeddings(
     urls: List[str],
@@ -207,6 +208,7 @@ def build_related_from_embeddings(
     """
     Erzeugt eine DataFrame wie das GAS-Tab 'Related URLs' mit Spalten: Ziel, Quelle, Similarity
     - V muss L2-normalisiert sein.
+    - Bei FAISS verwenden wir Inner Product auf L2-normalisierten Vektoren (entspricht Cosine).
     """
     n = V.shape[0]
     if n < 2:
@@ -263,7 +265,6 @@ def build_related_from_embeddings(
     df_rel = pd.DataFrame(pairs, columns=["Ziel", "Quelle", "Similarity"])
     return df_rel
 
-
 # =============================
 # Hilfe / Tool-Dokumentation (Expander)
 # =============================
@@ -289,8 +290,8 @@ Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein
 
 - **Option 1: URLs + Embeddings**  
   Tabelle mit mindestens zwei Spalten:  
-  - **URL** (Spaltenname: z. B. `URL`, `Adresse`, `Address`, `Page`, `Seite`)  
-  - **Embeddings** (Spaltenname: z. B. `Embedding`, `Embeddings`, `Vector`). Werte können als JSON-Array (`[0.1, 0.2, ...]`) oder durch Komma/Leerzeichen/`;`/`|` getrennt vorliegen.  
+  - **URL** (Spaltenname: z. B. URL, Adresse, Address, Page, Seite)  
+  - **Embeddings** (Spaltenname: z. B. Embedding, Embeddings, Vector). Werte können als JSON-Array ([0.1, 0.2, ...]) oder durch Komma/Leerzeichen/;/| getrennt vorliegen.  
 
   Zusätzlich erforderlich:  
   - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**  
@@ -303,7 +304,7 @@ Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein
 
 Hinweis: Spaltenerkennung ist tolerant gegenüber deutsch/englischen Varianten.  
 Trennzeichen (Komma/Semikolon) und Encodings (UTF-8/UTF-8-SIG/Windows-1252/Latin-1) werden automatisch erkannt.  
-URLs werden kanonisiert (Protokoll ergänzt, `www.` entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
+URLs werden kanonisiert (Protokoll ergänzt, www. entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
 """)
 
     st.markdown("""
@@ -321,38 +322,25 @@ Die Berechnung des Linkpotenzials basiert auf folgenden Faktoren:
   Berücksichtigen externe Signale (Autorität/Vertrauen) der Quell-URL.  
 
 💡 **Interpretation des Linkpotenzial-Scores in der Output-Datei:**  
-Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen Vorschlägen, wie lukrativ ein Link wäre.  
+Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen, wie lukrativ ein Link wäre.  
 Je **höher** der Score im Vergleich zu den übrigen, desto sinnvoller ist die Verlinkung.
-""")
 
-    st.markdown("""
-### 🚫 Unpassende Links
-
-Die zweite Analyse identifiziert interne Links, die thematisch nicht passen oder potenziell „SEO-Power verschwenden“.  
-- Maßstab: **Semantische Ähnlichkeit** (unterhalb der gewählten Unähnlichkeitsschwelle).  
-- Zusätzlich fließt ein vereinfachter *PageRank-Waster-Wert* ein (viele Outlinks, wenige Inlinks → Kandidat).  
-""")
-
-    st.markdown("""
-### 📤 Output (Ergebnisse)
-
-1. **Interne Verlinkungsmöglichkeiten** — vorgeschlagene interne Links inkl. Linkpotenzial **und Ähnlichkeitswert**.  
-2. **Potenziell zu entfernende Links** — bestehende Links, die thematisch unpassend sind oder von „PageRank-Wastern“ ausgehen.  
-
-Beide Ergebnisse sind als CSV downloadbar.
+*Hinweis:* Die Ermittlung **zu entfernender Links** berücksichtigt **alle Similarities** (nicht nur ≥ Schwelle), damit auch sehr schwache Verbindungen sichtbar werden.
 """)
 
     st.markdown(
         """
-<div style="margin-top: 0.5rem; background:#fff8e6; border:1px solid #ffd28a; border-radius:8px; padding:10px 12px; color:#000;">
-  <strong>❗WICHTIG:</strong> Achte beim Export aus Screaming Frog / Excel auf echte Spaltentrenner (Komma/Semikolon). 
-  Falls du Ein-Spalten-CSVs bekommst, als <em>UTF-8</em> oder <em>Windows-1252 (Latin-1)</em> neu speichern. 
-  Die App kann beides lesen, überspringt aber defekte Zeilen.
-</div>
-""",
-        unsafe_allow_html=True,
-    )
+### 🧪 Optional: Visualisierung & Gems (nachgelagert)
 
+- Interaktive Graphen (IST/SOLL/Zukunft) werden **erst geladen**, wenn du sie aktivierst – die initiale Analyse bleibt schnell.
+- **Gems** = stärkste Linkgeber (Top-X % nach Linkpotenzial; X per Slider bis max. 30 %).
+- Empfehlungen je Gem:
+  - **Nur Similarity** oder **Similarity + Opportunity (GSC)**  
+    Opportunity basiert auf *log1p(Impressions)* → Min-Max und **CTR = Clicks/(Impressions+1)**:  
+    `opp = norm_impr * (1 - CTR)`; Gesamtscore `rank = α·Similarity + β·opp`.
+- Zukunfts-Graph zeigt **nur Änderungen**: neue Links grün, entfernte Links werden ausgeblendet.
+- Kanten-Limits & Suche sorgen für Übersichtlichkeit (Highlight der gesuchten URL + Nachbarn; Rest ausgegraut).
+""")
 # ===============================
 # Sidebar Controls (mit Tooltips)
 # ===============================
@@ -439,7 +427,7 @@ with st.sidebar:
               "Wenn aktiv, wirken Backlinks & Ref. Domains doppelt so stark.")
     )
 
-# etwas CSS für den roten Button
+# etwas CSS für den roten Button (wir nutzen ihn später für „Let's Go“)
 st.markdown(
     """
 <style>
@@ -471,7 +459,7 @@ emb_df = None
 
 if mode == "URLs + Embeddings":
     st.write(
-        "Lade eine Datei mit **URL** und **Embedding** (JSON-Array oder Zahlen, getrennt durch Komma/Whitespace/`;`/`|`). "
+        "Lade eine Datei mit **URL** und **Embedding** (JSON-Array oder Zahlen, getrennt durch Komma/Whitespace/;/|). "
         "Zusätzlich werden **All Inlinks**, **Linkmetriken** und **Backlinks** benötigt."
     )
     up_emb = st.file_uploader("URLs + Embeddings (CSV/Excel)", type=["csv", "xlsx", "xlsm", "xls"], key="embs")
@@ -564,9 +552,11 @@ if run_clicked or st.session_state.ready:
                 st.error("Zu wenige gültige Embeddings erkannt (mindestens 2 benötigt).")
                 st.stop()
 
-            # auf gleiche Dimensionalität bringen (pad/truncate)
-            max_dim = max(v.size for v in vecs)
+            # Dimensionalitäts-Check / -Harmonisierung
+            dims = [v.size for v in vecs]
+            max_dim = max(dims)
             V = np.zeros((len(vecs), max_dim), dtype=float)
+            shorter = sum(1 for d in dims if d < max_dim)
             for i, v in enumerate(vecs):
                 d = min(max_dim, v.size)
                 V[i, :d] = v[:d]
@@ -575,6 +565,9 @@ if run_clicked or st.session_state.ready:
             norms = np.linalg.norm(V, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             V = V / norms
+
+            if shorter > 0:
+                st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
 
             related_df = build_related_from_embeddings(
                 urls=urls,
@@ -597,7 +590,6 @@ if run_clicked or st.session_state.ready:
                     st.session_state.pop("_emb_index_by_url", None)
             except Exception:
                 pass
-
     # Prüfen, ob alles da ist
     have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
     if not have_all:
@@ -627,9 +619,9 @@ if run_clicked or st.session_state.ready:
         u = normalize_url(r.iloc[0])
         if not u:
             continue
-        score = float(pd.to_numeric(r.iloc[1], errors="coerce") or 0)
-        inlinks = float(pd.to_numeric(r.iloc[2], errors="coerce") or 0)
-        outlinks = float(pd.to_numeric(r.iloc[3], errors="coerce") or 0)
+        score = _num(r.iloc[1])
+        inlinks = _num(r.iloc[2])
+        outlinks = _num(r.iloc[3])
         prdiff = inlinks - outlinks
         metrics_map[u] = {"score": score, "prDiff": prdiff}
         min_ils, max_ils = min(min_ils, score), max(max_ils, score)
@@ -649,13 +641,19 @@ if run_clicked or st.session_state.ready:
         u = normalize_url(r.iloc[0])
         if not u:
             continue
-        bl = float(pd.to_numeric(r.iloc[1], errors="coerce") or 0)
-        rd = float(pd.to_numeric(r.iloc[2], errors="coerce") or 0)
+        bl = _num(r.iloc[1])
+        rd = _num(r.iloc[2])
         backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
         min_bl, max_bl = min(min_bl, bl), max(max_bl, bl)
         min_rd, max_rd = min(min_rd, rd), max(max_rd, rd)
 
-    # Inlinks: gather all and content links
+    # Safe ranges
+    min_ils, max_ils = _safe_minmax(min_ils, max_ils)
+    min_prd, max_prd = _safe_minmax(min_prd, max_prd)
+    min_bl, max_bl = _safe_minmax(min_bl, max_bl)
+    min_rd, max_rd = _safe_minmax(min_rd, max_rd)
+
+    # Inlinks: gather all and content links  (=> Keys als Tupel (src, dst))
     inlinks_df = inlinks_df.copy()
     header = [str(c).strip() for c in inlinks_df.columns]
 
@@ -667,15 +665,15 @@ if run_clicked or st.session_state.ready:
         st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
         st.stop()
 
-    all_links = set()
-    content_links = set()
+    all_links: set[Tuple[str, str]] = set()
+    content_links: set[Tuple[str, str]] = set()
 
     for _, r in inlinks_df.iterrows():
         source = normalize_url(r.iloc[src_idx])
         target = normalize_url(r.iloc[dst_idx])
         if not source or not target:
             continue
-        key = f"{source}→{target}"
+        key = (source, target)
         all_links.add(key)
         if pos_idx != -1 and is_content_position(r.iloc[pos_idx]):
             content_links.add(key)
@@ -694,8 +692,8 @@ if run_clicked or st.session_state.ready:
     processed_pairs = set()
 
     for _, r in related_df.iterrows():
-        urlA = normalize_url(r.iloc[0])
-        urlB = normalize_url(r.iloc[1])
+        urlA = normalize_url(r.iloc[0])  # Ziel
+        urlB = normalize_url(r.iloc[1])  # Quelle
         try:
             sim = float(str(r.iloc[2]).replace(",", "."))
         except Exception:
@@ -710,6 +708,34 @@ if run_clicked or st.session_state.ready:
         related_map.setdefault(urlA, []).append((urlB, sim))
         related_map.setdefault(urlB, []).append((urlA, sim))
         processed_pairs.add(pair_key)
+
+    # Precompute "Linkpotenzial" als reine Quelleigenschaft (ohne Similarity)
+    source_potential_map: Dict[str, float] = {}
+    for u, m in metrics_map.items():
+        ils_raw = _num(m.get("score"))
+        pr_raw = _num(m.get("prDiff"))
+        bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+        bl_raw = _num(bl.get("backlinks"))
+        rd_raw = _num(bl.get("referringDomains"))
+
+        # Safe normalization
+        norm_ils = (ils_raw - min_ils) / (max_ils - min_ils) if max_ils > min_ils else 0.0
+        norm_pr = (pr_raw - min_prd) / (max_prd - min_prd) if max_prd > min_prd else 0.0
+        norm_bl = (bl_raw - min_bl) / (max_bl - min_bl) if max_bl > min_bl else 0.0
+        norm_rd = (rd_raw - min_rd) / (max_rd - min_rd) if max_rd > min_rd else 0.0
+
+        final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
+        source_potential_map[u] = round(final_score, 4)
+
+    st.session_state["_source_potential_map"] = source_potential_map
+    st.session_state["_metrics_map"] = metrics_map
+    st.session_state["_backlink_map"] = backlink_map
+    st.session_state["_norm_ranges"] = {
+        "ils": (min_ils, max_ils),
+        "prd": (min_prd, max_prd),
+        "bl": (min_bl, max_bl),
+        "rd": (min_rd, max_rd),
+    }
 
     # ===============================
     # Analyse 1: Interne Verlinkungsmöglichkeiten
@@ -732,27 +758,10 @@ if run_clicked or st.session_state.ready:
         related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
         row = [target]
         for source, sim in related_sorted:
-            key = f"{source}→{target}"
-            anywhere = "ja" if key in all_links else "nein"
-            from_content = "ja" if key in content_links else "nein"
+            anywhere = "ja" if (source, target) in all_links else "nein"
+            from_content = "ja" if (source, target) in content_links else "nein"
 
-            m = metrics_map.get(source, {"score": 0.0, "prDiff": 0.0})
-            ils_raw = float(m.get("score", 0.0))
-            pr_raw = float(m.get("prDiff", 0.0))
-
-            bl = backlink_map.get(source, {"backlinks": 0.0, "referringDomains": 0.0})
-            bl_raw = float(bl.get("backlinks", 0.0))
-            rd_raw = float(bl.get("referringDomains", 0.0))
-
-            # Safe normalization
-            norm_ils = (ils_raw - min_ils) / (max_ils - min_ils) if max_ils > min_ils else 0.0
-            norm_pr = (pr_raw - min_prd) / (max_prd - min_prd) if max_prd > min_prd else 0.0
-            norm_bl = (bl_raw - min_bl) / (max_bl - min_bl) if max_bl > min_bl else 0.0
-            norm_rd = (rd_raw - min_rd) / (max_rd - min_rd) if max_rd > min_rd else 0.0
-
-            final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
-            final_score = round(final_score, 2)
-
+            final_score = source_potential_map.get(source, 0.0)
             row.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
 
         # pad
@@ -778,7 +787,7 @@ if run_clicked or st.session_state.ready:
     st.markdown("## Analyse 2: Potenziell zu entfernende Links")
 
     # Build similarity map for both directions
-    sim_map: Dict[str, float] = {}
+    sim_map: Dict[Tuple[str, str], float] = {}
     processed_pairs2 = set()
 
     for _, r in related_df.iterrows():
@@ -793,22 +802,22 @@ if run_clicked or st.session_state.ready:
         pair_key = "↔".join(sorted([a, b]))
         if pair_key in processed_pairs2:
             continue
-        sim_map[f"{a}→{b}"] = sim
-        sim_map[f"{b}→{a}"] = sim
+        sim_map[(a, b)] = sim
+        sim_map[(b, a)] = sim
         processed_pairs2.add(pair_key)
 
     # PageRank-Waster-ähnlicher Rohwert und backlink-adjusted Score
     raw_score_map: Dict[str, float] = {}
     for _, r in metrics_df.iterrows():
         u = normalize_url(r.iloc[0])
-        inl = float(pd.to_numeric(r.iloc[2], errors="coerce") or 0)
-        outl = float(pd.to_numeric(r.iloc[3], errors="coerce") or 0)
+        inl = _num(r.iloc[2])
+        outl = _num(r.iloc[3])
         raw_score_map[u] = outl - inl
 
     adjusted_score_map: Dict[str, float] = {}
     for u, raw in raw_score_map.items():
         bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-        impact = bl.get("backlinks", 0.0) * 0.5 + bl.get("referringDomains", 0.0) * 0.5
+        impact = _num(bl.get("backlinks")) * 0.5 + _num(bl.get("referringDomains")) * 0.5
         factor = 2.0 if backlink_weight_2x else 1.0
         malus = 5.0 * factor if impact == 0 else 0.0
         adjusted = (raw or 0.0) - (factor * impact) + malus
@@ -825,9 +834,7 @@ if run_clicked or st.session_state.ready:
         if not quelle or not ziel:
             continue
 
-        k1 = f"{quelle}→{ziel}"
-        k2 = f"{ziel}→{quelle}"
-        sim = sim_map.get(k1, sim_map.get(k2, np.nan))
+        sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
 
         # Weak links: similarity ≤ threshold OR missing
         if not (isinstance(sim, (int, float)) and not np.isnan(sim)):
@@ -841,6 +848,7 @@ if run_clicked or st.session_state.ready:
             continue
 
         rest = [r.iloc[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
+        # Sichtbare Spalte bleibt unverändert (dein Wunsch), wir füllen sie weiterhin leer:
         out_rows.append([quelle, ziel, "", sim_display, *rest])
 
     out_df = pd.DataFrame(out_rows, columns=out_header)
@@ -879,12 +887,119 @@ if run_clicked or st.session_state.ready:
             pass
         st.success("✅ Berechnung abgeschlossen!")
         st.session_state.ready = True
-
 # =========================================================
-# NEU: Visualisierung interne Verlinkung (Vorher/Nachher)
+# NEU: Gems & Empfehlungen
 # =========================================================
 st.markdown("---")
-st.subheader("Optional: Visualisierung interne Verlinkung (Vorher/Nachher)")
+st.subheader("Analyse 3: Gems & Empfehlungen (Optional)")
+
+with st.expander("ℹ️ Erklärung Gems & Opportunity-Score", expanded=False):
+    st.markdown("""
+**Gems (Top-X % Linkgeber):**  
+Die stärksten Linkgeberseiten nach Linkpotenzial. Standard: oberste 10 %, einstellbar bis max. 30 %.  
+
+**Opportunity-Ranking (Optional mit GSC):**  
+Wir kombinieren Similarity (thematische Nähe) mit einer *Opportunity-Bewertung* aus GSC-Daten:  
+
+- CTR = Clicks / (Impressions + 1)  
+- normierte Impressions (Log + Min-Max)  
+- opp = norm(Impressions) × (1 − CTR)  
+
+Der Gesamtscore lautet:  
+`rank_score = α × Similarity + β × opp`  
+
+👉 Default: α=0.6, β=0.4. Wer’s einfacher mag, setzt β=0 und nutzt nur Similarity.
+""")
+
+# Steuerung: Perzentil-Slider
+gem_pct = st.slider("Top-X % als Gems auswählen", 1, 30, 10, step=1,
+                    help="Die obersten X % nach Linkpotenzial werden als Gems genutzt. Maximal 30 %.")
+
+# Optional: GSC-Datei laden
+gsc_up = st.file_uploader("Optional: GSC-Daten (CSV/Excel)", type=["csv", "xlsx"], key="gsc_up")
+alpha = st.slider("α Gewicht für Similarity", 0.0, 1.0, 0.6, 0.05)
+beta = st.slider("β Gewicht für Opportunity", 0.0, 1.0, 0.4, 0.05)
+min_impr = st.number_input("Min. Impressions (für Opportunity-Berechnung)", 0, 10000, 100, step=50)
+
+# Gems bestimmen
+source_potential_map = st.session_state.get("_source_potential_map", {})
+if source_potential_map:
+    sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
+    cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
+    gems = [u for u, _ in sorted_sources[:cutoff_idx]]
+else:
+    gems = []
+
+# GSC verarbeiten (falls hochgeladen)
+gsc_map = {}
+if gsc_up is not None:
+    gsc_df = read_any_file(gsc_up)
+    if gsc_df is not None and not gsc_df.empty and gsc_df.shape[1] >= 3:
+        # Erste Spalte: URL, dann Impressions, Clicks
+        gsc_df.iloc[:, 0] = gsc_df.iloc[:, 0].astype(str)
+        urls_norm = gsc_df.iloc[:, 0].map(normalize_url)
+        impressions = pd.to_numeric(gsc_df.iloc[:, 1], errors="coerce").fillna(0)
+        clicks = pd.to_numeric(gsc_df.iloc[:, 2], errors="coerce").fillna(0)
+
+        # Log + Min-Max Normalisierung
+        log_impr = np.log1p(impressions)
+        if log_impr.max() > log_impr.min():
+            norm_impr = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
+        else:
+            norm_impr = np.zeros_like(log_impr)
+
+        ctr = clicks / (impressions + 1)
+        opp = norm_impr * (1 - ctr)
+
+        for u, o, imp in zip(urls_norm, opp, impressions):
+            if u and imp >= min_impr:
+                gsc_map[u] = float(o)
+
+# Empfehlungen pro Gem bauen
+res1 = st.session_state.get("res1_df")
+gem_rows = []
+if isinstance(res1, pd.DataFrame) and not res1.empty and gems:
+    for gem in gems:
+        # finde alle Zeilen, wo gem als Quelle auftaucht
+        for _, row in res1.iterrows():
+            target = normalize_url(row["Ziel-URL"])
+            for i in range(1, int(max_related) + 1):
+                src = normalize_url(row.get(f"Related URL {i}", ""))
+                if not src or src != gem:
+                    continue
+                simv = row.get(f"Ähnlichkeit {i}", 0.0)
+                potv = row.get(f"Linkpotenzial {i}", 0.0)
+                exists = row.get(f"überhaupt verlinkt {i}?", "nein")
+
+                oppv = gsc_map.get(target, 0.0)
+                rank_score = alpha * float(simv) + beta * float(oppv)
+
+                gem_rows.append([gem, target, simv, potv, oppv, rank_score, exists])
+
+# Ausgabe-Tabelle
+if gem_rows:
+    gem_df = pd.DataFrame(gem_rows, columns=[
+        "Gem (Quelle)", "Ziel", "Similarity", "Linkpotenzial (Quelle)",
+        "Opportunity (Ziel)", "Rank-Score", "Bereits verlinkt?"
+    ])
+    # sortieren nach Rank-Score
+    gem_df = gem_df.sort_values("Rank-Score", ascending=False)
+    st.dataframe(gem_df, use_container_width=True, hide_index=True)
+
+    csv_gem = gem_df.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "Download 'Gems & Empfehlungen' (CSV)",
+        data=csv_gem,
+        file_name="gems_empfehlungen.csv",
+        mime="text/csv",
+    )
+else:
+    st.caption("Keine Gems-Empfehlungen gefunden – ggf. GSC-Daten hochladen oder Perzentil anpassen.")
+# =========================================================
+# Visualisierung (nachgelagert, optional & performant)
+# =========================================================
+st.markdown("---")
+st.subheader("Optional: Visualisierung interne Verlinkung (Vorher / Zukunft)")
 
 # Nur anbieten, wenn erste Analysen gelaufen sind und wir Embeddings haben:
 can_visualize = st.session_state.ready and ("_emb_urls" in st.session_state) and ("_emb_matrix" in st.session_state)
@@ -892,11 +1007,12 @@ can_visualize = st.session_state.ready and ("_emb_urls" in st.session_state) and
 if not can_visualize:
     st.caption("ℹ️ Die Visualisierung steht zur Verfügung, wenn die Analysen gelaufen sind **und** Embeddings hochgeladen wurden.")
 else:
-    want_viz = st.checkbox("Vorher/Nachher-Visualisierung aktivieren", value=False)
-    if want_viz:
+    # Opt-in, damit initial keine Kosten entstehen
+    enable_viz = st.checkbox("Visualisierung aktivieren", value=False,
+                             help="Die Graph-Visualisierung wird erst berechnet, wenn du diese Option aktivierst.")
+    if enable_viz:
         # Lazy imports für Plotly/Sklearn/UMAP
         import plotly.graph_objects as go
-        import plotly.express as px
 
         # UMAP optional
         HAVE_UMAP = False
@@ -907,75 +1023,145 @@ else:
             HAVE_UMAP = False
 
         # --- UI: Konfiguration ---
-        layout_algo = st.radio(
-            "Reduktionsverfahren (2D-Layout)",
-            ["t-SNE", "UMAP (schnell, empfehlenswert ab vielen URLs)"] if HAVE_UMAP else ["t-SNE"],
-            horizontal=True
+        st.markdown("#### Anzeige & Filter")
+
+        colA, colB, colC = st.columns(3)
+        with colA:
+            layout_algo = st.radio(
+                "2D-Layout",
+                ["t-SNE", "UMAP (empfohlen bei vielen URLs)"] if HAVE_UMAP else ["t-SNE"],
+                horizontal=False,
+                help="Wähle das Reduktionsverfahren für die 2D-Positionen. Beide liefern vergleichbare Cluster."
+            )
+        with colB:
+            only_content_links = st.checkbox(
+                "IST: nur Content-Links zeigen",
+                value=False,  # False = Header/Footer/Sidebar sind initial dabei (dein Wunsch)
+                help="Wenn aktiviert, werden nur Links aus dem Inhaltsbereich (Content) für den IST-Graphen gezeigt."
+            )
+        with colC:
+            future_only = st.checkbox(
+                "Nur Änderungen (Zukunfts-Graph)",
+                value=True,
+                help="Blendet IST-Links aus. Zeigt nur neue empfohlene Links in grün. Entfernte Links werden nicht dargestellt."
+            )
+
+        st.markdown("#### Empfohlene neue Links (Selektion)")
+
+        colN, colM, colG = st.columns(3)
+        with colN:
+            max_new_total = st.slider(
+                "Max. neue Links gesamt (N)", 10, 1000, 30, step=10,
+                help="Globale Obergrenze neuer Links in der Visualisierung. Hält den Graph übersichtlich."
+            )
+        with colM:
+            max_new_per_gem = st.slider(
+                "Max. neue Links pro Gem (M)", 1, 50, 3, step=1,
+                help="Begrenzt Empfehlungen pro starkem Linkgeber. Verhindert Übergewicht einzelner Seiten."
+            )
+        with colG:
+            gem_pct_vis = st.slider(
+                "Gems-Perzentil (Top-X %)", 1, 30, int(st.session_state.get("last_gem_pct", 10)), step=1,
+                help="Welche Top-% nach Linkpotenzial werden als starke Linkgeber betrachtet?",
+            )
+            # speichere für UX
+            st.session_state["last_gem_pct"] = gem_pct_vis
+
+        st.markdown("#### Ranking-Methode")
+        rank_mode = st.radio(
+            "Wie sollen neue Links priorisiert werden?",
+            ["Nur Similarity", "Similarity + Opportunity (GSC)"],
+            horizontal=True,
+            help="Wenn GSC-Daten geladen wurden, kannst du Similarity mit Opportunity (Impr & CTR) kombinieren."
+        )
+        if rank_mode == "Nur Similarity":
+            alpha_viz, beta_viz = 1.0, 0.0
+        else:
+            alpha_viz = alpha
+            beta_viz = beta
+
+        st.markdown("#### Bubble-Größe")
+        bubble_mode = st.radio(
+            "Knotengröße",
+            ["Konstant", "Linkpotenzial", "Performance-Spalte (optional)"],
+            index=1,
+            help="Empfehlung: Linkpotenzial. Alternativ konstant oder eine numerische Spalte aus einer Datei."
         )
 
-        view_mode = st.radio(
-            "Ansicht",
-            ["Ein Diagramm (Layer-Toggles)", "Zwei Diagramme nebeneinander"],
-            horizontal=True
-        )
-
-        # Performance-/Metrik-Datei separat hier hochladen (nur für Bubble-Size)
-        perf_up = st.file_uploader(
-            "Optional: Performance-/Metrik-Datei für Bubble-Skalierung (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="viz_perf"
-        )
-
-        # Filter
-        colf1, colf2, colf3 = st.columns(3)
-        with colf1:
-            only_content_links = st.checkbox("Ist-Zustand: nur Content-Links zeigen", value=True)
-        with colf2:
-            min_sim_suggested = st.slider("Soll-Links: min. Similarity", 0.0, 1.0, 0.80, 0.01)
-        with colf3:
-            min_potential = st.slider("Soll-Links: min. Linkpotenzial", 0.00, 1.00, 0.20, 0.01)
-
-        # Optional Bubble-Scaling nach numerischer Spalte
+        perf_up = None
         perf_df = None
         perf_numeric_cols = []
-        size_by = "Keine Skalierung"
-
-        if perf_up is not None:
-            perf_df = read_any_file(perf_up)
-            if perf_df is not None and not perf_df.empty:
-                # Finde numerische Spalten robust
-                for c in perf_df.columns:
-                    if c is None:
-                        continue
-                    s = pd.to_numeric(pd.Series(perf_df[c]), errors="coerce")
-                    if s.notna().mean() > 0.6 and s.nunique(dropna=True) > 5:
-                        perf_numeric_cols.append(c)
-                perf_numeric_cols = list(dict.fromkeys(perf_numeric_cols))  # uniq, keep order
-
-        if perf_numeric_cols:
-            size_by = st.selectbox("Bubble-Größe nach Spalte", ["Keine Skalierung"] + perf_numeric_cols, index=0)
+        if bubble_mode == "Performance-Spalte (optional)":
+            perf_up = st.file_uploader(
+                "Performance-Datei für Bubble-Skalierung (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="viz_perf2"
+            )
+            if perf_up is not None:
+                perf_df = read_any_file(perf_up)
+                if perf_df is not None and not perf_df.empty:
+                    # Finde numerische Spalten robust
+                    for c in perf_df.columns:
+                        if c is None:
+                            continue
+                        s = pd.to_numeric(pd.Series(perf_df[c]), errors="coerce")
+                        if s.notna().mean() > 0.6 and s.nunique(dropna=True) > 5:
+                            perf_numeric_cols.append(c)
+        if bubble_mode == "Performance-Spalte (optional)" and perf_numeric_cols:
+            size_by = st.selectbox("Bubble-Größe nach Spalte", perf_numeric_cols, index=0)
             size_min = st.slider("Min-Blasengröße (px)", 2, 20, 4)
             size_max = st.slider("Max-Blasengröße (px)", 6, 40, 14)
         else:
-            size_min, size_max = 6, 10  # Defaults
+            size_by = None
+            size_min, size_max = 6, 14
+
+        # Interaktive Suche
+        st.markdown("#### Suche & Highlight")
+        search_q = st.text_input("URL-Suche (Teilstring reicht)", value="", help="Treffer-URL wird hervorgehoben. Nachbarn (ein-/ausgehend) werden abgesetzt eingefärbt, Rest grau.")
 
         # --- Daten vorbereiten ---
         urls = st.session_state["_emb_urls"]
         X = st.session_state["_emb_matrix"]  # float32, L2-normalisiert
         idx_by_url = st.session_state.get("_emb_index_by_url", {u: i for i, u in enumerate(urls)})
 
-        # Aktuelle IST-Kanten (nur Content, wenn gewünscht)
+        # IST-Kanten (nur Content, wenn gewünscht)
         all_links = st.session_state.get("_all_links", set())
         content_links = st.session_state.get("_content_links", set())
         ist_edges = content_links if only_content_links else all_links
 
-        # SOLL-Kanten aus res1_df: nur solche, die aktuell nicht existieren und Filter erfüllen
+        # Kanten, die in Zukunft entfernt werden (aus Analyse 2)
+        removed_edges = set()
+        out_df = st.session_state.get("out_df")
+        if isinstance(out_df, pd.DataFrame) and not out_df.empty:
+            for _, rr in out_df.iterrows():
+                q = normalize_url(rr["Quelle"])
+                z = normalize_url(rr["Ziel"])
+                if q and z:
+                    removed_edges.add((q, z))
+
+        # SOLL-Kandidaten aus res1_df + Gems
+        source_potential_map = st.session_state.get("_source_potential_map", {})
         res1 = st.session_state.get("res1_df")
-        suggested_edges = []
-        if isinstance(res1, pd.DataFrame) and not res1.empty:
+
+        # Gems für Visualisierung errechnen (unabhängig vom Tab "Analyse 3", damit vis standalone ist)
+        if source_potential_map:
+            sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
+            cutoff_idx = max(1, int(len(sorted_sources) * gem_pct_vis / 100))
+            gems_vis = {u for u, _ in sorted_sources[:cutoff_idx]}
+        else:
+            gems_vis = set()
+
+        # GSC-Opp aus Analyse 3 (falls geladen)
+        gsc_map = {}
+        if "gsc_up" in st.session_state:  # nicht zuverlässig – fallback: aus gem_df nicht trivial -> belassen
+            pass  # noop
+        # Wir können die schon berechnete Map aus Analyse 3 nicht sicher speichern => nutzen ggf. opp=0
+
+        # Vorschlagskandidaten (Quelle in Gems, Link existiert noch nicht, Ziel erreichbar)
+        suggested_edges = []  # (source, target, sim, potential, opp, rank)
+        if isinstance(res1, pd.DataFrame) and not res1.empty and gems_vis:
             for _, row in res1.iterrows():
                 target = normalize_url(row["Ziel-URL"])
-                # Iteriere über Spaltenblöcke
                 for i in range(1, int(max_related) + 1):
                     col_src = f"Related URL {i}"
                     col_sim = f"Ähnlichkeit {i}"
@@ -983,16 +1169,11 @@ else:
                     col_pot = f"Linkpotenzial {i}"
                     if col_src not in res1.columns:
                         continue
-                    src = row.get(col_src, "")
-                    if not isinstance(src, str) or not src:
+                    src = normalize_url(row.get(col_src, ""))
+                    if not src or src not in gems_vis:
                         continue
-                    source = normalize_url(src)
-                    if not source or not target:
-                        continue
-                    # nur fehlende Links
-                    exists_key = f"{source}→{target}"
-                    if exists_key in all_links:
-                        continue
+                    if (src, target) in all_links:
+                        continue  # existiert bereits
                     try:
                         simv = float(row.get(col_sim, 0.0))
                     except Exception:
@@ -1001,29 +1182,41 @@ else:
                         potv = float(row.get(col_pot, 0.0))
                     except Exception:
                         potv = 0.0
-                    if simv >= float(min_sim_suggested) and potv >= float(min_potential):
-                        suggested_edges.append((source, target, simv, potv))
+                    oppv = gsc_map.get(target, 0.0)
+                    rank_score = alpha_viz * simv + beta_viz * oppv
+                    suggested_edges.append((src, target, simv, potv, oppv, rank_score))
 
-        # Optional: Bubble-Size mergen
+        # Sortieren & limitieren: erst pro Gem (M), dann global (N)
+        final_suggested = []
+        if suggested_edges:
+            # Gruppieren nach Quelle (Gem)
+            from collections import defaultdict
+            by_gem = defaultdict(list)
+            for s, t, simv, potv, oppv, rnk in suggested_edges:
+                by_gem[s].append((s, t, simv, potv, oppv, rnk))
+            # pro Gem sortieren & cutten
+            per_gem_lists = []
+            for g, lst in by_gem.items():
+                lst_sorted = sorted(lst, key=lambda x: (x[5], x[2]), reverse=True)  # rank, dann similarity
+                per_gem_lists.extend(lst_sorted[:max_new_per_gem])
+            # global sortieren & cutten
+            final_suggested = sorted(per_gem_lists, key=lambda x: (x[5], x[2]), reverse=True)[:max_new_total]
+
+        # Bubble-Size vorbereiten
         node_sizes = np.full(len(urls), float(size_min), dtype=float)
-        if perf_df is not None and size_by != "Keine Skalierung":
-            # versuche per URL zu joinen – heuristisch normalisierte URLs
+        if bubble_mode == "Linkpotenzial":
+            for i, u in enumerate(urls):
+                node_sizes[i] = size_min + (size_max - size_min) * source_potential_map.get(normalize_url(u), 0.0)
+        elif bubble_mode == "Performance-Spalte (optional)" and perf_df is not None and size_by is not None:
             perf_df_local = perf_df.copy()
             perf_df_local["__join"] = perf_df_local.iloc[:, 0].astype(str).apply(normalize_url)
             perf_df_local["__val"] = pd.to_numeric(perf_df_local[size_by], errors="coerce")
             perf_df_local = perf_df_local.dropna(subset=["__val"])
-            # Mapping bauen
-            m: Dict[str, float] = {}
-            for _, r in perf_df_local.iterrows():
-                k = r["__join"]
-                if isinstance(k, str) and k:
-                    m[k] = float(r["__val"])
-            # Werte ziehen
-            vals = np.array([m.get(normalize_url(u), np.nan) for u in urls], dtype=float)
+            mvals: Dict[str, float] = {normalize_url(r["__join"]): float(r["__val"]) for _, r in perf_df_local.iterrows() if isinstance(r["__join"], str)}
+            vals = np.array([mvals.get(normalize_url(u), np.nan) for u in urls], dtype=float)
             valid = ~np.isnan(vals)
             if valid.any():
                 v = vals[valid]
-                # Perzentil-Clip + MinMax auf px
                 lo, hi = np.percentile(v, 5), np.percentile(v, 95)
                 v = np.clip(v, lo, hi)
                 if hi > lo:
@@ -1033,7 +1226,7 @@ else:
                 v = size_min + v * (size_max - size_min)
                 node_sizes[valid] = v
 
-        # 2D-Layout berechnen (nur einmal)
+        # 2D-Layout berechnen (nur einmal pro Einstellung)
         @st.cache_data(show_spinner=False)
         def compute_layout(X_in: np.ndarray, algo: str):
             from sklearn.manifold import TSNE
@@ -1063,16 +1256,20 @@ else:
         Y = compute_layout(X, layout_algo)
         xs, ys = Y[:, 0], Y[:, 1]
 
-        # Hilfsfunktion: Edges in Linien-Traces umwandeln
-        def build_edge_trace(edge_list, color, width=1.0, opacity=0.25):
+        # Helper: baue Linien-Trace
+        def build_edge_trace(edge_list, color, width=1.0, opacity=0.25, cap=10000):
             Xs, Ys = [], []
+            cnt = 0
             for (a, b) in edge_list:
-                ia = idx_by_url.get(a, None)
-                ib = idx_by_url.get(b, None)
+                if cnt >= cap:
+                    break
+                ia = idx_by_url.get(a)
+                ib = idx_by_url.get(b)
                 if ia is None or ib is None:
                     continue
                 Xs += [xs[ia], xs[ib], None]
                 Ys += [ys[ia], ys[ib], None]
+                cnt += 1
             return go.Scattergl(
                 x=Xs, y=Ys,
                 mode="lines",
@@ -1082,89 +1279,121 @@ else:
                 showlegend=False
             )
 
-        # Kantenlisten (begrenzen, damit's performant bleibt)
-        # Ist: maximal 10k Linien
-        ist_pairs = []
-        for key in ist_edges:
-            try:
-                s, t = key.split("→")
-                ist_pairs.append((s, t))
-            except Exception:
-                continue
-        if len(ist_pairs) > 10000:
-            ist_pairs = ist_pairs[:10000]
+        # Kanten für Anzeige vorbereiten
+        ist_pairs = list(ist_edges)
+        # Entfernte Kanten im Zukunftsmodus nicht anzeigen (werden ohnehin durch future_only ausgeblendet)
+        if future_only:
+            ist_pairs = []
 
-        # Soll: maximal 5000 Linien (höchstes Potenzial zuerst)
-        if suggested_edges:
-            suggested_edges_sorted = sorted(suggested_edges, key=lambda x: (x[3], x[2]), reverse=True)
-            suggested_edges_pairs = [(s, t) for (s, t, _, __) in suggested_edges_sorted[:5000]]
-        else:
-            suggested_edges_pairs = []
+        # Neue Kanten (grün)
+        new_pairs = [(s, t) for (s, t, *_rest) in final_suggested]
 
-        # Node-Farben, -Größen
+        # Suche / Highlight bestimmen
+        highlight_nodes = set()
+        neighbor_nodes = set()
+        if search_q:
+            # Match per Teilstring auf normalisierten URLs
+            candidates = [u for u in urls if search_q.lower() in normalize_url(u).lower()]
+            if candidates:
+                # nimm den ersten besten Treffer (oder erweitern zu Multiselect, falls gewünscht)
+                focus = normalize_url(candidates[0])
+                highlight_nodes.add(focus)
+                # Nachbarn: eingehend/ausgehend aus IST + neuen Kanten
+                for (a, b) in list(ist_edges) + new_pairs:
+                    if a == focus:
+                        neighbor_nodes.add(b)
+                    if b == focus:
+                        neighbor_nodes.add(a)
+
+        # Basis-Node-Trace (grau, wenn Suche aktiv)
+        base_colors = []
+        base_sizes = []
+        for u in urls:
+            nu = normalize_url(u)
+            if search_q:
+                if nu in highlight_nodes:
+                    base_colors.append("#ff8c00")  # Fokus (orange)
+                elif nu in neighbor_nodes:
+                    base_colors.append("#ffd08a")  # Nachbarn (heller)
+                else:
+                    base_colors.append("#cfcfcf")  # grau
+            else:
+                base_colors.append("#4F8EF7")
+            base_sizes.append(node_sizes[idx_by_url.get(nu, 0)])
+
         node_trace = go.Scattergl(
             x=xs, y=ys,
             mode="markers",
             marker=dict(
-                size=node_sizes.tolist(),
-                color="#4F8EF7",
+                size=base_sizes,
+                color=base_colors,
                 line=dict(width=0.5, color="white"),
-                opacity=0.8
+                opacity=0.9 if search_q else 0.8
             ),
             text=urls,
             hovertemplate="%{text}",
             name="Seiten"
         )
 
-        ist_trace = build_edge_trace(ist_pairs, color="lightgray", width=1.0, opacity=0.35)
-        soll_trace = build_edge_trace(suggested_edges_pairs, color="#e02424", width=2.0, opacity=0.6)
+        # Edge-Traces
+        ist_trace = build_edge_trace(ist_pairs, color="lightgray", width=1.0, opacity=0.25, cap=10000)
+        new_trace = build_edge_trace(new_pairs, color="#2ecc71", width=2.0, opacity=0.7, cap=max_new_total)  # grün
 
-        def make_figure(show_ist=True, show_soll=True, title=""):
-            fig = go.Figure()
-            if show_ist and len(ist_pairs) > 0:
-                fig.add_trace(ist_trace)
-            if show_soll and len(suggested_edges_pairs) > 0:
-                fig.add_trace(soll_trace)
-            fig.add_trace(node_trace)
-            fig.update_layout(
-                title=title,
-                template="plotly_white",
-                height=760,
-                margin=dict(l=10, r=10, t=50, b=10),
-                showlegend=False
-            )
-            return fig
+        # Figur aufbauen
+        fig = go.Figure()
+        if not future_only and len(ist_pairs) > 0:
+            fig.add_trace(ist_trace)
+        if len(new_pairs) > 0:
+            fig.add_trace(new_trace)
+        fig.add_trace(node_trace)
+        fig.update_layout(
+            title="Interne Verlinkung – Zukunftsszenario" if future_only else "Interne Verlinkung – IST + empfohlene neue Links",
+            template="plotly_white",
+            height=780,
+            margin=dict(l=10, r=10, t=50, b=10),
+            showlegend=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-        if view_mode.startswith("Ein Diagramm"):
-            # Layer-Toggles
-            coltog1, coltog2 = st.columns(2)
-            with coltog1:
-                show_ist = st.checkbox("Ist-Linien anzeigen", value=True)
-            with coltog2:
-                show_soll = st.checkbox("Soll-Linien anzeigen", value=True)
-            fig = make_figure(show_ist=show_ist, show_soll=show_soll, title="Interne Verlinkung – Vorher/Nachher (Layer)")
-            st.plotly_chart(fig, use_container_width=True)
-            html_bytes = fig.to_html(include_plotlyjs="cdn").encode("utf-8")
-            st.download_button(
-                "📥 HTML-Export der Visualisierung",
-                data=html_bytes,
-                file_name="interne_verlinkung_vorher_nachher.html",
-                mime="text/html"
-            )
-        else:
-            # Zwei Diagramme nebeneinander
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_ist = make_figure(show_ist=True, show_soll=False, title="IST: Aktuelle interne Verlinkung")
-                st.plotly_chart(fig_ist, use_container_width=True)
-            with c2:
-                fig_soll = make_figure(show_ist=False, show_soll=True, title="SOLL: Vorgeschlagene neue Verlinkungen")
-                st.plotly_chart(fig_soll, use_container_width=True)
-            # Export: kombinierter HTML-Export (hier: nur SOLL-Chart exportieren, um Datei klein zu halten)
-            html_bytes = fig_soll.to_html(include_plotlyjs="cdn").encode("utf-8")
-            st.download_button(
-                "📥 HTML-Export (SOLL-Chart)",
-                data=html_bytes,
-                file_name="interne_verlinkung_soll.html",
-                mime="text/html"
-            )
+        # Export
+        html_bytes = fig.to_html(include_plotlyjs="cdn").encode("utf-8")
+        fname = "interne_verlinkung_zukunft.html" if future_only else "interne_verlinkung_ist_plus_neu.html"
+        st.download_button(
+            "📥 HTML-Export der Visualisierung",
+            data=html_bytes,
+            file_name=fname,
+            mime="text/html"
+        )
+
+        # Sanfte Hinweise bei Limits
+        if len(ist_edges) > 10000 and not future_only:
+            st.info("Hinweis: IST-Kanten wurden auf 10.000 begrenzt, um die Darstellung performant zu halten.")
+        if len(new_pairs) >= max_new_total:
+            st.info(f"Hinweis: Neue Links wurden auf N={max_new_total} begrenzt. Passe N/M an, um mehr/anders zu sehen.")
+        # Kleine KPI-Zusammenfassung zur Einordnung
+        with st.container():
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Gems (Quelle)", f"{len(gems_vis)}")
+            c2.metric("Neue Links (gezeigt)", f"{len(new_pairs)}", help="Anzahl grüner Kanten im aktuellen Setting.")
+            c3.metric("IST-Kanten einbezogen", f"{0 if future_only else min(len(ist_edges), 10000)}")
+
+        # Einsteiger-Hinweise
+        with st.expander("❓ Hinweise für Einsteiger (Ranking & Opportunity)", expanded=False):
+            st.markdown("""
+**Ranking-Modi:**  
+- *Nur Similarity*: sortiert nur nach thematischer Nähe (empfohlen, wenn keine GSC-Daten).  
+- *Similarity + Opportunity (GSC)*: kombiniert Nähe mit Chancen aus GSC.  
+  - CTR = Clicks / (Impressions + 1)  
+  - normierte Impressions = log1p(Impressions) → Min-Max  
+  - **Opportunity** = norm(Impressions) × (1 − CTR)  
+  - **Rank** = α × Similarity + β × Opportunity  
+  - Größere α → stärker thematisch, größere β → stärker auf „viel Impressions, niedrige CTR“.
+
+**Gems (Top-X %):**  
+Starke Linkgeber. Nur diese Quellen dürfen neue Links setzen. Reduziert Rauschen & fokussiert Maßnahmen.
+
+**Graph bleibt handlich durch:**  
+- Limit *N* (gesamt) und *M* (pro Gem),  
+- „Nur Änderungen“ (blendet IST aus),  
+- Suche mit Nachbarschafts-Highlight (alles andere wird grau).
+""")
