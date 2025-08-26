@@ -899,32 +899,35 @@ st.markdown("---")
 st.subheader("Analyse 3: Starke Linkgeber („Gems“) & welche URLs diese verlinken sollten")
 
 with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
-    st.markdown("""
-So läuft's ab:
+    st.markdown(
+        """
+**So läuft es ab (kurz & klar):**
 
-1) Gems identifizieren  
-   Wir bewerten alle Seiten nach dem **Linkpotenzial-Score** (Mix aus internem Link-Score, PageRank-Horder, Backlinks, Ref. Domains).  
-   Die obersten *X %* (Slider) gelten als **Gems** = beste internen Linkgeber.
+1) **Gems identifizieren**  
+Wir bewerten alle Seiten nach dem **Linkpotenzial-Score** (Mix aus internem Link-Score, PageRank-Horder, Backlinks, Ref. Domains).  
+Die obersten *X %* (Slider) gelten als **Gems** = beste internen Linkgeber.
 
-2) Kandidaten-Ziele finden  
-   Für jedes Gem nehmen wir Ziel-URLs aus **Analyse 1**, bei denen das Gem als **Related** auftaucht **und** es **noch keinen Content-Link** vom Gem → Ziel gibt.  
-   (Die Similarity-Schwelle steuerst du oben bei „Ähnlichkeitsschwelle“.)
+2) **Kandidaten-Ziele finden**  
+Für jedes Gem nehmen wir Ziel-URLs aus **Analyse 1**, bei denen das Gem als **Related** auftaucht **und** es **noch keinen Content-Link** vom Gem → Ziel gibt.  
+(Die Similarity-Schwelle steuerst du oben bei „Ähnlichkeitsschwelle".)
 
-3) DRINGLICHKEIT (PRIO) berechnen  
-   Jede Ziel-URL bekommt einen PRIO-Wert aus diesen Signalen (Gewichte per Slider; sie **müssen nicht** 1 ergeben – wir normalisieren intern):  
-   - **LIHD** *(GSC nötig)*: `(1 − ILS_norm) × Demand_norm` – viel Nachfrage bei schwachem internem Link-Score.  
-   - **Inlinks-Defizit**: Anteil ähnlicher Quellen, die **noch nicht** verlinken (Similarity-gewichtet).  
-   - **Ranking 8–20** *(GSC-Position nötig)*: bevorzugt Seiten mit durchschnittlicher Position im Bereich 8–20.  
-   - **Orphan/Thin**: keine bzw. sehr wenige interne Inlinks.
+3) **DRINGLICHKEIT (PRIO) berechnen** – **ohne Opportunity/CTR**  
+Jede Ziel-URL bekommt einen PRIO-Wert aus diesen Signalen (Gewichte per Slider; sie **müssen nicht** 1 ergeben – wir normalisieren intern):  
+- **LIHD** *(GSC nötig)*: `(1 − ILS_norm) × Demand_norm` – viel Nachfrage bei schwachem internem Link-Score.  
+- **Inlinks-Defizit**: Anteil ähnlicher Quellen, die **noch nicht** verlinken (Similarity-gewichtet).  
+- **Ranking 8–20** *(GSC-Position nötig)*: bevorzugt Seiten mit durchschnittlicher Position im Bereich 8–20.  
+- **Orphan/Thin**: keine bzw. sehr wenige interne Inlinks.
 
-4) Ausgabe & Sortierung  
-   Pro Gem listen wir die Top-Z Ziele **absteigend nach PRIO** (bei Gleichstand entscheidet Similarity) – oder nach deinem Sortiermodus.  
-   Es erscheinen **nur Ziele ohne bestehenden Content-Link** vom jeweiligen Gem.  
-   Export: „Cheat-Sheet der internen Verlinkung“.
+4) **Ausgabe & Sortierung**  
+Pro Gem listen wir die Top-Z Ziele **absteigend nach PRIO** (bei Gleichstand entscheidet Similarity) – oder nach deinem Sortiermodus.  
+Es erscheinen **nur Ziele ohne bestehenden Content-Link** vom jeweiligen Gem.  
+Export: **„Cheat-Sheet der internen Verlinkung"**.
 
-Hinweis:  
+**Hinweis:**  
 LIHD & Ranking 8–20 benötigen einen GSC-Upload (URL, Impressions, optional Clicks, **Position**). Bis dahin sind die zugehörigen Regler ausgegraut.
-""")
+        """
+    )
+
 
 
 # --------------------------
