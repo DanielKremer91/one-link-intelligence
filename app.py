@@ -968,31 +968,45 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
     st.markdown('''
 ## Wie werden Gems & Zielseiten bestimmt?
 
-**So läuft's ab (kurz & klar):**
+**Kurz & klar:**
 
-1. **Gems identifizieren**  
-   Wir bewerten alle Seiten nach dem **Linkpotenzial-Score** (Mix aus internem Link-Score, PageRank-Horder, Backlinks, Ref. Domains).  
-   Die obersten *X %* (Slider) gelten als **Gems** = beste internen Linkgeber.
+1) **Gems identifizieren**  
+   Wir bewerten alle Seiten nach dem **Linkpotenzial-Score** (Mix aus *Interner Link Score*, *PageRank-Horder*, *Backlinks*, *Ref. Domains*).  
+   Die obersten *X %* (Slider **„Anteil starker Linkgeber“**) gelten als **Gems** = beste internen Linkgeber.
 
-2. **Kandidaten-Ziele finden**  
+2) **Kandidaten-Ziele finden**  
    Für jede Gem-URL nehmen wir Ziel-URLs aus **Analyse 1**, bei denen die Gem-URL als **Related URL** auftaucht **und** es **noch keinen Content-Link** vom Gem → Ziel gibt.  
-   (Die Similarity-Schwelle steuerst du oben bei "Ähnlichkeitsschwelle".)
+   Die inhaltliche Nähe steuert die **Ähnlichkeitsschwelle** in der Seitenleiste.
 
-3. **Dringlichkeit (PRIO) berechnen**  
-   Jede Ziel-URL bekommt einen PRIO-Wert aus diesen Signalen (Gewichte per Slider; sie **müssen nicht** 1 ergeben — wir normalisieren intern):  
-   - **LIHD** *(GSC-Daten wird benötigt)*: `(1 − ILS_norm) × Demand_norm` — viel Nachfrage bei schwachem internem Link-Score.  
-   - **Inlinks-Defizit**: Anteil ähnlicher Quellen, die **noch nicht** verlinken (Similarity-gewichtet).  
-   - **Ranking 8–20** *(GSC-Position wird benötigt)*: bevorzugt Seiten mit durchschnittlicher Position im Bereich 8–20.  
-   - **Orphan/Thin**: keine bzw. sehr wenige interne Inlinks.
+3) **Dringlichkeit (PRIO) berechnen**  
+   Jede Ziel-URL erhält einen **PRIO-Wert** aus vier Signalen (Gewichte per Slider; Summe muss nicht 1 sein — wir normalisieren intern):
+   - **LIHD – Low Internal, High Demand** *(GSC nötig)*  
+     Formel: `LIHD = (1 − ILS_norm) × Demand_norm × (1 − β × Offpage_norm)`  
+     Bedeutet: viel Such-Nachfrage (Search Console Impressions) + schwacher interner Link-Score ⇒ höhere Dringlichkeit.  
+     **Offpage-Dämpfung** (standardmäßig aktiv): viele Backlinks/Ref. Domains reduzieren die Dringlichkeit; Stärke über **β**.
+   - **Inlinks-Defizit**  
+     Anteil ähnlicher Quellen, die **noch nicht aus dem Content** verlinken.  
+     **Similarity** dient als Gewicht: je ähnlicher, desto wichtiger der fehlende Link.  
+     Ebenfalls **Offpage-gedämpft**: starke externe Autorität des **Ziels** reduziert die Dringlichkeit.
+   - **Ranking Sprungbrett-URLs** *(Search Console Position nötig)*  
+     Bonus für URLs, deren **durchschnittliche Position** im eingestellten **Sweet-Spot (z. B. 8–20)** liegt.
+   - ** Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt**  
+     **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**).
 
-4. **Ausgabe & Sortierung**  
-   Pro Gem listen wir die Top-Z Ziele **absteigend nach PRIO** (bei Gleichstand entscheidet **Similarity**) — oder nach deinem Sortiermodus.  
-   Es erscheinen **nur Ziele ohne bestehenden Content-Link** vom jeweiligen Gem.  
-   Export: **"Cheat-Sheet der internen Verlinkung"**.
+4) **Ausgabe & Reihenfolge der Empfehlungen**  
+   Pro Gem listen wir die **Top-Z Ziele** (Slider **„Top-Ziele je Gem“**).  
+   Die Reihenfolge steuerst du über **„Reihenfolge der Empfehlungen“**:
+   - **Empfehlungs-Mix (Nähe + Dringlichkeit)** → Sortwert `= α · Similarity + (1 − α) · PRIO`  
+     Den Mix justierst du mit **„Gewichtung: Nähe vs. Dringlichkeit“ (α)**.
+   - **Nur Dringlichkeit** → sortiert nach PRIO.  
+   - **Nur inhaltliche Nähe** → sortiert nach Similarity.
 
-**Hinweis:**  
-LIHD & Ranking 8–20 benötigen einen GSC-Upload (URL, Impressions, optional Clicks, Position).
+**Hinweise:**
+- **Search Console Daten erforderlich** für LIHD (Impressions) und Ranking Sprungbrett-URLs (Position).  
+- **Offpage-Dämpfung** betrifft **LIHD** und **Inlinks-Defizit** und ist standardmäßig **aktiv** (abschaltbar).   
+- Alle Normalisierungen (z. B. ILS, Impressions, Offpage-Signale) erfolgen **relativ zu deinen hochgeladenen Daten**.
 ''')
+
 
 # --------------------------
 # Eingänge / Session aus Analyse 1+2 (werden für die Berechnung gebraucht)
@@ -1101,12 +1115,12 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 colA, colB = st.columns(2)
 with colA:
     w_lihd = st.slider(
-        "Gewicht: Low Internal, High Demand (LIHD)",
+        "Gewicht: Schwach verlinkt, aber hohe Nachfrage (LIHD)",
         0.0, 1.0, 0.30, 0.05, disabled=not has_gsc,
-        help="LIHD = (1 − ILS_norm) × Demand_norm. Heißt: viel Such-Nachfrage (SC-Impressions), aber zu schwach verlinkt ⇒ höhere Dringlichkeit."
+        help="Heißt: viel Such-Nachfrage (Search Console Impressions), aber zu schwach verlinkt ⇒ höhere Dringlichkeit."
     )
     w_def  = st.slider(
-        "Gewicht: Inlinks-Defizit (ähnliche Quellen verlinken nicht)",
+        "Gewicht: Inlinks-Defizit (Links von semantisch ähnliche URLs fehlen)",
         0.0, 1.0, 0.30, 0.05,
         help="Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto wichtiger ist der fehlende Link."
     )
@@ -1117,7 +1131,7 @@ with colB:
         help="Bevorzugt URLs mit durchschnittlicher Position im eingestellten Sprungbrett-Bereich (z. B. 8–20). Benötigt die GSC-Position für die URL."
     )
     w_orph = st.slider(
-        "Gewicht: Orphan/Thin",
+        "Gewicht: Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt",
         0.0, 1.0, 0.10, 0.05,
         help="Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
     )
@@ -1142,15 +1156,15 @@ beta_offpage = st.slider(
 st.markdown("##### Link-Abdeckung & Thin-Definition")
 
 thin_k = st.slider(
-    "Thin-Schwelle K (Inlinks ≤ K)", 0, 10, 2, 1,
-    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin'?"
+    "Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1,
+    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin' (sehr schwach verlinkt)?"
 )
 
 # Ranking-Sweet-Spot (direkt sichtbar)
 rank_minmax = st.slider(
-    "Ranking-Sweet-Spot (Positionen)",
+    "Ranking Sprungbrett-URL (Positionsbereich)",
     1, 50, (8, 20), 1,
-    help="Bereich der durchschnittlichen Position, der bevorzugt wird (z. B. 8–20).",
+    help="Bereich der durchschnittlichen Position einer (Sprungbrett-)URL, der bevorzugt wird (z. B. 8–20). These: URLs mit Rankings in diesem Bereich haben schon eine gewisse Relevanz aufgebaut, eine Optimierung in Form der Verbesserung der internen Verlinkung zahlt sich hier schneller aus als wenn eine URL von Position 50 auf Position 1 gehoben werden soll.",
     disabled=not has_pos
 )
 
