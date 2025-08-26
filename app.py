@@ -926,13 +926,8 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
 LIHD & Ranking 8–20 benötigen einen GSC-Upload (URL, Impressions, optional Clicks, Position).
 ''')
 
-# -- "Let's Go" Button NUR zum Starten der Berechnung; UI bleibt sichtbar
-run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
-if run_gems:
-    st.session_state["__gems_started__"] = True  # Merker: Schritt 3 wurde aktiv gestartet
-
 # --------------------------
-# Eingänge / Session aus Analyse 1+2 (werden später für die Berechnung gebraucht)
+# Eingänge / Session aus Analyse 1+2 (werden für die Berechnung gebraucht)
 # --------------------------
 res1_df: Optional[pd.DataFrame] = st.session_state.get("res1_df")
 source_potential_map: Dict[str, float] = st.session_state.get("_source_potential_map", {})
@@ -1009,78 +1004,86 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 colA, colB = st.columns(2)
 with colA:
     w_lihd = st.slider(
-        "Gewicht: LIHD (viel Nachfrage bei schwachem ILS)",
+        "Gewicht: LIHD (Nachfrage hoch, interne Links niedrig)",
         0.0, 1.0, 0.30, 0.05, disabled=not has_gsc,
-        help="(GSC nötig) LIHD = (1 − ILS_norm) × Demand_norm. Bevorzugt Seiten mit viel Nachfrage und schwachem internem Link-Score."
+        help="Einfach gesagt: viel Such-Nachfrage, aber zu wenig interne Links ⇒ höhere Dringlichkeit. (Benötigt GSC-Impressions)"
     )
     w_def  = st.slider(
-        "Gewicht: Inlinks-Defizit (similarity-gewichtet)",
+        "Gewicht: Inlinks-Defizit (ähnliche Quellen verlinken nicht)",
         0.0, 1.0, 0.30, 0.05,
-        help="Anteil der ähnlichen Quellen ('Related'), die noch nicht verlinken. Similarity dient als Gewicht."
+        help="Anteil der 'Related' Quellen, die noch nicht verlinken. Similarity dient als **Gewicht** (kein Extra-Threshold)."
     )
 with colB:
     w_rank = st.slider(
-        "Gewicht: Ranking 8–20",
+        "Gewicht: Ranking-Sweet-Spot (8–20)",
         0.0, 1.0, 0.30, 0.05, disabled=not has_pos,
-        help="(GSC-Position nötig) Bevorzugt Seiten mit durchschnittlicher Position im Bereich 8–20."
+        help="(GSC-Position nötig) Bevorzugt URLs mit durchschnittlicher Position im Bereich 8–20."
     )
     w_orph = st.slider(
         "Gewicht: Orphan/Thin",
         0.0, 1.0, 0.10, 0.05,
-        help="Orphan = keine internen Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
+        help="Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
     )
+
+# Abgrenzende Überschrift für Thin-Schwelle
+st.markdown("##### Link-Abdeckung & Thin-Definition")
+
 thin_k = st.slider(
     "Thin-Schwelle K (Inlinks ≤ K)", 0, 10, 2, 1,
-    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin verlinkt'?"
+    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin'?"
 )
 
-# Sweet-Spot für Ranking
-rank_minmax = st.slider(
-    "Ranking-Sweet-Spot (Positionen)", 1, 50, (8, 20), 1,
-    help="Bereich der durchschnittlichen Position, der als 'Sweet-Spot' gilt (Standard 8–20).",
-    disabled=not has_pos
-)
-rank_falloff = st.slider(
-    "Weicher Rand (Falloff, ± Positionen)", 0, 10, 2, 1,
-    help="Außerhalb des Sweet-Spots fällt das Gewicht innerhalb dieses Randes linear auf 0 ab.",
-    disabled=not has_pos
-)
+# Ranking-Sweet-Spot „Erweitert“ (Weicher Rand optional)
+with st.expander("Erweitert: Ranking-Sweet-Spot (Weicher Rand)", expanded=False):
+    rank_minmax = st.slider(
+        "Ranking-Sweet-Spot (Positionen)", 1, 50, (8, 20), 1,
+        help="Bereich der durchschnittlichen Position, der als 'Sweet-Spot' gilt.",
+        disabled=not has_pos
+    )
+    rank_falloff = st.slider(
+        "Weicher Rand (optional, ± Positionen)", 0, 10, 2, 1,
+        help="Außerhalb des Sweet-Spots fällt das Gewicht innerhalb dieses Randes linear auf 0 ab.",
+        disabled=not has_pos
+    )
 
-# Hinweis: Summe muss NICHT 1 sein
-eff_sum = (w_lihd if has_gsc else 0) + w_def + (w_rank if has_pos else 0) + w_orph
-if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
-    st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. "
-               "Sie muss nicht 1.0 sein – die Kombination wird intern normalisiert.")
-
-# Sortier-Logik
-alpha = st.slider(
-    "Balance α: Similarity ↔ Dringlichkeit (PRIO)",
-    0.0, 1.0, 0.6, 0.05,
-    help="α höher = stärker nach semantischer Nähe sortieren; α niedriger = stärker nach Dringlichkeit (PRIO)."
-)
+# Sortieren-nach + Balance-Regler direkt darunter
 sort_mode = st.radio(
     "Sortieren nach",
     ["Rank (α·Sim + (1−α)·PRIO)", "Nur PRIO", "Nur Similarity"],
     horizontal=True
 )
+alpha = st.slider(
+    "Balance α: Similarity ↔ Dringlichkeit (PRIO)",
+    0.0, 1.0, 0.6, 0.05,
+    help="α hoch = stärker nach semantischer Nähe sortieren; α niedrig = stärker nach Dringlichkeit (PRIO)."
+)
+
+# Info zur Summe (nur Hinweis, wir normalisieren intern)
+eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
+if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
+    st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (wird intern normalisiert)")
+
+# --- Let's Go Button jetzt UNTEN, nach Balance ---
+run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
 
 # ---------------------------------------------------------
-# Gate JETZT – nach der UI. Erst berechnen, wenn geklickt.
+# Gate NACH der UI. Erst berechnen, wenn geklickt (oder bereits fertig).
 # ---------------------------------------------------------
-compute_gems = st.session_state.get("__ready_gems__", False) or st.session_state.get("__gems_started__", False)
-if not compute_gems:
+if not (run_gems or st.session_state.get("__ready_gems__", False)):
     st.info("Stell die Regler ein und lade ggf. **GSC**. Dann klicke auf **Let's Go (Analyse 3)**.")
     st.stop()
 
-# --------------------------
-# Gems bestimmen (aus Linkpotenzial)
-# --------------------------
-if source_potential_map:
-    sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
-    cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
-    gems = [u for u, _ in sorted_sources[:cutoff_idx]]
-else:
-    gems = []
+# Wenn geklickt: Hunde-GIF zeigen
+if run_gems:
+    ph3 = st.empty()
+    with ph3.container():
+        c1, c2, c3 = st.columns([1,2,1])
+        with c2:
+            st.image(
+                "https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNDJweGExcHhhOWZneTZwcnAxZ211OWJienY5cWQ1YmpwaHR0MzlydiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dBRaPog8yxFWU/giphy.gif",
+                width=280
+            )
+            st.caption("Analyse 3 läuft … kurz Leckerli holen 🐶")
 
 # --------------------------
 # Hilfsfunktionen für PRIO-Signale
@@ -1106,36 +1109,6 @@ def lihd_for(u: str) -> float:
     d = float(demand_map.get(u, 0.0))
     return float((1.0 - ils_norm_for(u)) * d)
 
-def deficit_weighted_for(target: str) -> float:
-    if not isinstance(res1_df, pd.DataFrame):
-        return 0.0
-    row = res1_df.loc[res1_df["Ziel-URL"] == target]
-    if row.empty:
-        return 0.0
-    r = row.iloc[0]
-    sum_all = sum_missing = 0.0
-    i = 1
-    while True:
-        col_sim = f"Ähnlichkeit {i}"
-        col_src = f"Related URL {i}"
-        col_any = f"überhaupt verlinkt {i}?"
-        col_cont = f"aus Inhalt heraus verlinkt {i}?"
-        if col_sim not in res1_df.columns or col_src not in res1_df.columns:
-            break
-        sim_val = r.get(col_sim, np.nan)
-        src_val = normalize_url(r.get(col_src, ""))
-        if pd.isna(sim_val) or not src_val:
-            i += 1
-            continue
-        simf = float(sim_val) if pd.notna(sim_val) else 0.0
-        sum_all += max(0.0, simf)
-        # "fehlend" = kein Content-Link
-        from_content = str(r.get(col_cont, "nein")).strip().lower()
-        if from_content != "ja":
-            sum_missing += max(0.0, simf)
-        i += 1
-    return float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
-
 def rank_sweetspot_for(u: str, lo: int, hi: int, falloff: int) -> float:
     p = pos_map.get(u)
     if p is None:
@@ -1153,6 +1126,45 @@ def orphan_score_for(u: str, k: int) -> float:
     orphan = 1.0 if inl == 0 else 0.0
     thin   = 1.0 if inl <= k else 0.0
     return float(max(orphan, 0.5 * thin))
+
+def deficit_weighted_for(target: str) -> float:
+    if not isinstance(res1_df, pd.DataFrame):
+        return 0.0
+    row = res1_df.loc[res1_df["Ziel-URL"] == target]
+    if row.empty:
+        return 0.0
+    r = row.iloc[0]
+    sum_all = sum_missing = 0.0
+    i = 1
+    while True:
+        col_sim = f"Ähnlichkeit {i}"
+        col_src = f"Related URL {i}"
+        col_cont = f"aus Inhalt heraus verlinkt {i}?"
+        if col_sim not in res1_df.columns or col_src not in res1_df.columns:
+            break
+        sim_val = r.get(col_sim, np.nan)
+        src_val = normalize_url(r.get(col_src, ""))
+        if pd.isna(sim_val) or not src_val:
+            i += 1
+            continue
+        simf = float(sim_val) if pd.notna(sim_val) else 0.0
+        sum_all += max(0.0, simf)
+        # „fehlend“ = kein Content-Link
+        from_content = str(r.get(col_cont, "nein")).strip().lower()
+        if from_content != "ja":
+            sum_missing += max(0.0, simf)
+        i += 1
+    return float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
+
+# --------------------------
+# Gems bestimmen (aus Linkpotenzial)
+# --------------------------
+if source_potential_map:
+    sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
+    cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
+    gems = [u for u, _ in sorted_sources[:cutoff_idx]]
+else:
+    gems = []
 
 # --------------------------
 # PRIO je Ziel berechnen (normalisiert über aktive Gewichte)
@@ -1185,6 +1197,10 @@ if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
 # Empfehlungen pro Gem bauen (nur: kein Content-Link vorhanden)
 # --------------------------
 if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
+    # GIF schließen, falls offen
+    if run_gems:
+        try: ph3.empty()
+        except Exception: pass
     st.caption("Keine Gem-Daten/Analyse 1 fehlt. Bitte erst Schritt 1+2 ausführen.")
     st.stop()
 
@@ -1239,7 +1255,9 @@ if gem_rows:
         final_rows.extend(grp[:int(max_targets_per_gem)])
     gem_rows = final_rows
 
-# Ausgabe: Breite Tabelle + Download
+# --------------------------
+# Ausgabe: Breite Tabelle + Download  (→ HIER disp() FÜR ANZEIGE)
+# --------------------------
 if gem_rows:
     from collections import defaultdict
     by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
@@ -1257,11 +1275,12 @@ if gem_rows:
     rows = []
     for gem in ordered_gems:
         items = by_gem[gem]
-        row = [gem, round(pot_for(gem), 3)]
+        row = [disp(gem), round(pot_for(gem), 3)]              # ← disp(gem)
         for i in range(int(max_targets_per_gem)):
             if i < len(items):
                 target, simv, prio_t, sortv = items[i]
-                row += [target, round(simv, 3), round(prio_t, 3), round(sortv, 3)]
+                row += [disp(target),                           # ← disp(target)
+                        round(simv, 3), round(prio_t, 3), round(sortv, 3)]
             else:
                 row += [np.nan, np.nan, np.nan, np.nan]
         rows.append(row)
@@ -1276,6 +1295,16 @@ if gem_rows:
         file_name="Cheat-Sheet der internen Verlinkung.csv",
         mime="text/csv",
     )
+
+    # GIF schließen & Erfolg melden
+    if run_gems:
+        try: ph3.empty()
+        except Exception: pass
+        st.success("✅ Analyse 3 abgeschlossen!")
+
     st.session_state["__ready_gems__"] = True
 else:
+    if run_gems:
+        try: ph3.empty()
+        except Exception: pass
     st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
