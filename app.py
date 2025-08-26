@@ -31,7 +31,7 @@ st.title("ONE Link Intelligence")
 
 st.markdown(
     """
-<div style="background-color: #f2f2f2; color: #000000; padding: 15px 20px; border-radius: 6px; font-size: 1.2em; max-width: 900px; margin-bottom: 1.5em; line-height: 1.5;">
+<div style="background-color: #f2f2f2; color: #000000; padding: 15px 20px; border-radius: 6px; font-size: 0.9em; max-width: 900px; margin-bottom: 1.5em; line-height: 1.5;">
   Entwickelt von <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">Daniel Kremer</a> von <a href="https://onebeyondsearch.com/" target="_blank">ONE Beyond Search</a> &nbsp;|&nbsp;
   Folge mir auf <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">LinkedIn</a> für mehr SEO-Insights und Tool-Updates
 </div>
@@ -66,7 +66,7 @@ def find_column_index(header: List[str], possible_names: List[str]) -> int:
 
 def normalize_url(u: str) -> str:
     """URL-Kanonisierung: Protokoll ergänzen, Tracking-Parameter entfernen, Query sortieren,
-    Trailing Slash normalisieren, www. entfernen."""
+    Trailing Slash normalisieren, www. entfernen (nur intern für Keys)."""
     try:
         s = str(u or "").strip()
         if not s:
@@ -101,7 +101,6 @@ def normalize_url(u: str) -> str:
         query = urlencode(qs)
 
         hostname = (p.hostname or "").lower()
-        # www. automatisch entfernen
         if hostname.startswith("www."):
             hostname = hostname[4:]
 
@@ -122,6 +121,30 @@ def is_content_position(position_raw) -> bool:
         token in pos_norm for token in ["inhalt", "content", "body", "main", "artikel", "article"]
     )
 
+# --- Anzeige-Originale merken/anzeigen ---
+_ORIG_MAP: Dict[str, str] = {}  # key: canonical -> original (bevorzugt mit Slash, falls verfügbar)
+
+def remember_original(raw: str) -> str:
+    """Merkt sich die original eingegebene URL-Form für die Anzeige, liefert den kanonischen Key zurück."""
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    key = normalize_url(s)
+    if not key:
+        return ""
+    prev = _ORIG_MAP.get(key)
+    if prev is None:
+        _ORIG_MAP[key] = s
+    else:
+        # Bevorzuge eine Version MIT trailing slash in der Anzeige
+        if (not prev.endswith("/")) and s.endswith("/"):
+            _ORIG_MAP[key] = s
+    return key
+
+def disp(key_or_url: str) -> str:
+    """Gibt die gemerkte Original-URL-Form zur Anzeige zurück (Fallback: Eingabe)."""
+    return _ORIG_MAP.get(str(key_or_url), str(key_or_url))
+
 # --- Embedding parser helper (robust) ---
 def parse_vec(x) -> Optional[np.ndarray]:
     """
@@ -140,14 +163,12 @@ def parse_vec(x) -> Optional[np.ndarray]:
     if not s:
         return None
 
-    # JSON-Array?
     if s.startswith("[") and s.endswith("]"):
         try:
             return np.asarray(json.loads(s), dtype=float)
         except Exception:
             pass
 
-    # Klammern raus, dann an Komma/Whitespace/; / | splitten
     s_clean = re.sub(r"[\[\]]", "", s)
     parts = [p for p in re.split(r"[,\s;|]+", s_clean) if p]
 
@@ -165,22 +186,19 @@ def read_any_file(f) -> Optional[pd.DataFrame]:
     name = (getattr(f, "name", "") or "").lower()
     try:
         if name.endswith(".csv"):
-            # Mehrere Encodings probieren
             for enc in ["utf-8-sig", "utf-8", "cp1252", "latin1"]:
                 try:
                     f.seek(0)
-                    # Delimiter sniffer braucht den python-Parser
                     return pd.read_csv(
                         f,
-                        sep=None,            # Trenner automatisch erkennen
-                        engine="python",     # nötig für sep=None
+                        sep=None,
+                        engine="python",
                         encoding=enc,
-                        on_bad_lines="skip", # robust gegen Ausreißer
+                        on_bad_lines="skip",
                     )
                 except UnicodeDecodeError:
                     continue
                 except Exception:
-                    # Mehrere Fallback-Delimiter testen
                     for sep_try in [";", ",", "\t"]:
                         try:
                             f.seek(0)
@@ -221,10 +239,10 @@ def build_related_from_embeddings(
         import faiss  # type: ignore
 
         dim = V.shape[1]
-        index = faiss.IndexFlatIP(dim)  # Inner Product == Cosine bei L2-Norm
+        index = faiss.IndexFlatIP(dim)
         Vf = V.astype("float32")
         index.add(Vf)
-        topk = min(K + 1, n)  # +1, Self-Match fällt raus
+        topk = min(K + 1, n)
         D, I = index.search(Vf, topk)
         for i in range(n):
             taken = 0
@@ -239,16 +257,15 @@ def build_related_from_embeddings(
                 if taken >= K:
                     break
     else:
-        # Exakte Brute-Force Variante (NumPy)
         sims_full = V @ V.T  # N x N
-        np.fill_diagonal(sims_full, -1.0)  # Self-Match ausschließen
+        np.fill_diagonal(sims_full, -1.0)
         for i in range(n):
             sims = sims_full[i]
             if K < n - 1:
                 idx = np.argpartition(sims, -K)[-K:]
             else:
                 idx = np.argsort(sims)
-            idx = idx[np.argsort(sims[idx])][::-1]  # absteigend sortiert
+            idx = idx[np.argsort(sims[idx])][::-1]
             taken = 0
             for j in idx:
                 s = float(sims[j])
@@ -335,7 +352,6 @@ with st.sidebar:
 
     st.header("Einstellungen")
 
-    # Matching-Backend (weiter oben, ausführliche Hilfe)
     try:
         import faiss  # type: ignore
         faiss_available = True
@@ -494,7 +510,6 @@ if not run_clicked and not st.session_state.ready:
 # GIF nur anzeigen, wenn jetzt gerechnet wird
 if run_clicked:
     placeholder = st.empty()
-    # kleiner + mittig anzeigen
     with placeholder.container():
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
@@ -533,11 +548,11 @@ if run_clicked or st.session_state.ready:
             urls: List[str] = []
             vecs: List[np.ndarray] = []
             for _, r in emb_df.iterrows():
-                u = normalize_url(r[url_col])
+                nkey = remember_original(r[url_col])
                 v = parse_vec(r[emb_col])
-                if not u or v is None:
+                if not nkey or v is None:
                     continue
-                urls.append(u)
+                urls.append(nkey)  # kanonischer Key
                 vecs.append(v)
 
             if len(vecs) < 2:
@@ -557,14 +572,13 @@ if run_clicked or st.session_state.ready:
             norms = np.linalg.norm(V, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             V = V / norms
-            V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)  # <- robust gegen NaN/Inf
-
+            V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
 
             if shorter > 0:
                 st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
 
             related_df = build_related_from_embeddings(
-                urls=urls,
+                urls=urls,  # kanonische Keys
                 V=V,
                 top_k=int(max_related),
                 sim_threshold=float(sim_threshold),
@@ -572,7 +586,7 @@ if run_clicked or st.session_state.ready:
                 faiss_available=bool(faiss_available),
             )
 
-            # ---- Embeddings & URLs im Session-State ablegen (nur in diesem Modus) ----
+            # Embeddings & URLs im Session-State ablegen
             try:
                 if isinstance(urls, list) and isinstance(V, np.ndarray) and V.size > 0:
                     st.session_state["_emb_urls"] = list(urls)
@@ -584,6 +598,7 @@ if run_clicked or st.session_state.ready:
                     st.session_state.pop("_emb_index_by_url", None)
             except Exception:
                 pass
+
     # Prüfen, ob alles da ist
     have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
     if not have_all:
@@ -598,7 +613,6 @@ if run_clicked or st.session_state.ready:
     metrics_df = metrics_df.copy()
     metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
 
-    # Erwartet: [url, score, inlinks, outlinks] (wie im GAS)
     if metrics_df.shape[1] < 4:
         st.error("'Linkmetriken' braucht mindestens 4 Spalten: URL, Score, Inlinks, Outlinks (in dieser Reihenfolge).")
         st.stop()
@@ -610,7 +624,7 @@ if run_clicked or st.session_state.ready:
     min_prd, max_prd = float("inf"), float("-inf")
 
     for _, r in metrics_df.iterrows():
-        u = normalize_url(r.iloc[0])
+        u = remember_original(r.iloc[0])  # merke Original, nutze Key
         if not u:
             continue
         score = _num(r.iloc[1])
@@ -632,7 +646,7 @@ if run_clicked or st.session_state.ready:
     min_bl, max_bl = float("inf"), float("-inf")
 
     for _, r in backlinks_df.iterrows():
-        u = normalize_url(r.iloc[0])
+        u = remember_original(r.iloc[0])
         if not u:
             continue
         bl = _num(r.iloc[1])
@@ -663,8 +677,8 @@ if run_clicked or st.session_state.ready:
     content_links: set[Tuple[str, str]] = set()
 
     for _, r in inlinks_df.iterrows():
-        source = normalize_url(r.iloc[src_idx])
-        target = normalize_url(r.iloc[dst_idx])
+        source = remember_original(r.iloc[src_idx])
+        target = remember_original(r.iloc[dst_idx])
         if not source or not target:
             continue
         key = (source, target)
@@ -672,7 +686,6 @@ if run_clicked or st.session_state.ready:
         if pos_idx != -1 and is_content_position(r.iloc[pos_idx]):
             content_links.add(key)
 
-    # Für Visualisierung vormerken
     st.session_state["_all_links"] = all_links
     st.session_state["_content_links"] = content_links
 
@@ -686,8 +699,8 @@ if run_clicked or st.session_state.ready:
     processed_pairs = set()
 
     for _, r in related_df.iterrows():
-        urlA = normalize_url(r.iloc[0])  # Ziel
-        urlB = normalize_url(r.iloc[1])  # Quelle
+        urlA = remember_original(r.iloc[0])  # Ziel (Key + Original merken)
+        urlB = remember_original(r.iloc[1])  # Quelle (Key + Original merken)
         try:
             sim = float(str(r.iloc[2]).replace(",", "."))
         except Exception:
@@ -712,7 +725,6 @@ if run_clicked or st.session_state.ready:
         bl_raw = _num(bl.get("backlinks"))
         rd_raw = _num(bl.get("referringDomains"))
 
-        # Safe normalization
         norm_ils = (ils_raw - min_ils) / (max_ils - min_ils) if max_ils > min_ils else 0.0
         norm_pr = (pr_raw - min_prd) / (max_prd - min_prd) if max_prd > min_prd else 0.0
         norm_bl = (bl_raw - min_bl) / (max_bl - min_bl) if max_bl > min_bl else 0.0
@@ -746,35 +758,43 @@ if run_clicked or st.session_state.ready:
             f"Linkpotenzial {i}",
         ])
 
-    rows = []
+    rows_norm = []
+    rows_view = []
 
     for target, related_list in sorted(related_map.items()):
         related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
-        row = [target]
+        row_norm = [target]
+        row_view = [disp(target)]
         for source, sim in related_sorted:
             anywhere = "ja" if (source, target) in all_links else "nein"
             from_content = "ja" if (source, target) in content_links else "nein"
-
             final_score = source_potential_map.get(source, 0.0)
-            row.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
+
+            row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
+            row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
 
         # pad
-        while len(row) < len(cols):
-            row.append(np.nan)
+        while len(row_norm) < len(cols):
+            row_norm.append(np.nan)
+        while len(row_view) < len(cols):
+            row_view.append(np.nan)
 
-        rows.append(row)
+        rows_norm.append(row_norm)
+        rows_view.append(row_view)
 
-    res1_df = pd.DataFrame(rows, columns=cols)
-    st.session_state.res1_df = res1_df  # -> persistieren
-    
-    # Arrow-kompatibel: Similarity-Spalten numeric casten
-    sim_cols = [c for c in res1_df.columns if c.startswith("Ähnlichkeit ")]
+    # interne (kanonische) DF für spätere Berechnungen
+    res1_df = pd.DataFrame(rows_norm, columns=cols)
+    st.session_state.res1_df = res1_df
+
+    # Anzeige-DF
+    res1_view_df = pd.DataFrame(rows_view, columns=cols)
+    sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
     for c in sim_cols:
-        res1_df[c] = pd.to_numeric(res1_df[c], errors="coerce")
-        
-    st.dataframe(res1_df, use_container_width=True, hide_index=True)
+        res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
 
-    csv1 = res1_df.to_csv(index=False).encode("utf-8-sig")
+    st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
+
+    csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
         "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
         data=csv1,
@@ -792,8 +812,8 @@ if run_clicked or st.session_state.ready:
     processed_pairs2 = set()
 
     for _, r in related_df.iterrows():
-        a = normalize_url(r.iloc[1])  # Quelle (wie im GAS)
-        b = normalize_url(r.iloc[0])  # Ziel   (wie im GAS)
+        a = remember_original(r.iloc[1])  # Quelle
+        b = remember_original(r.iloc[0])  # Ziel
         try:
             sim = float(str(r.iloc[2]).replace(",", "."))
         except Exception:
@@ -810,7 +830,7 @@ if run_clicked or st.session_state.ready:
     # PageRank-Waster-ähnlicher Rohwert und backlink-adjusted Score
     raw_score_map: Dict[str, float] = {}
     for _, r in metrics_df.iterrows():
-        u = normalize_url(r.iloc[0])
+        u = remember_original(r.iloc[0])
         inl = _num(r.iloc[2])
         outl = _num(r.iloc[3])
         raw_score_map[u] = outl - inl
@@ -824,20 +844,19 @@ if run_clicked or st.session_state.ready:
         adjusted = (raw or 0.0) - (factor * impact) + malus
         adjusted_score_map[u] = adjusted
 
-    # Build output
+    # Build output (Anzeige mit Original-URLs)
     out_rows = []
     rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
     out_header = ["Quelle", "Ziel", "PageRank Waster (Farbindikator)", "Semantische Ähnlichkeit", *rest_cols]
 
     for _, r in inlinks_df.iterrows():
-        quelle = normalize_url(r.iloc[src_idx])
-        ziel = normalize_url(r.iloc[dst_idx])
+        quelle = remember_original(r.iloc[src_idx])
+        ziel = remember_original(r.iloc[dst_idx])
         if not quelle or not ziel:
             continue
 
         sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
 
-        # Weak links: similarity ≤ threshold OR missing
         if not (isinstance(sim, (int, float)) and not np.isnan(sim)):
             sim_display = "Ähnlichkeit unter Schwelle oder nicht erfasst"
             is_weak = True
@@ -849,27 +868,10 @@ if run_clicked or st.session_state.ready:
             continue
 
         rest = [r.iloc[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-        # Sichtbare Spalte bleibt unverändert (dein Wunsch), wir füllen sie weiterhin leer:
-        out_rows.append([quelle, ziel, "", sim_display, *rest])
+        out_rows.append([disp(quelle), disp(ziel), "", sim_display, *rest])
 
     out_df = pd.DataFrame(out_rows, columns=out_header)
-
-    # Coloring by adjusted score (simple buckets) – als Spalte
-    colors = []
-    for _, row in out_df.iterrows():
-        q = row["Quelle"]
-        score = adjusted_score_map.get(q)
-        if score is None or (isinstance(score, float) and np.isnan(score)):
-            colors.append("#ffffff")
-        elif score >= 50:
-            colors.append("#ffcccc")
-        elif score >= 25:
-            colors.append("#fff2cc")
-        else:
-            colors.append("#ccffcc")
-
-    out_df["Farbcode (intern)"] = colors
-    st.session_state.out_df = out_df  # -> persistieren
+    st.session_state.out_df = out_df
     st.dataframe(out_df, use_container_width=True, hide_index=True)
 
     csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
@@ -880,7 +882,6 @@ if run_clicked or st.session_state.ready:
         mime="text/csv",
     )
 
-    # Am Ende der Berechnungen:
     if run_clicked:
         try:
             placeholder.empty()
@@ -925,47 +926,20 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
 LIHD & Ranking 8–20 benötigen einen GSC-Upload (URL, Impressions, optional Clicks, Position). Bis dahin sind die zugehörigen Regler ausgegraut.
 ''')
 
-# --------------------------
-# „Let's Go“ für Analyse 3 (nichts rechnen, bis geklickt)
-# --------------------------
+# „Let's Go“ für Analyse 3
 run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
-if run_gems:
-    st.session_state["__gems_started__"] = True  # Merker: Schritt 3 wurde aktiv gestartet
-
-# Optional: Sidebar ausblenden (optische Ruhe ab Schritt 3)
-hide_sidebar = st.checkbox(
-    "Sidebar ausblenden (nur für Analyse 3)",
-    value=True,
-    help="Wird erst ab Start von Analyse 3 angewendet."
-)
-apply_hide = hide_sidebar and (
-    st.session_state.get("__gems_started__", False) or
-    st.session_state.get("__ready_gems__", False)
-)
-if apply_hide:
-    st.markdown("""
-    <style>
-      [data-testid="stSidebar"] { display: none !important; }
-      [data-testid="stSidebarNav"] { display: none !important; }
-    </style>
-    """, unsafe_allow_html=True)
-
 if not run_gems and not st.session_state.get("__ready_gems__", False):
     st.info("Stell die Regler ein und lade ggf. **GSC**. Dann klicke auf **Let's Go (Analyse 3)**.")
     st.stop()
 
-# --------------------------
 # Eingänge / Session aus Analyse 1+2
-# --------------------------
 res1_df: Optional[pd.DataFrame] = st.session_state.get("res1_df")
 source_potential_map: Dict[str, float] = st.session_state.get("_source_potential_map", {})
 metrics_map: Dict[str, Dict[str, float]] = st.session_state.get("_metrics_map", {})
 norm_ranges: Dict[str, Tuple[float, float]] = st.session_state.get("_norm_ranges", {})
 all_links: set = st.session_state.get("_all_links", set())
 
-# --------------------------
 # Gems + Zielanzahl
-# --------------------------
 gem_pct = st.slider(
     "Anteil starker Linkgeber (Top-X %)",
     1, 30, 10, step=1,
@@ -977,9 +951,7 @@ max_targets_per_gem = st.number_input(
     help="Wie viele Ziel-URLs pro Gem in der Breiten-Tabelle gezeigt werden."
 )
 
-# --------------------------
 # GSC direkt hier laden (für LIHD & Ranking 8–20)
-# --------------------------
 gsc_up = st.file_uploader(
     "GSC-Daten (CSV/Excel) – Spalten: URL, Impressions, [Clicks optional], [Position optional (für Ranking 8–20)]",
     type=["csv", "xlsx", "xlsm", "xls"], key="gsc_up_merged_no_opp"
@@ -999,35 +971,32 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
     df = gsc_df_loaded.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Heuristik: 0=URL, 1=Impressions, 2=Clicks (optional), 3=Position (optional)
-    df.iloc[:, 0] = df.iloc[:, 0].astype(str).map(normalize_url)
-    urls_series = df.iloc[:, 0]
+    df.iloc[:, 0] = df.iloc[:, 0].astype(str)
+    urls_raw = df.iloc[:, 0]
     impr = pd.to_numeric(df.iloc[:, 1], errors="coerce").fillna(0)
 
-    # Demand_norm = Min-Max von log1p(Impressions)
     log_impr = np.log1p(impr)
     if (log_impr.max() - log_impr.min()) > 0:
         demand_norm = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
     else:
         demand_norm = np.zeros_like(log_impr)
 
-    for u, d in zip(urls_series, demand_norm):
-        demand_map[str(u)] = float(d)
+    for raw_u, d in zip(urls_raw, demand_norm):
+        key = remember_original(raw_u)
+        if key:
+            demand_map[key] = float(d)
 
-    # Position (falls vorhanden als 4. Spalte)
     if df.shape[1] >= 4:
         pos_series = pd.to_numeric(df.iloc[:, 3], errors="coerce")
-        for u, p in zip(urls_series, pos_series):
-            if pd.notna(p) and str(u):
-                pos_map[str(u)] = float(p)
+        for raw_u, p in zip(urls_raw, pos_series):
+            key = remember_original(raw_u)
+            if key and pd.notna(p):
+                pos_map[key] = float(p)
         has_pos = len(pos_map) > 0
 
-    # für evtl. spätere Nutzung verfügbar halten
     st.session_state["__gsc_df_raw__"] = df.copy()
 
-# --------------------------
-# Gewichtung Dringlichkeit (PRIO) – GSC-abhängige Slider auto-„disabled“
-# --------------------------
+# Gewichtung Dringlichkeit (PRIO)
 st.markdown("#### Gewichtung Dringlichkeit (PRIO)")
 
 colA, colB = st.columns(2)
@@ -1070,15 +1039,12 @@ rank_falloff = st.slider(
     disabled=not has_pos
 )
 
-# Hinweis: Summe muss NICHT 1 sein (wir normalisieren intern)
 eff_sum = (w_lihd if has_gsc else 0) + w_def + (w_rank if has_pos else 0) + w_orph
 if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
     st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. "
                "Sie muss **nicht** 1.0 sein – die Kombination wird intern normalisiert.")
 
-# --------------------------
 # Sortier-Logik je (Gem,Ziel)
-# --------------------------
 alpha = st.slider(
     "Balance α: Similarity ↔ Dringlichkeit (PRIO)",
     0.0, 1.0, 0.6, 0.05,
@@ -1090,9 +1056,7 @@ sort_mode = st.radio(
     horizontal=True
 )
 
-# --------------------------
 # Gems bestimmen
-# --------------------------
 if source_potential_map:
     sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
     cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
@@ -1100,12 +1064,9 @@ if source_potential_map:
 else:
     gems = []
 
-# --------------------------
 # Hilfsfunktionen für PRIO-Signale
-# --------------------------
 from collections import defaultdict
 
-# Inbound-Counts für Orphan/Thin
 inbound_count = defaultdict(int)
 for s, t in all_links:
     inbound_count[t] += 1
@@ -1141,13 +1102,12 @@ def deficit_weighted_for(target: str) -> float:
         if col_sim not in res1_df.columns or col_src not in res1_df.columns:
             break
         sim_val = r.get(col_sim, np.nan)
-        src_val = normalize_url(r.get(col_src, ""))
+        src_val = r.get(col_src, "")
         if pd.isna(sim_val) or not src_val:
             i += 1
             continue
         simf = float(sim_val) if pd.notna(sim_val) else 0.0
         sum_all += max(0.0, simf)
-        # „fehlend“ = kein Content-Link
         from_content = str(r.get(col_cont, "nein")).strip().lower()
         if from_content != "ja":
             sum_missing += max(0.0, simf)
@@ -1155,7 +1115,6 @@ def deficit_weighted_for(target: str) -> float:
     return float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
 
 def rank_sweetspot_for(u: str, lo: int, hi: int, falloff: int) -> float:
-    """Gewicht 1.0 im [lo,hi]; außerhalb linearer Abfall über 'falloff' Positionen auf 0."""
     p = pos_map.get(u)
     if p is None:
         return 0.0
@@ -1173,13 +1132,11 @@ def orphan_score_for(u: str, k: int) -> float:
     thin   = 1.0 if inl <= k else 0.0
     return float(max(orphan, 0.5 * thin))
 
-# --------------------------
-# PRIO je Ziel berechnen (normalisiert über aktive Gewichte)
-# --------------------------
+# PRIO je Ziel berechnen
 target_priority_map: Dict[str, float] = {}
 if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
     for _, row in res1_df.iterrows():
-        u = normalize_url(row["Ziel-URL"])
+        u = row["Ziel-URL"]  # bereits kanonisch
         if not u:
             continue
 
@@ -1200,9 +1157,7 @@ if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
         prio = float((weights @ comps) / denom) if denom > 0 else 0.0
         target_priority_map[u] = prio
 
-# --------------------------
 # Empfehlungen pro Gem bauen (nur: kein Content-Link vorhanden)
-# --------------------------
 if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
     st.caption("Keine Gem-Daten/Analyse 1 fehlt. Bitte erst Schritt 1+2 ausführen.")
     st.stop()
@@ -1210,7 +1165,7 @@ if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
 gem_rows: List[List] = []
 for gem in gems:
     for _, row in res1_df.iterrows():
-        target = normalize_url(row["Ziel-URL"])
+        target = row["Ziel-URL"]
         i = 1
         while True:
             col_src  = f"Related URL {i}"
@@ -1218,17 +1173,19 @@ for gem in gems:
             col_cont = f"aus Inhalt heraus verlinkt {i}?"
             if col_src not in res1_df.columns:
                 break
-            src = normalize_url(row.get(col_src, ""))
+            src = row.get(col_src, "")
             if not src or src != gem:
                 i += 1
                 continue
-            # bereits Content-Link? → skip
             from_content = str(row.get(col_cont, "nein")).strip().lower()
             if from_content == "ja":
                 i += 1
                 continue
 
-            simf = float(row.get(col_sim, 0.0) or 0.0)
+            try:
+                simf = float(row.get(col_sim, 0.0) or 0.0)
+            except Exception:
+                simf = 0.0
             prio_t = float(target_priority_map.get(target, 0.0))
 
             if sort_mode == "Nur PRIO":
@@ -1248,7 +1205,6 @@ if gem_rows:
     final_rows: List[List] = []
     for gem_key, group in itertools.groupby(gem_rows, key=lambda r: r[0]):
         grp = list(group)
-        # Sortierung je Modus (absteigend)
         if sort_mode == "Nur PRIO":
             grp = sorted(grp, key=lambda r: (r[3], r[2]), reverse=True)
         elif sort_mode == "Nur Similarity":
@@ -1258,9 +1214,7 @@ if gem_rows:
         final_rows.extend(grp[:int(max_targets_per_gem)])
     gem_rows = final_rows
 
-# --------------------------
-# Ausgabe: Breite Tabelle + Download
-# --------------------------
+# Ausgabe: Breite Tabelle + Download (mit Original-URLs)
 if gem_rows:
     from collections import defaultdict
     by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
@@ -1272,17 +1226,17 @@ if gem_rows:
         cols += [f"Ziel {i}", f"Similarity {i}", f"PRIO {i}", f"Sortwert {i}"]
 
     def pot_for(g: str) -> float:
-        return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
+        return float(st.session_state.get("_source_potential_map", {}).get(g, 0.0))
 
     ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
     rows = []
     for gem in ordered_gems:
         items = by_gem[gem]
-        row = [gem, round(pot_for(gem), 3)]
+        row = [disp(gem), round(pot_for(gem), 3)]
         for i in range(int(max_targets_per_gem)):
             if i < len(items):
                 target, simv, prio_t, sortv = items[i]
-                row += [target, round(simv, 3), round(prio_t, 3), round(sortv, 3)]
+                row += [disp(target), round(simv, 3), round(prio_t, 3), round(sortv, 3)]
             else:
                 row += [np.nan, np.nan, np.nan, np.nan]
         rows.append(row)
@@ -1300,8 +1254,3 @@ if gem_rows:
     st.session_state["__ready_gems__"] = True
 else:
     st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
-
-
-
-
-
