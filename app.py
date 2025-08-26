@@ -44,8 +44,8 @@ st.markdown(
 # Helpers
 # ===============================
 
-POSSIBLE_SOURCE = ["quelle", "source", "from", "origin", "Linkgeber", "Quell-URL"]
-POSSIBLE_TARGET = ["ziel", "destination", "to", "target", "Ziel-URL", "Ziel URL"]
+POSSIBLE_SOURCE = ["quelle", "source", "from", "origin", "linkgeber", "quell-url"]
+POSSIBLE_TARGET = ["ziel", "destination", "to", "target", "ziel-url", "ziel url"]
 POSSIBLE_POSITION = ["linkposition", "link position", "position"]
 
 def _num(x, default: float = 0.0) -> float:
@@ -466,47 +466,49 @@ if mode == "URLs + Embeddings":
         "Lade eine Datei mit **URL** und **Embedding** (JSON-Array oder Zahlen, getrennt durch Komma/Whitespace/;/|). "
         "Zusätzlich werden **All Inlinks**, **Linkmetriken** und **Backlinks** benötigt."
     )
+
     up_emb = st.file_uploader(
-    "URLs + Embeddings (CSV/Excel)",
-    type=["csv", "xlsx", "xlsm", "xls"],
-    key="embs",
-    help="""CSV oder Excel. Mindestanforderungen:
+        "URLs + Embeddings (CSV/Excel)",
+        type=["csv", "xlsx", "xlsm", "xls"],
+        key="embs",
+        help="""CSV oder Excel. Mindestanforderungen:
 - Spalten: **URL** und **Embedding** (Reihenfolge egal).
 - URL-Spalte wird erkannt über Header: `url`, `urls`, `page`, `seite`, `adresse`, `address`; sonst 1. Spalte.
 - Embedding-Spalte wird erkannt über Header: `embedding`, `embeddings`, `vector`, `embedding_json`, `vec`; sonst 2. Spalte.
 - Embedding-Werte: JSON-Array wie `[0.12, -0.34, ...]` **oder** Zahlen getrennt durch Komma/Leerzeichen/`;`/`|`."""
-)
-col1, col2 = st.columns(2)
-with col1:
-    inlinks_up = st.file_uploader(
-        "All Inlinks (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="inl2",
-        help="""CSV oder Excel. Reihenfolge egal, es zählen die **Headernamen**:
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        inlinks_up = st.file_uploader(
+            "All Inlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="inl2",
+            help="""CSV oder Excel. Reihenfolge egal, es zählen die **Headernamen**:
 - Quelle/Source: `quelle`, `source`, `from`, `origin`, `quell-url`
 - Ziel/Destination: `ziel`, `destination`, `to`, `target`, `ziel-url`
 - Linkposition: `linkposition`, `link position`, `position`
 Fehlt *Linkposition*, gilt „aus Inhalt heraus verlinkt?“ = **„nein“** für alle."""
-    )
-    metrics_up = st.file_uploader(
-        "Linkmetriken (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="met2",
-        help="""CSV oder Excel. **Erste 4 Spalten in genau dieser Reihenfolge**:
+        )
+        metrics_up = st.file_uploader(
+            "Linkmetriken (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="met2",
+            help="""CSV oder Excel. **Erste 4 Spalten in genau dieser Reihenfolge**:
 1) **URL**, 2) **Score** (Interner Link Score), 3) **Inlinks**, 4) **Outlinks**.
 Weitere Spalten werden ignoriert. Zahlen dürfen `,` oder `.` enthalten."""
-    )
-with col2:
-    backlinks_up = st.file_uploader(
-        "Backlinks (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="bl2",
-        help="""CSV oder Excel. **Erste 3 Spalten in genau dieser Reihenfolge**:
+        )
+    with col2:
+        backlinks_up = st.file_uploader(
+            "Backlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="bl2",
+            help="""CSV oder Excel. **Erste 3 Spalten in genau dieser Reihenfolge**:
 1) **URL**, 2) **Backlinks**, 3) **Referring Domains**.
 Weitere Spalten werden ignoriert."""
-    )
+        )
 
-
+    # Dateien erst NACH den with-Blöcken einlesen (immer noch im if-Block!)
     emb_df = read_any_file(up_emb)
     inlinks_df = read_any_file(inlinks_up)
     metrics_df = read_any_file(metrics_up)
@@ -517,49 +519,51 @@ elif mode == "Related URLs":
         "Lade die vier Tabellen: **Related URLs**, **All Inlinks**, **Linkmetriken**, **Backlinks** "
         "(CSV/Excel; Trennzeichen & Encodings werden automatisch erkannt)."
     )
+
     col1, col2 = st.columns(2)
-with col1:
-    related_up = st.file_uploader(
-        "Related URLs (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="rel",
-        help="""CSV oder Excel. **Genau 3 Spalten in dieser Reihenfolge**:
+    with col1:
+        related_up = st.file_uploader(
+            "Related URLs (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="rel",
+            help="""CSV oder Excel. **Genau 3 Spalten in dieser Reihenfolge**:
 1) **Ziel-URL**, 2) **Quell-URL**, 3) **Similarity (0–1)**.
 Spaltennamen sind egal – es zählt die Position. Similarity darf `,` oder `.` als Dezimaltrenner haben."""
-    )
-    metrics_up = st.file_uploader(
-        "Linkmetriken (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="met",
-        help="""CSV oder Excel. **Erste 4 Spalten in genau dieser Reihenfolge**:
+        )
+        metrics_up = st.file_uploader(
+            "Linkmetriken (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="met",
+            help="""CSV oder Excel. **Erste 4 Spalten in genau dieser Reihenfolge**:
 1) **URL**, 2) **Score** (Interner Link Score), 3) **Inlinks**, 4) **Outlinks**.
 Weitere Spalten werden ignoriert. Zahlen dürfen `,` oder `.` enthalten."""
-    )
-with col2:
-    inlinks_up = st.file_uploader(
-        "All Inlinks (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="inl",
-        help="""CSV oder Excel. Reihenfolge egal, es zählen die **Headernamen**:
+        )
+    with col2:
+        inlinks_up = st.file_uploader(
+            "All Inlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="inl",
+            help="""CSV oder Excel. Reihenfolge egal, es zählen die **Headernamen**:
 - Quelle/Source: `quelle`, `source`, `from`, `origin`, `quell-url`
 - Ziel/Destination: `ziel`, `destination`, `to`, `target`, `ziel-url`
 - (optional) Linkposition: `linkposition`, `link position`, `position`
 Fehlt *Linkposition*, gilt „aus Inhalt heraus verlinkt?“ = **„nein“** für alle."""
-    )
-    backlinks_up = st.file_uploader(
-        "Backlinks (CSV/Excel)",
-        type=["csv", "xlsx", "xlsm", "xls"],
-        key="bl",
-        help="""CSV oder Excel. **Erste 3 Spalten in genau dieser Reihenfolge**:
+        )
+        backlinks_up = st.file_uploader(
+            "Backlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="bl",
+            help="""CSV oder Excel. **Erste 3 Spalten in genau dieser Reihenfolge**:
 1) **URL**, 2) **Backlinks**, 3) **Referring Domains**.
 Weitere Spalten werden ignoriert."""
-    )
+        )
 
-
-    related_df = read_any_file(related_up)
-    inlinks_df = read_any_file(inlinks_up)
-    metrics_df = read_any_file(metrics_up)
+    # Dateien einlesen (immer noch im elif-Block!)
+    related_df  = read_any_file(related_up)
+    inlinks_df  = read_any_file(inlinks_up)
+    metrics_df  = read_any_file(metrics_up)
     backlinks_df = read_any_file(backlinks_up)
+
 
 # ===============================
 # Let's Go Button (startet Berechnungen)
