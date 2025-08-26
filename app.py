@@ -433,16 +433,44 @@ with st.sidebar:
     )
 
 # etwas CSS für den roten Button (wir nutzen ihn später für „Let's Go“)
-CSS_RED_BUTTON = '''
+CSS_ACTION_BUTTONS = """
 <style>
+/* ONE Red */
+:root {
+  --one-red: #e02424;
+  --one-red-hover: #c81e1e;
+}
+
+/* Standard-Buttons (z. B. Let's Go mit kind="secondary") */
 div.stButton > button[kind="secondary"] {
-  background-color: #e02424 !important;
-  color: white !important;
-  border: 1px solid #e02424 !important;
+  background-color: var(--one-red) !important;
+  color: #fff !important;
+  border: 1px solid var(--one-red) !important;
+  border-radius: 6px !important;
+}
+div.stButton > button[kind="secondary"]:hover {
+  background-color: var(--one-red-hover) !important;
+  border-color: var(--one-red-hover) !important;
+}
+
+/* Download-Buttons – Streamlit rendert je nach Version <button> oder <a> */
+div.stDownloadButton > button,
+div.stDownloadButton > a {
+  background-color: var(--one-red) !important;
+  color: #fff !important;
+  border: 1px solid var(--one-red) !important;
+  border-radius: 6px !important;
+  text-decoration: none !important;
+}
+div.stDownloadButton > button:hover,
+div.stDownloadButton > a:hover {
+  background-color: var(--one-red-hover) !important;
+  border-color: var(--one-red-hover) !important;
+  color: #fff !important;
 }
 </style>
-'''
-st.markdown(CSS_RED_BUTTON, unsafe_allow_html=True)
+"""
+st.markdown(CSS_ACTION_BUTTONS, unsafe_allow_html=True)
 
 
 # ===============================
