@@ -118,7 +118,7 @@ def normalize_url(u: str) -> str:
 def is_content_position(position_raw) -> bool:
     pos_norm = str(position_raw or "").strip().lower().replace("\xa0", " ")
     return any(
-        token in pos_norm for token in ["inhalt", "content", "body", "main", "artikel", "article"]
+        token in pos_norm for token in ["inhalt", "content", "body", "main", "artikel", "article", "copy", "text", "editorial"]
     )
 
 # --- Anzeige-Originale merken/anzeigen ---
@@ -311,7 +311,7 @@ Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein
   - **Embeddings** (Spaltenname: z. B. Embedding, Embeddings, Vector). Werte können als JSON-Array ([0.1, 0.2, ...]) oder durch Komma/Leerzeichen/;/| getrennt vorliegen.  
 
   Zusätzlich erforderlich:  
-  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**  
+  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**. Weitere Spalten sind nicht erforderlich. **Tipp**: Lösche alle Linktypen, die keine Hyperlinks sind und die anderen Spalten vor dem Upload heraus, um eine geringere Dateigröße zu erzielen.
   - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Score**, **Inlinks**, **Outlinks**  
   - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains**  
 
@@ -990,7 +990,7 @@ if run_clicked or st.session_state.ready:
 # Analyse 3: Gems & „Cheat-Sheet der internen Verlinkung“ (Similarity × PRIO, ohne Opportunity)
 # =========================================================
 st.markdown("---")
-st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten")
+st.subheader("Analyse 3 (optional): Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten")
 
 with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
     st.markdown('''
@@ -1006,32 +1006,33 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
    Für jede Gem-URL nehmen wir Ziel-URLs aus **Analyse 1**, bei denen die Gem-URL als **Related URL** auftaucht **und** es **noch keinen Content-Link** vom Gem → Ziel gibt.  
    Die inhaltliche Nähe steuert die **Ähnlichkeitsschwelle** in der Seitenleiste.
 
-3) **Dringlichkeit (PRIO) berechnen**  
+3) **Linkbedarf (PRIO) berechnen**  
    Jede Ziel-URL erhält einen **PRIO-Wert** aus vier Signalen (Gewichte per Slider; Summe muss nicht 1 sein — wir normalisieren intern):
-   - **LIHD – Low Internal, High Demand** *(GSC nötig)*  
-     Formel: `LIHD = (1 − ILS_norm) × Demand_norm × (1 − β × Offpage_norm)`  
-     Bedeutet: viel Such-Nachfrage (Search Console Impressions) + schwacher interner Link-Score ⇒ höhere Dringlichkeit.  
-     **Offpage-Dämpfung** (standardmäßig aktiv): viele Backlinks/Ref. Domains reduzieren die Dringlichkeit; Stärke über **β**.
-   - **Inlinks-Defizit**  
-     Anteil ähnlicher Quellen, die **noch nicht aus dem Content** verlinken.  
-     **Similarity** dient als Gewicht: je ähnlicher, desto wichtiger der fehlende Link.  
-     Ebenfalls **Offpage-gedämpft**: starke externe Autorität des **Ziels** reduziert die Dringlichkeit.
+   - **Hidden Champtions** *(Search Console Daten nötig)*  
+     Formel: `Hidden Champions = (1 − ILS_norm) × Demand_norm × (1 − β × Offpage_norm)`  
+     Bedeutet: viel Such-Nachfrage (Search Console Impressions) + schwacher interner Link-Score ⇒ höherer Linkbedarf.  
+     **Offpage-Dämpfung** (standardmäßig aktiv): viele Backlinks/Ref. Domains reduzieren den Linkbedarf einer URL; Stärke des Einflusses von Offpage-Signalen über **Regler** steuerbar.
+   - **Semantische Linklücke**  
+     Anteil semantisch ähnlicher URLs, die **noch nicht aus dem Content** heraus auf eine andere thematisch nah verwandte URL verlinken.  
+     **Similarity** dient als Gewicht: je ähnlicher sich Seiten sind, desto wichtiger der fehlende Link.  
+     Ebenfalls **Offpage-gedämpft**: starke Offpage-Signale des **Ziels** reduzieren den Linkbedarf.
    - **Ranking Sprungbrett-URLs** *(Search Console Position nötig)*  
      Bonus für URLs, deren **durchschnittliche Position** im eingestellten **Sweet-Spot (z. B. 8–20)** liegt.
-   - ** Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt**  
-     **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**).
+     Die Erfahrung zeigt, durch gezielte Optimierungsmaßnahmen (z.B. Verbesserung der internen Verlinkung) können sog.**Sprungbrett-URLs** schneller bessere Rankings erreichen als wenn eine Seite von Position 50 auf die erste Ergebnisseite gehoben werden soll.
+   - **Mauerblümchen**  
+     Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt. **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**). Analyse ezieht sich rein auf Links aus dem **Content**.
 
 4) **Ausgabe & Reihenfolge der Empfehlungen**  
    Pro Gem listen wir die **Top-Z Ziele** (Slider **„Top-Ziele je Gem“**).  
    Die Reihenfolge steuerst du über **„Reihenfolge der Empfehlungen“**:
-   - **Empfehlungs-Mix (Nähe + Dringlichkeit)** → Sortwert `= α · Similarity + (1 − α) · PRIO`  
-     Den Mix justierst du mit **„Gewichtung: Nähe vs. Dringlichkeit“ (α)**.
-   - **Nur Dringlichkeit** → sortiert nach PRIO.  
+   - **Mix (inhaltliche Nähe + Linkbedarf)** → Sortwert `= α · Similarity + (1 − α) · PRIO`  
+     Den Mix justierst du mit **„Gewichtung: inhaltliche Nähe vs. Linkbedarf“ (α)**.
+   - **Nur Linkbedarf** → sortiert nach PRIO.  
    - **Nur inhaltliche Nähe** → sortiert nach Similarity.
 
 **Hinweise:**
-- **Search Console Daten erforderlich** für LIHD (Impressions) und Ranking Sprungbrett-URLs (Position).  
-- **Offpage-Dämpfung** betrifft **LIHD** und **Inlinks-Defizit** und ist standardmäßig **aktiv** (abschaltbar).   
+- **Search Console Daten erforderlich** für Hidden Champions (Impressions) und Ranking Sprungbrett-URLs (Position).  
+- **Offpage-Dämpfung** betrifft **Hidden Champions** und **Semantische Linklücke** und ist standardmäßig **aktiv** (abschaltbar).   
 - Alle Normalisierungen (z. B. ILS, Impressions, Offpage-Signale) erfolgen **relativ zu deinen hochgeladenen Daten**.
 ''')
 
@@ -1051,7 +1052,7 @@ all_links: set = st.session_state.get("_all_links", set())
 gem_pct = st.slider(
     "Anteil starker Linkgeber (Top-X %)",
     1, 30, 10, step=1,
-    help="Welche obersten X % nach Linkpotenzial gelten als 'Gems' aka starke Linkgeber-URLs?"
+    help="Welche obersten X % nach Linkpotenzial sollen als 'Gems' aka starke Linkgeber-URLs gelten?"
 )
 max_targets_per_gem = st.number_input(
     "Top-Ziele je Gem",
@@ -1062,10 +1063,10 @@ max_targets_per_gem = st.number_input(
 # --------------------------
 # Gewichtung Dringlichkeit (PRIO) inkl. GSC-Upload (direkt hier)
 # --------------------------
-st.markdown("#### Gewichtung Dringlichkeit der internen Verlinkung UR(PRIO)")
+st.markdown("#### Linkbedarf-Gewichtung")
 
 gsc_up = st.file_uploader(
-    "GSC-Daten (CSV/Excel)",
+    "Search Console Daten (CSV/Excel)",
     type=["csv", "xlsx", "xlsm", "xls"],
     key="gsc_up_merged_no_opp",
     help=(
@@ -1073,8 +1074,9 @@ gsc_up = st.file_uploader(
         "Spalten dürfen in **beliebiger Reihenfolge** stehen. Erkannte Header (Beispiele):\n"
         "• URL: url, page, seite, address/adresse\n"
         "• Impressions: impressions, impr, search impressions, impressions_total\n"
-        "• Clicks: clicks, klicks  • Position: position, avg/average position, (de) durchschnittliche/durchschn. position\n"
-        "Impressions werden per log1p normalisiert (LIHD). URLs werden intern normalisiert; Anzeige bleibt im Original."
+        "• Clicks: clicks, klicks" 
+        "• Position: position, avg/average position, (de) durchschnittliche/durchschn. position\n"
+        "Impressions werden per log1p normalisiert. URLs werden intern normalisiert; Anzeige bleibt im Original."
     ),
 )
 
@@ -1143,45 +1145,45 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 colA, colB = st.columns(2)
 with colA:
     w_lihd = st.slider(
-        "Gewicht: Schwach verlinkt, aber hohe Nachfrage (LIHD)",
+        "Gewicht: Hidden Champions",
         0.0, 1.0, 0.30, 0.05, disabled=not has_gsc,
-        help="Heißt: viel Such-Nachfrage (Search Console Impressions), aber zu schwach verlinkt ⇒ höhere Dringlichkeit."
+        help="Heißt: viel Such-Nachfrage (Search Console Impressions), aber zu schwach verlinkt ⇒ höherer Linkbedarf."
     )
     w_def  = st.slider(
-        "Gewicht: Inlinks-Defizit (Links von semantisch ähnliche URLs fehlen)",
+        "Gewicht: Semantische Linklücke",
         0.0, 1.0, 0.30, 0.05,
-        help="Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto wichtiger ist der fehlende Link."
+        help="Fehlen Links von semantisch ähnlichen URLs? --> Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto stärker fällt der fehlende Link ins Gewicht."
     )
 with colB:
     w_rank = st.slider(
-        "Gewicht: Ranking Sprungbrett-URLs",
+        "Gewicht: Sprungbrett-URLs",
         0.0, 1.0, 0.30, 0.05, disabled=not has_pos,
-        help="Bevorzugt URLs mit durchschnittlicher Position im eingestellten Sprungbrett-Bereich (z. B. 8–20). Benötigt die GSC-Position für die URL."
+        help="URLs mit durchschnittlicher Rankingosition im eingestellten Sprungbrett-Bereich (z. B. 8–20) erhalten ein höheres Gewicht. Benötigt die SC-Position für die URL."
     )
     w_orph = st.slider(
-        "Gewicht: Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt",
+        "Gewicht: Mauerblümchen",
         0.0, 1.0, 0.10, 0.05,
-        help="Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
+        help="Seiten mit schlechter Linkversorgung aus dem Content heraus (Navi / Footer wird hier nicht betrachtet). Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
     )
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
 st.markdown("##### Offpage-Einfluss (Backlinks & Ref. Domains)")
-st.caption("Seiten mit vielen Backlinks bekommen etwas weniger Dringlichkeit.")
+st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild standardmäßig gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
 offpage_damp_enabled = st.checkbox(
-    "Offpage-Dämpfung auf LIHD & Inlinks-Defizit anwenden",
+    "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
     value=True,
-    help="Offpage-Dämpfung: Seiten mit vielen Backlinks bekommen etwas weniger Dringlichkeit."
+    help="Offpage-Dämpfung: Seiten mit Backlinks von vielen verschiedenen Domains (Referring Domains) bekommen etwas weniger Dringlichkeit / Linkbedarf."
 )
 beta_offpage = st.slider(
-    "Stärke der Dämpfung (β)",
+    "Stärke der Dämpfung durch Offpage-Signale",
     0.0, 1.0, 0.30, 0.05,
     disabled=not offpage_damp_enabled,
-    help="β=0: keine Dämpfung. Höher = stärkere Reduktion für URLs mit vielen Backlinks/Ref. Domains."
+    help="0 = keine Dämpfung. Höherer Wert = stärkere Dämpfung -->  stärkere Reduktion des Bedarfs, interne Links setzen zu müssen für URLs mit vielen Backlinks/Ref. Domains."
 )
 
 
 # Abgrenzende Überschrift für Thin-Schwelle
-st.markdown("##### Link-Abdeckung & Thin-Definition")
+st.markdown("##### Mauerblümchen-Definition")
 
 thin_k = st.slider(
     "Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1,
@@ -1198,8 +1200,8 @@ rank_minmax = st.slider(
 
 # Sortierlogik (laienfreundliche Labels, gleiche Mechanik)
 sort_labels = {
-    "rank_mix":   "Empfehlungs-Mix (Nähe + Dringlichkeit)",
-    "prio_only":  "Nur Dringlichkeit",
+    "rank_mix":   "Mix (Nähe & Linkbearf kombiniert)",
+    "prio_only":  "Nur Linkbedarf",
     "sim_only":   "Nur inhaltliche Nähe",
 }
 sort_choice = st.radio(
@@ -1208,14 +1210,14 @@ sort_choice = st.radio(
     format_func=lambda k: sort_labels[k],
     horizontal=True,
     help=("Hier legst du fest, **in welcher Reihenfolge die Ziel-URLs pro Gem** angezeigt werden:\n"
-          "• Empfehlungsmix: Kombination aus inhaltlicher Nähe (Similarity) und Dringlichkeit (PRIO)\n"
-          "• Nur Dringlichkeit: Seiten mit höchster PRIO zuerst\n"
+          "• Empfehlungsmix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
+          "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
           "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst")
 )
 alpha = st.slider(
-    "Gewichtung: Nähe vs. Dringlichkeit",
+    "Gewichtung: inhaltliche Nähe vs. Linkbedarf",
     0.0, 1.0, 0.6, 0.05,
-    help=("Gilt nur für den **Empfehlungs-Mix**: Links = Dringlichkeit wichtiger, "
+    help=("Gilt nur für den **Mix**: Links = Linkbedarf wichtiger, "
           "Rechts = inhaltliche Nähe wichtiger.")
 )
 
@@ -1225,26 +1227,34 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
     st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (wird intern normalisiert)")
 
 # --- Let's Go Button jetzt UNTEN, nach Balance ---
+if "__gems_loading__" not in st.session_state:
+    st.session_state["__gems_loading__"] = False
+if "__ready_gems__" not in st.session_state:
+    st.session_state["__ready_gems__"] = False
+
 run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
 
-# ---------------------------------------------------------
-# Gate NACH der UI. Erst berechnen, wenn geklickt (oder bereits fertig).
-# ---------------------------------------------------------
-if not (run_gems or st.session_state.get("__ready_gems__", False)):
-    st.info("Stell die Regler ein und lade ggf. **GSC**. Dann klicke auf **Let's Go (Analyse 3)**.")
-    st.stop()
-
-# Wenn geklickt: Hunde-GIF zeigen
+# Klick setzt Lade-Flag (persistiert über Reruns)
 if run_gems:
-    ph3 = st.empty()
-    with ph3.container():
-        c1, c2, c3 = st.columns([1,2,1])
+    st.session_state["__gems_loading__"] = True
+    st.session_state["__ready_gems__"] = False
+
+# GIF anzeigen, solange Lade-Flag aktiv ist
+if st.session_state["__gems_loading__"]:
+    with st.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.image(
                 "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif",
-                width=280
+                width=280,
             )
-            st.caption("Analyse läuft … Wir geben Gas – Versprochen")
+            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+
+# Gate: nur stoppen, wenn weder geladen wird noch Ergebnis vorliegt
+if not (st.session_state["__gems_loading__"] or st.session_state.get("__ready_gems__", False)):
+    st.info("Stell die Regler ein und lade ggf. **Search Console Daten**. Dann klicke auf **Let's Go (Analyse 3)**.")
+    st.stop()
+
 
 # --------------------------
 # Hilfsfunktionen für PRIO-Signale
@@ -1253,7 +1263,7 @@ from collections import defaultdict
 
 # Inbound-Counts für Orphan/Thin
 inbound_count = defaultdict(int)
-for s, t in all_links:
+for s, t in st.session_state.get("_content_links", set()):
     inbound_count[t] += 1
 
 min_ils, max_ils = norm_ranges.get("ils", (0.0, 1.0))
@@ -1293,7 +1303,7 @@ def ils_norm_for(u: str) -> float:
     return float(np.clip((x - min_ils) / (max_ils - min_ils), 0.0, 1.0)) if max_ils > min_ils else 0.0
 
 def lihd_for(u: str) -> float:
-    """Low Internal, High Demand (LIHD) = (1 − ILS_norm) · Demand_norm · damp(u)"""
+    """Low Internal, High Demand (Hidden Champions) = (1 − ILS_norm) · Demand_norm · damp(u)"""
     if not has_gsc:
         return 0.0
     d = float(demand_map.get(u, 0.0))
@@ -1316,7 +1326,7 @@ def orphan_score_for(u: str, k: int) -> float:
 def deficit_weighted_for(target: str) -> float:
     """
     Similarity-gewichteter Anteil noch fehlender Content-Links.
-    Danach Offpage-Dämpfung des ZIELS: starke externe Autorität => geringere Dringlichkeit.
+    Danach Offpage-Dämpfung des ZIELS: starke externe Autorität => geringerer Linkbedarf.
     """
     if not isinstance(res1_df, pd.DataFrame):
         return 0.0
@@ -1353,7 +1363,7 @@ def deficit_weighted_for(target: str) -> float:
         i += 1
 
     ratio = float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
-    # Offpage-Dämpfung auf das ZIEL anwenden (viel Autorität => geringere Dringlichkeit)
+    # Offpage-Dämpfung auf das ZIEL anwenden (viel Autorität => geringerer Linkbedarf)
     return ratio * damp_factor(target)
 
 
@@ -1398,10 +1408,7 @@ if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
 # Empfehlungen pro Gem bauen (nur: kein Content-Link vorhanden)
 # --------------------------
 if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
-    # GIF schließen, falls offen
-    if run_gems:
-        try: ph3.empty()
-        except Exception: pass
+    st.session_state["__gems_loading__"] = False
     st.caption("Keine Gem-Daten/Analyse 1 fehlt. Bitte erst Schritt 1+2 ausführen.")
     st.stop()
 
@@ -1468,7 +1475,7 @@ if gem_rows:
 
     cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
     for i in range(1, int(max_targets_per_gem) + 1):
-        cols += [f"Ziel {i}", f"Similarity {i}", f"PRIO {i}", f"Sortwert {i}"]
+        cols += [f"Ziel {i}", f"Similarity (inhaltliche Nähe) {i}", f"Linkbedarf PRIO {i}", f"Score für Sortierung {i}"]
 
     def pot_for(g: str) -> float:
         return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
@@ -1498,15 +1505,11 @@ if gem_rows:
         mime="text/csv",
     )
 
-    # GIF schließen & Erfolg melden
-    if run_gems:
-        try: ph3.empty()
-        except Exception: pass
-        st.success("✅ Analyse abgeschlossen!")
-
+    st.session_state["__gems_loading__"] = False
+    st.success("✅ Analyse abgeschlossen!")
     st.session_state["__ready_gems__"] = True
+
 else:
-    if run_gems:
-        try: ph3.empty()
-        except Exception: pass
+    st.session_state["__gems_loading__"] = False
     st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
+
