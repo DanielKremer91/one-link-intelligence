@@ -1634,24 +1634,7 @@ run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
 if run_gems:
     st.session_state["__gems_loading__"] = True
     st.session_state["__ready_gems__"] = False
-    st.experimental_rerun()  # <— hinzufügen
-
-
-# GIF anzeigen, solange Lade-Flag aktiv ist
-# Placeholder für das Analyse-3-GIF einmalig anlegen
-if "__gems_ph__" not in st.session_state:
-    st.session_state["__gems_ph__"] = st.empty()
-
-if st.session_state["__gems_loading__"]:
-    ph3 = st.session_state["__gems_ph__"]
-    with ph3.container():
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            st.image(
-                "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif",
-                width=280,
-            )
-            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+    st.rerun()  # <— hinzufügen
 
 
 # Gate: nur stoppen, wenn weder geladen wird noch Ergebnis vorliegt
