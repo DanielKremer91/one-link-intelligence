@@ -96,26 +96,28 @@ def robust_norm(x: float, lo: float, hi: float) -> float:
 
 
 def _norm_header(s: str) -> str:
-    """Header robust normalisieren: BOM/NBSP/Zero-Width entfernen, Kleinbuchstaben,
-    Trennzeichen vereinheitlichen, Sonderzeichen entfernen, Mehrfachspaces reduzieren."""
     s = str(s or "")
-    s = s.replace("\ufeff", "")   # BOM
-    s = s.replace("\u200b", "")  # Zero-Width Space
-    s = s.replace("\xa0", " ")   # NBSP -> normales Leerzeichen
-    s = s.strip().lower()
-    s = s.replace("_", " ").replace("-", " ")
-    s = re.sub(r"[^\w\s]", " ", s)   # restliche Satzzeichen raus
+    s = s.replace("\ufeff", "").replace("\u200b", "").replace("\xa0", " ")
+    s = s.strip().lower().replace("_", " ").replace("-", " ")
+    s = re.sub(r"[^\w\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
 def find_column_index(header: List[str], possible_names: List[str]) -> int:
-    """Finde Spalte per robuster Normalisierung (siehe _norm_header)."""
-    hdr_norm = [_norm_header(h) for h in header]
-    cand = {_norm_header(x) for x in possible_names}
-    for i, h in enumerate(hdr_norm):
+    hdr = [_norm_header(h) for h in header]
+    cand = [_norm_header(c) for c in possible_names]
+    # exakte Übereinstimmung
+    for i, h in enumerate(hdr):
         if h in cand:
             return i
+    # leichte Fuzzy-Regel: wenn alle Wörter eines Kandidaten im Header vorkommen
+    for i, h in enumerate(hdr):
+        for c in cand:
+            tokens = c.split()
+            if all(t in h for t in tokens):
+                return i
     return -1
+
 
 
 def normalize_url(u: str) -> str:
@@ -683,6 +685,15 @@ div.stDownloadButton > a:hover {
 """
 st.markdown(CSS_ACTION_BUTTONS, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+/* Etwas mehr Innenabstand in Karten für einheitliche Optik */
+div[data-testid="stContainer"] > div:has(> .stSlider) {
+  padding-bottom: .25rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ===============================
 # Data ingestion
@@ -927,8 +938,8 @@ m_header = [str(c).strip() for c in metrics_df.columns]
 
 m_url_idx   = find_column_index(m_header, ["url", "urls", "page", "seite", "address", "adresse"])
 m_score_idx = find_column_index(m_header, ["score", "interner link score", "internal link score", "ils", "link score", "linkscore"])
-m_in_idx    = find_column_index(m_header, ["inlinks", "in links", "interne inlinks", "eingehende links", "eingehende interne links", "inbound internal links"])
-m_out_idx   = find_column_index(m_header, ["outlinks", "out links", "ausgehende links", "interne outlinks", "outbound links"])
+m_in_idx    = find_column_index(m_header, ["inlinks", "in links", "interne inlinks", "eingehende links", "eingehende interne links", "einzigartige inlinks", "unique inlinks", "inbound internal links"])
+m_out_idx   = find_column_index(m_header, ["outlinks", "out links", "ausgehende links", "interne outlinks", "unique outlinks", "einzigartige outlinks", "outbound links"])
 
 if -1 in (m_url_idx, m_score_idx, m_in_idx, m_out_idx):
     if metrics_df.shape[1] >= 4:
@@ -960,8 +971,8 @@ backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
 b_header = [str(c).strip() for c in backlinks_df.columns]
 
 b_url_idx = find_column_index(b_header, ["url", "urls", "page", "seite", "address", "adresse"])
-b_bl_idx  = find_column_index(b_header, ["backlinks", "backlink", "external backlinks", "back links", "backlinks total"])
-b_rd_idx  = find_column_index(b_header, ["referring domains", "ref domains", "verweisende domains", "verweisende domain", "domains", "rd"])
+b_bl_idx  = find_column_index(b_header, ["backlinks", "backlink", "external backlinks", "back links", "anzahl backlinks", "backlinks total"])
+b_rd_idx  = find_column_index(b_header, ["referring domains", "ref domains", "verweisende domains", "verweisende domain", "anzahl referring domains", "anzahl verweisende domains", "domains", "rd"])
 
 if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
     if backlinks_df.shape[1] >= 3:
@@ -1120,9 +1131,9 @@ for i in range(1, int(max_related) + 1):
     cols.extend([
         f"Related URL {i}",
         f"Ähnlichkeit {i}",
-        f"überhaupt verlinkt {i}?",
-        f"aus Inhalt heraus verlinkt {i}?",
-        f"Linkpotenzial {i}",
+        f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
+        f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
+        f"Linkpotenzial Related URL {i}",
     ])
 
 rows_norm = []
@@ -1471,61 +1482,67 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 
 
 # PRIO-Regler (GSC-abhängige Slider automatisch ausgrauen)
-colA, colB = st.columns(2)
+st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
 
-with colA:
-    st.markdown("**Gewicht: Hidden Champions**")
-    w_lihd = st.slider(
-        label="",
-        min_value=0.0, max_value=1.0, value=0.30, step=0.05,
-        disabled=not has_gsc,
-        help="Hidden Champion URLs sind URLs mit hoher Such-Nachfrage (gemessen an Search Console Impressions), aber zu schwacher Verlinkung ⇒ höherer Linkbedarf."
-    )
+# Vier bündige Boxen nebeneinander
+col1, col2, col3, col4 = st.columns(4)
 
-    st.markdown("**Gewicht: Semantische Linklücke**")
-    w_def  = st.slider(
-        label="",
-        min_value=0.0, max_value=1.0, value=0.30, step=0.05,
-        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' URLs (= semantisch ähnlicher URLs), die noch nicht aus dem Content heraus auf URL verlinken."
-    )
+# 1) Hidden Champions
+with col1:
+    with bordered_container():
+        st.markdown("**Gewicht: Hidden Champions**")
+        w_lihd = st.slider(
+            label="",
+            min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+            disabled=not has_gsc,
+            help="Hidden Champion URLs sind URLs mit hoher Such-Nachfrage (gemessen an Search Console Impressions), aber zu schwacher Verlinkung ⇒ höherer Linkbedarf."
+        )
+        st.caption("Hidden Champions – Feineinstellung")
 
+# 2) Semantische Linklücke
+with col2:
+    with bordered_container():
+        st.markdown("**Gewicht: Semantische Linklücke**")
+        w_def  = st.slider(
+            label="",
+            min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+            help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' URLs (= semantisch ähnlicher URLs), die noch nicht aus dem Content heraus auf URL verlinken."
+        )
+        st.caption("Semantische Linklücke – Feineinstellung")
 
-with colB:
-    box_left, box_right = st.columns(2)
+# 3) Sprungbrett-URLs
+with col3:
+    with bordered_container():
+        st.markdown("**Gewicht: Sprungbrett-URLs**")
+        w_rank = st.slider(
+            label="",
+            min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+            disabled=not has_pos,
+            help="Bonus für URLs mit Position im eingestellten Positionsbereich / Sweet-Spot (z. B. 8–20). Benötigt Search-Console-Rankingposition für URL."
+        )
+        st.caption("Sprungbrett-URLs – Feineinstellung")
+        rank_minmax = st.slider(
+            "Ranking Sprungbrett-URL (Positionsbereich)",
+            1, 50, (8, 20), 1,
+            help="Wenn durchschnittliches Ranking der URL in diesem Positionsbereich liegt (Default 8–20), wird diese URL stärker priorisiert.",
+            disabled=not has_pos
+        )
 
-    # --- Box 1: Sprungbrett-URLs ---
-    with box_left:
-        with bordered_container():
-            st.markdown("**Gewicht: Sprungbrett-URLs**")
-            st.caption("Sprungbrett-URLs – Feineinstellung")
-            w_rank = st.slider(
-                label="",
-                min_value=0.0, max_value=1.0, value=0.30, step=0.05,
-                disabled=not has_pos,
-                help="Bonus für URLs mit Position im eingestellten Positionsbereich / Sweet-Spot (z. B. 8–20). Benötigt Search-Console-Rankingposition für URL."
-            )
-            rank_minmax = st.slider(
-                "Ranking Sprungbrett-URL (Positionsbereich)",
-                1, 50, (8, 20), 1,
-                help="Wenn durchschnittliches Ranking der URL in diesem Positionsbereich liegt (Default 8–20), wird diese URL stärker priorisiert.",
-                disabled=not has_pos
-            )
-
-    # --- Box 2: Mauerblümchen ---
-    with box_right:
-        with bordered_container():
-            st.markdown("**Gewicht: Mauerblümchen**")
-            st.caption("Mauerblümchen – Feineinstellung")
-            w_orph = st.slider(
-                label="",
-                min_value=0.0, max_value=1.0, value=0.10, step=0.05,
-                help="Mauerblümchen-URLs = Seiten mit schlechter Linkversorgung (nur Content-Links werden hier betrachtet). Diese können hier stärker gewichtet werden. Orphan = 0 eingehende Links, Thin = kann über Regler definiert werden."
-            )
-            thin_k = st.slider(
-                "Thin-Schwelle (Inlinks ≤ K)",
-                0, 10, 2, 1,
-                help="Ab wie vielen eingehenden **Content**-Links gilt eine Seite nicht mehr als 'thin' verlinkt?"
-            )
+# 4) Mauerblümchen
+with col4:
+    with bordered_container():
+        st.markdown("**Gewicht: Mauerblümchen**")
+        w_orph = st.slider(
+            label="",
+            min_value=0.0, max_value=1.0, value=0.10, step=0.05,
+            help="Mauerblümchen-URLs = Seiten mit schlechter Linkversorgung (nur Content-Links werden hier betrachtet). Diese können hier stärker gewichtet werden. Orphan = 0 eingehende Links, Thin = kann über Regler definiert werden."
+        )
+        st.caption("Mauerblümchen – Feineinstellung")
+        thin_k = st.slider(
+            "Thin-Schwelle (Inlinks ≤ K)",
+            0, 10, 2, 1,
+            help="Ab wie vielen eingehenden **Content**-Links gilt eine Seite nicht mehr als 'thin' verlinkt?"
+        )
 
 
 # Info zur Summe (nur Hinweis, wir normalisieren intern)
