@@ -1813,64 +1813,140 @@ if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
         target_priority_map[u] = prio
 
 # --------------------------
-# Empfehlungen pro Gem bauen (nur: kein Content-Link vorhanden)
+# Empfehlungen pro Gem effizient bauen (Index statt O(G×N×R))
 # --------------------------
-if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
-    st.session_state["__gems_loading__"] = False
-    st.caption("Keine Gem-Daten/Analyse 1 fehlt. Bitte erst Schritt 1+2 ausführen.")
-    st.stop()
+try:
+    from collections import defaultdict
 
-gem_rows: List[List] = []
-for gem in gems:
+    # 1) Index: für jede SOURCE (Related URL) -> Liste (TARGET, SIM)
+    related_by_source: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+    if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
+        st.session_state["__gems_loading__"] = False
+        st.caption("Keine Gem-Daten/Analyse 1 fehlt. Bitte erst Schritt 1+2 ausführen.")
+        st.stop()
+
+    # Spalten iterativ abfragen (robust gegen unterschiedliche max_related)
+    rel_col_exists = lambda i: (f"Related URL {i}" in res1_df.columns)
+    sim_col = lambda i: f"Ähnlichkeit {i}"
+    cont_col = lambda i: f"aus Inhalt heraus verlinkt {i}?"
+
     for _, row in res1_df.iterrows():
         target = normalize_url(row["Ziel-URL"])
-        i = 1
-        while True:
-            col_src  = f"Related URL {i}"
-            col_sim  = f"Ähnlichkeit {i}"
-            col_cont = f"aus Inhalt heraus verlinkt {i}?"
-            if col_src not in res1_df.columns:
-                break
-            src = normalize_url(row.get(col_src, ""))
-            if not src or src != gem:
-                i += 1
-                continue
-            # bereits Content-Link? → skip
-            from_content = str(row.get(col_cont, "nein")).strip().lower()
-            if from_content == "ja":
-                i += 1
-                continue
+        if not target:
+            continue
 
-            simf = float(row.get(col_sim, 0.0) or 0.0)
+        i = 1
+        while rel_col_exists(i):
+            src_raw = row.get(f"Related URL {i}", "")
+            src = normalize_url(src_raw)
+            if src:
+                from_content = str(row.get(cont_col(i), "nein")).strip().lower() == "ja"
+                # nur Kandidaten ohne bestehenden Content-Link berücksichtigen
+                if not from_content:
+                    try:
+                        simf = float(row.get(sim_col(i), 0.0) or 0.0)
+                    except Exception:
+                        simf = 0.0
+                    related_by_source[src].append((target, float(simf)))
+            i += 1
+
+    # 2) Empfehlungen je Gem, nur Top-N pro Gem, danach weicher Gesamt-Cap
+    gem_rows: List[List] = []
+    N_TOP = int(max_targets_per_gem)
+    TOTAL_CAP = 3000  # weicher Deckel für das Rendern (verhindert White Screens)
+
+    for gem in gems:
+        candidates = related_by_source.get(gem, [])
+        if not candidates:
+            continue
+
+        rows = []
+        for target, simf in candidates:
             prio_t = float(target_priority_map.get(target, 0.0))
 
             if sort_choice == "prio_only":
                 sort_score = prio_t
+                sort_key = lambda r: (r[3], r[2])  # PRIO, tie-break SIM
             elif sort_choice == "sim_only":
                 sort_score = simf
+                sort_key = lambda r: (r[2], r[3])  # SIM, tie-break PRIO
             else:  # "rank_mix"
-                sort_score = alpha * simf + (1.0 - alpha) * prio_t
+                sort_score = float(alpha) * float(simf) + (1.0 - float(alpha)) * float(prio_t)
+                sort_key = lambda r: (r[4], r[2], r[3])  # Mix, dann SIM/PRIO
 
+            rows.append([gem, target, float(simf), float(prio_t), float(sort_score)])
 
-            gem_rows.append([gem, target, simf, prio_t, sort_score])
-            i += 1
+        # Sortierung und Top-N pro Gem
+        rows.sort(key=sort_key, reverse=True)
+        gem_rows.extend(rows[:N_TOP])
 
-# Pro Gem top-N schneiden & sortieren
-if gem_rows:
-    import itertools
-    gem_rows.sort(key=lambda r: r[0])  # nach Gem gruppieren
-    final_rows: List[List] = []
-    for gem_key, group in itertools.groupby(gem_rows, key=lambda r: r[0]):
-        grp = list(group)
-        # Sortierung je Modus (absteigend)
-        if sort_choice == "prio_only":
-            grp = sorted(grp, key=lambda r: (r[3], r[2]), reverse=True)   # PRIO, Tie-Break: Sim
-        elif sort_choice == "sim_only":
-            grp = sorted(grp, key=lambda r: (r[2], r[3]), reverse=True)   # Sim,  Tie-Break: PRIO
-        else:  # "rank_mix"
-            grp = sorted(grp, key=lambda r: (r[4], r[2], r[3]), reverse=True)  # Sortwert, dann Sim/PRIO
-        final_rows.extend(grp[:int(max_targets_per_gem)])
-    gem_rows = final_rows
+        if len(gem_rows) >= TOTAL_CAP:
+            st.info(f"Ausgabe auf {TOTAL_CAP} Empfehlungen gekappt (Performance-Schutz). "
+                    f"Nutze Download, um alles zu erhalten.")
+            break
+
+    # 3) Ausgabe: Breite Tabelle + Download (mit disp() für Anzeige-URLs)
+    if gem_rows:
+        by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
+        for gem, target, simv, prio_t, sortv in gem_rows:
+            by_gem[gem].append((target, float(simv), float(prio_t), float(sortv)))
+
+        cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
+        for i in range(1, N_TOP + 1):
+            cols += [f"Ziel {i}", f"Similarity (inhaltliche Nähe) {i}",
+                     f"Linkbedarf PRIO {i}", f"Score für Sortierung {i}"]
+
+        def pot_for(g: str) -> float:
+            return float(st.session_state.get("_source_potential_map", {})
+                         .get(normalize_url(g), 0.0))
+
+        ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
+        rows = []
+        for gem in ordered_gems:
+            items = by_gem[gem]
+            row = [disp(gem), round(pot_for(gem), 3)]
+            for i in range(N_TOP):
+                if i < len(items):
+                    target, simv, prio_t, sortv = items[i]
+                    row += [disp(target), round(simv, 3), round(prio_t, 3), round(sortv, 3)]
+                else:
+                    row += [np.nan, np.nan, np.nan, np.nan]
+            rows.append(row)
+
+        cheat_df = pd.DataFrame(rows, columns=cols)
+        st.dataframe(cheat_df, use_container_width=True, hide_index=True)
+
+        csv_cheat = cheat_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "Download »Cheat-Sheet der internen Verlinkung« (CSV)",
+            data=csv_cheat,
+            file_name="Cheat-Sheet der internen Verlinkung.csv",
+            mime="text/csv",
+        )
+
+        # Lade-Indikator sauber beenden
+        st.session_state["__gems_loading__"] = False
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3:
+            ph3.empty()
+        st.success("✅ Analyse abgeschlossen!")
+        st.session_state["__ready_gems__"] = True
+
+    else:
+        st.session_state["__gems_loading__"] = False
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3:
+            ph3.empty()
+        st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
+
+except Exception as e:
+    # Niemals mit aktivem Loader hängen bleiben
+    st.session_state["__gems_loading__"] = False
+    ph3 = st.session_state.get("__gems_ph__")
+    if ph3:
+        ph3.empty()
+    st.exception(e)
+    st.stop()
 
 # --------------------------
 # Ausgabe: Breite Tabelle + Download  (→ HIER disp() FÜR ANZEIGE)
