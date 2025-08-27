@@ -1202,7 +1202,7 @@ if run_clicked or st.session_state.ready:
             if i is not None and j is not None:
                 sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
 
-        if isinstance(sim, (int, float)) and np.isfinite(sim)):
+        if isinstance(sim, (int, float)) and np.isfinite(sim):
             sim_display = round(float(sim), 3)
             if float(sim) > float(not_similar_threshold):
                 continue
