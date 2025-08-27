@@ -1568,8 +1568,7 @@ with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
 
 # Sortierlogik (laienfreundliche Labels, gleiche Mechanik) – jetzt im Expander
 with st.expander("Reihenfolge der Empfehlungen", expanded=False):
-    st.caption(
-        "Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
+    st.caption("Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
         "• Mix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
         "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
         "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst"
