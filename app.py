@@ -44,17 +44,6 @@ if "__ready_gems__" not in st.session_state:
 if "__gems_ph__" not in st.session_state:
     st.session_state["__gems_ph__"] = st.empty()
 
-if st.session_state["__gems_loading__"]:
-    ph3 = st.session_state["__gems_ph__"]
-    with ph3.container():
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            st.image(
-                "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif",
-                width=280,
-            )
-            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
-
 # Remote-Logo robust laden (kein Crash, wenn Bild nicht geht)
 try:
     st.image(
@@ -1353,6 +1342,24 @@ if not st.session_state.get("__gems_loading__", False):
 # =========================================================
 st.markdown("---")
 st.subheader("Analyse 3 (optional): Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten")
+
+# >>> HIER EINFÜGEN: Loader-GIF für Analyse 3 <<<
+if st.session_state.get("__gems_loading__", False):
+    ph3 = st.session_state.get("__gems_ph__")
+    if ph3 is None:
+        ph3 = st.empty()
+        st.session_state["__gems_ph__"] = ph3
+    with ph3.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            try:
+                st.image(
+                    "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif",
+                    width=280,
+                )
+            except Exception:
+                st.write("⏳")
+            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
 
 with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
     st.markdown('''
