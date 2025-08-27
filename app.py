@@ -1126,18 +1126,18 @@ st.session_state["_norm_ranges"] = {
 # ===============================
 st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
 
+# Neue, ausführliche Spaltenlabels
 cols = ["Ziel-URL"]
 for i in range(1, int(max_related) + 1):
-    cols.extend([
+    cols += [
         f"Related URL {i}",
         f"Ähnlichkeit {i}",
         f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
         f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
         f"Linkpotenzial Related URL {i}",
-    ])
+    ]
 
-rows_norm = []
-rows_view = []
+rows_norm, rows_view = [], []
 
 for target, related_list in sorted(related_map.items()):
     related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
@@ -1151,7 +1151,7 @@ for target, related_list in sorted(related_map.items()):
         row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
         row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
 
-    # pad
+    # auffüllen
     while len(row_norm) < len(cols):
         row_norm.append(np.nan)
     while len(row_view) < len(cols):
@@ -1170,15 +1170,16 @@ sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
 for c in sim_cols:
     res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
 
-st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
-
-csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
-st.download_button(
-    "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
-    data=csv1,
-    file_name="interne_verlinkungsmoeglichkeiten.csv",
-    mime="text/csv",
-)
+# WICHTIG: Schweres Rendering pausieren, solange Analyse 3 lädt
+if not st.session_state.get("__gems_loading__", False):
+    st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
+    csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
+        data=csv1,
+        file_name="interne_verlinkungsmoeglichkeiten.csv",
+        mime="text/csv",
+    )
 
 # ===============================
 # Analyse 2: Potenziell zu entfernende Links
@@ -1609,6 +1610,8 @@ run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
 if run_gems:
     st.session_state["__gems_loading__"] = True
     st.session_state["__ready_gems__"] = False
+    st.experimental_rerun()  # <— hinzufügen
+
 
 # GIF anzeigen, solange Lade-Flag aktiv ist
 # Placeholder für das Analyse-3-GIF einmalig anlegen
@@ -1735,6 +1738,7 @@ def deficit_weighted_for(target: str) -> float:
     """
     Similarity-gewichteter Anteil noch fehlender Content-Links.
     Danach Offpage-Dämpfung des ZIELS: starke externe Autorität => geringerer Linkbedarf.
+    Nutzt die NEUEN Spaltennamen; fällt bei Bedarf auf die alten zurück.
     """
     if not isinstance(res1_df, pd.DataFrame):
         return 0.0
@@ -1747,10 +1751,9 @@ def deficit_weighted_for(target: str) -> float:
     sum_missing = 0.0
     i = 1
     while True:
-        col_sim  = f"Ähnlichkeit {i}"
-        col_src  = f"Related URL {i}"
-        col_cont = f"aus Inhalt heraus verlinkt {i}?"
-        if col_sim not in res1_df.columns or col_src not in res1_df.columns:
+        col_sim = f"Ähnlichkeit {i}"
+        col_src = f"Related URL {i}"
+        if col_src not in res1_df.columns or col_sim not in res1_df.columns:
             break
 
         sim_val = r.get(col_sim, np.nan)
@@ -1763,15 +1766,17 @@ def deficit_weighted_for(target: str) -> float:
         simf = max(0.0, simf)
         sum_all += simf
 
-        # "fehlend" = es existiert KEIN Content-Link Quelle -> Ziel
-        from_content = str(r.get(col_cont, "nein")).strip().lower()
+        # Neues Label -> Fallback auf altes Kurzlabel
+        cont_new = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
+        cont_old = f"aus Inhalt heraus verlinkt {i}?"
+        from_content = str(r.get(cont_new, r.get(cont_old, "nein"))).strip().lower()
+
         if from_content != "ja":
             sum_missing += simf
 
         i += 1
 
     ratio = float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
-    # Offpage-Dämpfung auf das ZIEL anwenden (viel Autorität => geringerer Linkbedarf)
     return ratio * damp_factor(target)
 
 
@@ -1827,8 +1832,12 @@ try:
 
     # Spalten iterativ abfragen (robust gegen unterschiedliche max_related)
     rel_col_exists = lambda i: (f"Related URL {i}" in res1_df.columns)
-    sim_col = lambda i: f"Ähnlichkeit {i}"
-    cont_col = lambda i: f"aus Inhalt heraus verlinkt {i}?"
+    sim_col        = lambda i: f"Ähnlichkeit {i}"
+
+    def content_link_flag(row_obj, i: int) -> bool:
+        cont_new = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
+        cont_old = f"aus Inhalt heraus verlinkt {i}?"
+        return str(row_obj.get(cont_new, row_obj.get(cont_old, "nein"))).strip().lower() == "ja"
 
     for _, row in res1_df.iterrows():
         target = normalize_url(row["Ziel-URL"])
@@ -1840,7 +1849,7 @@ try:
             src_raw = row.get(f"Related URL {i}", "")
             src = normalize_url(src_raw)
             if src:
-                from_content = str(row.get(cont_col(i), "nein")).strip().lower() == "ja"
+                from_content = content_link_flag(row, i)
                 # nur Kandidaten ohne bestehenden Content-Link berücksichtigen
                 if not from_content:
                     try:
@@ -1853,8 +1862,7 @@ try:
     # 2) Empfehlungen je Gem, nur Top-N pro Gem, danach weicher Gesamt-Cap
     gem_rows: List[List] = []
     N_TOP = int(max_targets_per_gem)
-    TOTAL_CAP = 3000  # weicher Deckel für das Rendern (verhindert White Screens)
-
+    TOTAL_CAP = 3000  # weicher Deckel für das Rendern
     for gem in gems:
         candidates = related_by_source.get(gem, [])
         if not candidates:
@@ -1931,6 +1939,7 @@ try:
             ph3.empty()
         st.success("✅ Analyse abgeschlossen!")
         st.session_state["__ready_gems__"] = True
+        st.experimental_rerun()  # <— hinzufügen
 
     else:
         st.session_state["__gems_loading__"] = False
@@ -1938,6 +1947,7 @@ try:
         if ph3:
             ph3.empty()
         st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
+        st.experimental_rerun()  # <— hinzufügen
 
 except Exception as e:
     # Niemals mit aktivem Loader hängen bleiben
@@ -1948,59 +1958,5 @@ except Exception as e:
     st.exception(e)
     st.stop()
 
-# --------------------------
-# Ausgabe: Breite Tabelle + Download  (→ HIER disp() FÜR ANZEIGE)
-# --------------------------
-if gem_rows:
-    from collections import defaultdict
-    by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
-    for gem, target, simv, prio_t, sortv in gem_rows:
-        by_gem[gem].append((target, float(simv), float(prio_t), float(sortv)))
-
-    cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
-    for i in range(1, int(max_targets_per_gem) + 1):
-        cols += [f"Ziel {i}", f"Similarity (inhaltliche Nähe) {i}", f"Linkbedarf PRIO {i}", f"Score für Sortierung {i}"]
-
-    def pot_for(g: str) -> float:
-        return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
-
-    ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
-    rows = []
-    for gem in ordered_gems:
-        items = by_gem[gem]
-        row = [disp(gem), round(pot_for(gem), 3)]              # ← disp(gem)
-        for i in range(int(max_targets_per_gem)):
-            if i < len(items):
-                target, simv, prio_t, sortv = items[i]
-                row += [disp(target),                           # ← disp(target)
-                        round(simv, 3), round(prio_t, 3), round(sortv, 3)]
-            else:
-                row += [np.nan, np.nan, np.nan, np.nan]
-        rows.append(row)
-
-    cheat_df = pd.DataFrame(rows, columns=cols)
-    st.dataframe(cheat_df, use_container_width=True, hide_index=True)
-
-    csv_cheat = cheat_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Download »Cheat-Sheet der internen Verlinkung« (CSV)",
-        data=csv_cheat,
-        file_name="Cheat-Sheet der internen Verlinkung.csv",
-        mime="text/csv",
-    )
-
-    st.session_state["__gems_loading__"] = False
-    ph3 = st.session_state.get("__gems_ph__")
-    if ph3:
-        ph3.empty()  # GIF ausblenden
-    st.success("✅ Analyse abgeschlossen!")
-    st.session_state["__ready_gems__"] = True
-
-else:
-    st.session_state["__gems_loading__"] = False
-    ph3 = st.session_state.get("__gems_ph__")
-    if ph3:
-        ph3.empty()  # GIF ausblenden
-    st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
 
 
