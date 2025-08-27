@@ -282,108 +282,33 @@ def read_any_file_cached(filename: str, raw: bytes) -> Optional[pd.DataFrame]:
         st.error(f"Fehler beim Lesen von {filename or 'Datei'}: {e}")
         return None
 
-def build_related_from_embeddings(
+def build_related_auto(
     urls: List[str],
     V: np.ndarray,
     top_k: int,
     sim_threshold: float,
-    backend: str,
+    prefer_backend: str,
+    mem_budget_gb: float = 1.5,
 ) -> pd.DataFrame:
-    """
-    Baut 'Related URLs' (Ziel, Quelle, Similarity).
-    Erwartet L2-normalisierte Vektoren V.
-    Nutzt FAISS (Inner Product) falls gewählt & verfügbar, sonst exaktes NumPy-Chunking.
-    """
-    n = V.shape[0]
-    if n < 2:
-        return pd.DataFrame(columns=["Ziel", "Quelle", "Similarity"])
+    """Wählt Backend automatisch und fällt robust um (NumPy<->FAISS)."""
+    n = int(V.shape[0])
+    eff_backend, reason = choose_backend(prefer_backend, n, mem_budget_gb)
+    if eff_backend != prefer_backend:
+        st.info(f"Backend auf **{eff_backend}** umgestellt ({reason}).")
 
-    K = int(top_k)
-    pairs: List[List[object]] = []
-
-    # ---- Versuch: FAISS ----
-    if backend == "Schnell (FAISS)":
-        try:
-            import faiss  # type: ignore
-            dim = V.shape[1]
-            index = faiss.IndexFlatIP(dim)
-            Vf = V.astype("float32", copy=False)
-            index.add(Vf)
-            topk = min(K + 1, n)
-            D, I = index.search(Vf, topk)
-            for i in range(n):
-                taken = 0
-                for rank, j in enumerate(I[i]):
-                    if j == -1 or j == i:
-                        continue
-                    s = float(D[i][rank])
-                    if s < sim_threshold:
-                        continue
-                    pairs.append([urls[i], urls[j], s])
-                    taken += 1
-                    if taken >= K:
-                        break
-        except Exception:
-            # Fallback auf NumPy-Chunking
-            backend = "Exakt (NumPy)"
-
-    # ---- Exakt (NumPy) mit 2D-Chunking ----
-    if backend == "Exakt (NumPy)":
-        Vf = V.astype(np.float32, copy=False)
-        row_chunk = 512
-        col_chunk = 2048
-
-        for r0 in range(0, n, row_chunk):
-            r1 = min(r0 + row_chunk, n)
-            block = Vf[r0:r1]                # (b, d)
-            b = r1 - r0
-
-            top_vals = np.full((b, K), -np.inf, dtype=np.float32)
-            top_idx  = np.full((b, K), -1,      dtype=np.int32)
-
-            for c0 in range(0, n, col_chunk):
-                c1 = min(c0 + col_chunk, n)
-                part = Vf[c0:c1]             # (c, d)
-                sims = block @ part.T        # (b, c)
-
-                # Self-Matches maskieren
-                if (c0 < r1) and (c1 > r0):
-                    o0 = max(r0, c0); o1 = min(r1, c1)
-                    br = np.arange(o0 - r0, o1 - r0)
-                    bc = np.arange(o0 - c0, o1 - c0)
-                    sims[br, bc] = -1.0
-
-                # lokale Top-K
-                if K < sims.shape[1]:
-                    part_idx = np.argpartition(sims, -K, axis=1)[:, -K:]
-                else:
-                    part_idx = np.argsort(sims, axis=1)
-                rows = np.arange(b)[:, None]
-                cand_vals = sims[rows, part_idx]
-                cand_idx  = part_idx + c0
-
-                # mit globalen Top-K mergen
-                all_vals = np.concatenate([top_vals, cand_vals], axis=1)
-                all_idx  = np.concatenate([top_idx,  cand_idx],  axis=1)
-                sel = np.argpartition(all_vals, -K, axis=1)[:, -K:]
-                top_vals = all_vals[rows, sel]
-                top_idx  = all_idx[rows,  sel]
-
-                order = np.argsort(top_vals, axis=1)[:, ::-1]
-                top_vals = top_vals[rows, order]
-                top_idx  = top_idx[rows,  order]
-
-            # Ergebnisse einsammeln
-            for bi, i in enumerate(range(r0, r1)):
-                taken = 0
-                for v, j in zip(top_vals[bi], top_idx[bi]):
-                    s = float(v)
-                    if j == -1 or s < sim_threshold:
-                        continue
-                    pairs.append([urls[i], urls[int(j)], s])
-                    taken += 1
-                    if taken >= K:
-                        break
+    try:
+        return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), eff_backend, _v=1)
+    except MemoryError:
+        if eff_backend == "Exakt (NumPy)" and _faiss_available():
+            st.warning("NumPy ist am Speicherlimit – Wechsel auf **FAISS**.")
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Schnell (FAISS)", _v=1)
+        raise
+    except Exception as e:
+        if eff_backend == "Schnell (FAISS)":
+            st.warning(f"FAISS-Indexierung fehlgeschlagen ({e}). Fallback auf **NumPy**.")
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Exakt (NumPy)", _v=1)
+        else:
+            raise
 
 
 
@@ -451,18 +376,18 @@ def build_related_auto(
         st.info(f"Backend auf **{eff_backend}** umgestellt ({reason}).")
 
     try:
-        return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), eff_backend, _faiss_available())
+        return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), eff_backend, _v=1)
     except MemoryError:
         # NumPy am Limit? -> auf FAISS wechseln
         if eff_backend == "Exakt (NumPy)" and _faiss_available():
             st.warning("NumPy ist am Speicherlimit – Wechsel auf **FAISS**.")
-            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Schnell (FAISS)", True)
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Schnell (FAISS)", _v=1)
         raise
     except Exception as e:
         # FAISS zickt? -> Fallback auf NumPy
         if eff_backend == "Schnell (FAISS)":
             st.warning(f"FAISS-Indexierung fehlgeschlagen ({e}). Fallback auf **NumPy**.")
-            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Exakt (NumPy)", False)
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Exakt (NumPy)", _v=1)
         else:
             raise
 
