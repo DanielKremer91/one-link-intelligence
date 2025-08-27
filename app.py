@@ -599,7 +599,7 @@ with st.sidebar:
 
     st.subheader("Entfernung von Links")
     not_similar_threshold = st.slider(
-        "Unähnlichkeits-Schwelle (schwache Links)",
+        "Unähnlichkeitsschwelle (schwache Links)",
         0.0, 1.0, 0.60, 0.01,
         help=("Interne Links gelten als schwach, wenn deren semantische Ähnlichkeit ≤ diesem Wert liegt. "
               "Beispiel: 0.60 → alle Links ≤ 0.60 werden als potenziell zu entfernend gelistet.")
