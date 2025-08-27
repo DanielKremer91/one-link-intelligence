@@ -1591,33 +1591,35 @@ with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
 
 # Sortierlogik (laienfreundliche Labels, gleiche Mechanik) – jetzt im Expander
 with st.expander("Reihenfolge der Empfehlungen", expanded=False):
-    st.caption("Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
+    st.caption(
+        "Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
         "• Mix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
         "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
         "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst"
     )
 
     sort_labels = {
-        "rank_mix":   "Mix (Nähe & Linkbearf kombiniert)",
-        "prio_only":  "Nur Linkbedarf",
-        "sim_only":   "Nur inhaltliche Nähe",
+        "rank_mix":  "Mix (Nähe & Linkbedarf kombiniert)",
+        "prio_only": "Nur Linkbedarf",
+        "sim_only":  "Nur inhaltliche Nähe",
     }
+    sort_options = ["rank_mix", "prio_only", "sim_only"]  # explizite Liste!
+
     sort_choice = st.radio(
-        label="",
-        options=list(sort_labels.keys()),
+        "Sortierung",
+        options=sort_options,
         index=0,
-        format_func=lambda k: sort_labels[k],
+        format_func=lambda k: sort_labels.get(k, k),
         horizontal=True,
+        key="sort_choice_radio",
     )
 
-    alpha = st.slider(
+    alpha_mix = st.slider(
         "Gewichtung: inhaltliche Nähe vs. Linkbedarf",
         min_value=0.0, max_value=1.0, value=0.5, step=0.05,
-        help=("Gilt nur für den **Mix**: Links = Linkbedarf wichtiger, "
-              "Rechts = inhaltliche Nähe wichtiger.")
+        help="Gilt nur für den Mix: Links = Linkbedarf wichtiger, Rechts = inhaltliche Nähe wichtiger.",
+        key="alpha_mix_slider",
     )
-
-
 
 
 # --- Let's Go Button jetzt UNTEN, nach Balance ---
@@ -1865,26 +1867,22 @@ try:
         target = normalize_url(row["Ziel-URL"])
         if not target:
             continue
-
         i = 1
         while rel_col_exists(i):
             src_raw = row.get(f"Related URL {i}", "")
             src = normalize_url(src_raw)
-            if src:
-                from_content = content_link_flag(row, i)
-                # nur Kandidaten ohne bestehenden Content-Link berücksichtigen
-                if not from_content:
-                    try:
-                        simf = float(row.get(sim_col(i), 0.0) or 0.0)
-                    except Exception:
-                        simf = 0.0
-                    related_by_source[src].append((target, float(simf)))
+            if src and not content_link_flag(row, i):  # nur ohne Content-Link
+                try:
+                    simf = float(row.get(sim_col(i), 0.0) or 0.0)
+                except Exception:
+                    simf = 0.0
+                related_by_source[src].append((target, float(simf)))
             i += 1
 
-    # 2) Empfehlungen je Gem, nur Top-N pro Gem, danach weicher Gesamt-Cap
+    # 2) Empfehlungen je Gem
     gem_rows: List[List] = []
     N_TOP = int(max_targets_per_gem)
-    TOTAL_CAP = 3000  # weicher Deckel für das Rendern
+    TOTAL_CAP = 3000
     for gem in gems:
         candidates = related_by_source.get(gem, [])
         if not candidates:
@@ -1893,29 +1891,28 @@ try:
         rows = []
         for target, simf in candidates:
             prio_t = float(target_priority_map.get(target, 0.0))
-
             if sort_choice == "prio_only":
                 sort_score = prio_t
-                sort_key = lambda r: (r[3], r[2])  # PRIO, tie-break SIM
+                sort_key = lambda r: (r[3], r[2])
             elif sort_choice == "sim_only":
                 sort_score = simf
-                sort_key = lambda r: (r[2], r[3])  # SIM, tie-break PRIO
-            else:  # "rank_mix"
-                sort_score = float(alpha) * float(simf) + (1.0 - float(alpha)) * float(prio_t)
-                sort_key = lambda r: (r[4], r[2], r[3])  # Mix, dann SIM/PRIO
+                sort_key = lambda r: (r[2], r[3])
+            else:  # Mix
+                # falls du meinen vorherigen Tipp übernommen hast, heißt der Slider alpha_mix
+                mix_alpha = alpha_mix if 'alpha_mix' in locals() else alpha
+                sort_score = float(mix_alpha) * float(simf) + (1.0 - float(mix_alpha)) * float(prio_t)
+                sort_key = lambda r: (r[4], r[2], r[3])
 
             rows.append([gem, target, float(simf), float(prio_t), float(sort_score)])
 
-        # Sortierung und Top-N pro Gem
         rows.sort(key=sort_key, reverse=True)
         gem_rows.extend(rows[:N_TOP])
-
         if len(gem_rows) >= TOTAL_CAP:
             st.info(f"Ausgabe auf {TOTAL_CAP} Empfehlungen gekappt (Performance-Schutz). "
                     f"Nutze Download, um alles zu erhalten.")
             break
 
-    # 3) Ausgabe: Breite Tabelle + Download (mit disp() für Anzeige-URLs)
+    # 3) Ausgabe
     if gem_rows:
         by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
         for gem, target, simv, prio_t, sortv in gem_rows:
@@ -1954,29 +1951,26 @@ try:
             mime="text/csv",
         )
 
-        # Lade-Indikator sauber beenden
         st.session_state["__gems_loading__"] = False
         ph3 = st.session_state.get("__gems_ph__")
-        if ph3:
-            ph3.empty()
+        if ph3: ph3.empty()
         st.success("✅ Analyse abgeschlossen!")
         st.session_state["__ready_gems__"] = True
 
     else:
         st.session_state["__gems_loading__"] = False
         ph3 = st.session_state.get("__gems_ph__")
-        if ph3:
-            ph3.empty()
+        if ph3: ph3.empty()
         st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
 
-    except Exception as e:
-        # Niemals mit aktivem Loader hängen bleiben
-        st.session_state["__gems_loading__"] = False
-        ph3 = st.session_state.get("__gems_ph__")
-        if ph3:
-            ph3.empty()
-        st.exception(e)
-        st.stop()
+except Exception as e:
+    # Niemals mit aktivem Loader hängen bleiben
+    st.session_state["__gems_loading__"] = False
+    ph3 = st.session_state.get("__gems_ph__")
+    if ph3: ph3.empty()
+    st.exception(e)
+    st.stop()
+
 
 
 
