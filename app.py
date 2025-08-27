@@ -34,6 +34,27 @@ if "res1_df" not in st.session_state:
 if "out_df" not in st.session_state:
     st.session_state.out_df = None
 
+# ---- Analyse-3 Flags früh initialisieren
+if "__gems_loading__" not in st.session_state:
+    st.session_state["__gems_loading__"] = False
+if "__ready_gems__" not in st.session_state:
+    st.session_state["__ready_gems__"] = False
+
+# ---- Platzhalter für das Analyse-3-GIF (ganz früh, damit sofort etwas gemalt wird)
+if "__gems_ph__" not in st.session_state:
+    st.session_state["__gems_ph__"] = st.empty()
+
+if st.session_state["__gems_loading__"]:
+    ph3 = st.session_state["__gems_ph__"]
+    with ph3.container():
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.image(
+                "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif",
+                width=280,
+            )
+            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+
 # Remote-Logo robust laden (kein Crash, wenn Bild nicht geht)
 try:
     st.image(
@@ -1125,205 +1146,206 @@ st.session_state["_norm_ranges"] = {
 # Analyse 1: Interne Verlinkungsmöglichkeiten
 # ===============================
 st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
-
-# Neue, ausführliche Spaltenlabels
-cols = ["Ziel-URL"]
-for i in range(1, int(max_related) + 1):
-    cols += [
-        f"Related URL {i}",
-        f"Ähnlichkeit {i}",
-        f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
-        f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
-        f"Linkpotenzial Related URL {i}",
-    ]
-
-rows_norm, rows_view = [], []
-
-for target, related_list in sorted(related_map.items()):
-    related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
-    row_norm = [target]
-    row_view = [disp(target)]
-    for source, sim in related_sorted:
-        anywhere = "ja" if (source, target) in all_links else "nein"
-        from_content = "ja" if (source, target) in content_links else "nein"
-        final_score = source_potential_map.get(source, 0.0)
-
-        row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
-        row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
-
-    # auffüllen
-    while len(row_norm) < len(cols):
-        row_norm.append(np.nan)
-    while len(row_view) < len(cols):
-        row_view.append(np.nan)
-
-    rows_norm.append(row_norm)
-    rows_view.append(row_view)
-
-# interne (kanonische) DF für spätere Berechnungen
-res1_df = pd.DataFrame(rows_norm, columns=cols)
-st.session_state.res1_df = res1_df
-
-# Anzeige-DF
-res1_view_df = pd.DataFrame(rows_view, columns=cols)
-sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
-for c in sim_cols:
-    res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
-
-# WICHTIG: Schweres Rendering pausieren, solange Analyse 3 lädt
 if not st.session_state.get("__gems_loading__", False):
-    st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
-    csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
+
+    # Neue, ausführliche Spaltenlabels
+    cols = ["Ziel-URL"]
+    for i in range(1, int(max_related) + 1):
+        cols += [
+            f"Related URL {i}",
+            f"Ähnlichkeit {i}",
+            f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
+            f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
+            f"Linkpotenzial Related URL {i}",
+        ]
+    
+    rows_norm, rows_view = [], []
+    
+    for target, related_list in sorted(related_map.items()):
+        related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
+        row_norm = [target]
+        row_view = [disp(target)]
+        for source, sim in related_sorted:
+            anywhere = "ja" if (source, target) in all_links else "nein"
+            from_content = "ja" if (source, target) in content_links else "nein"
+            final_score = source_potential_map.get(source, 0.0)
+    
+            row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
+            row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
+    
+        # auffüllen
+        while len(row_norm) < len(cols):
+            row_norm.append(np.nan)
+        while len(row_view) < len(cols):
+            row_view.append(np.nan)
+    
+        rows_norm.append(row_norm)
+        rows_view.append(row_view)
+    
+    # interne (kanonische) DF für spätere Berechnungen
+    res1_df = pd.DataFrame(rows_norm, columns=cols)
+    st.session_state.res1_df = res1_df
+    
+    # Anzeige-DF
+    res1_view_df = pd.DataFrame(rows_view, columns=cols)
+    sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
+    for c in sim_cols:
+        res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
+    
+    # WICHTIG: Schweres Rendering pausieren, solange Analyse 3 lädt
+    if not st.session_state.get("__gems_loading__", False):
+        st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
+        csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
+            data=csv1,
+            file_name="interne_verlinkungsmoeglichkeiten.csv",
+            mime="text/csv",
+        )
+    
+    # ===============================
+    # Analyse 2: Potenziell zu entfernende Links
+    # ===============================
+    st.markdown("## Analyse 2: Potenziell zu entfernende Links")
+    
+    # 1) Similarity-Map aus Related (beidseitig)
+    sim_map: Dict[Tuple[str, str], float] = {}
+    processed_pairs2 = set()
+    
+    for _, r in related_df.iterrows():
+        a = remember_original(r.iloc[rel_src_idx])  # Quelle
+        b = remember_original(r.iloc[rel_dst_idx])  # Ziel
+        try:
+            sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
+        except Exception:
+            continue
+        if not a or not b:
+            continue
+        pair_key = "↔".join(sorted([a, b]))
+        if pair_key in processed_pairs2:
+            continue
+        sim_map[(a, b)] = sim
+        sim_map[(b, a)] = sim
+        processed_pairs2.add(pair_key)
+    
+    # 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
+    if _has_emb:
+        missing = [
+            (src, dst) for (src, dst) in all_links
+            if (src, dst) not in sim_map and (dst, src) not in sim_map
+            and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
+        ]
+        if missing:
+            I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
+            J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
+            Vf = _Vmat  # float32, L2-normalisiert
+            sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)  # Cosine für alle fehlenden Paare
+            for (src, dst), s in zip(missing, sims):
+                val = float(s)
+                sim_map[(src, dst)] = val
+                sim_map[(dst, src)] = val
+    
+    # 3) Waster-Score (Quelle) + Klassifikation
+    raw_score_map: Dict[str, float] = {}
+    for _, r in metrics_df.iterrows():
+        u   = remember_original(r.iloc[m_url_idx])
+        inl = _num(r.iloc[m_in_idx])
+        outl= _num(r.iloc[m_out_idx])
+        raw_score_map[u] = outl - inl
+    
+    adjusted_score_map: Dict[str, float] = {}
+    for u, raw in raw_score_map.items():
+        bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+        impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
+        factor = 2.0 if backlink_weight_2x else 1.0
+        malus = 5.0 * factor if impact == 0 else 0.0
+        adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
+    
+    w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
+    if w_vals.size == 0:
+        q70 = q90 = 0.0
+    else:
+        q70 = float(np.quantile(w_vals, 0.70))   # ab hier „mittel“
+        q90 = float(np.quantile(w_vals, 0.90))   # ab hier „hoch“
+    
+    def waster_class_for(u: str) -> Tuple[str, float]:
+        score = float(adjusted_score_map.get(u, 0.0))
+        if score >= q90:
+            return "hoch", score
+        elif score >= q70:
+            return "mittel", score
+        else:
+            return "niedrig", score
+    
+    # 4) Output bauen (Anzeige mit Original-URLs)
+    out_rows = []
+    rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
+    out_header = [
+        "Quelle",
+        "Ziel",
+        "Waster-Klasse (Quelle)",
+        "Waster-Score (Quelle)",
+        "Semantische Ähnlichkeit",
+        *rest_cols,
+    ]
+    
+    for row in inlinks_df.itertuples(index=False, name=None):
+        quelle = remember_original(row[src_idx])
+        ziel   = remember_original(row[dst_idx])
+        if not quelle or not ziel:
+            continue
+    
+        w_class, w_score = waster_class_for(normalize_url(quelle))
+    
+        sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
+    
+        if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
+            i = _idx_map.get(normalize_url(quelle))
+            j = _idx_map.get(normalize_url(ziel))
+            if i is not None and j is not None:
+                sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
+    
+        if isinstance(sim, (int, float)) and np.isfinite(sim):
+            sim_display = round(float(sim), 3)
+            if float(sim) > float(not_similar_threshold):
+                continue
+        else:
+            sim_display = (
+                "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
+                if mode == "Related URLs" else
+                "Cosine Similarity nicht erfasst"
+            )
+    
+        rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
+        out_rows.append([
+            disp(quelle),
+            disp(ziel),
+            w_class,
+            round(float(w_score), 3),
+            sim_display,
+            *rest,
+        ])
+    
+    out_df = pd.DataFrame(out_rows, columns=out_header)
+    st.session_state.out_df = out_df
+    st.dataframe(out_df, use_container_width=True, hide_index=True)
+    
+    csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
     st.download_button(
-        "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
-        data=csv1,
-        file_name="interne_verlinkungsmoeglichkeiten.csv",
+        "Download 'Potenziell zu entfernende Links' (CSV)",
+        data=csv2,
+        file_name="potenziell_zu_entfernende_links.csv",
         mime="text/csv",
     )
-
-# ===============================
-# Analyse 2: Potenziell zu entfernende Links
-# ===============================
-st.markdown("## Analyse 2: Potenziell zu entfernende Links")
-
-# 1) Similarity-Map aus Related (beidseitig)
-sim_map: Dict[Tuple[str, str], float] = {}
-processed_pairs2 = set()
-
-for _, r in related_df.iterrows():
-    a = remember_original(r.iloc[rel_src_idx])  # Quelle
-    b = remember_original(r.iloc[rel_dst_idx])  # Ziel
-    try:
-        sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
-    except Exception:
-        continue
-    if not a or not b:
-        continue
-    pair_key = "↔".join(sorted([a, b]))
-    if pair_key in processed_pairs2:
-        continue
-    sim_map[(a, b)] = sim
-    sim_map[(b, a)] = sim
-    processed_pairs2.add(pair_key)
-
-# 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
-if _has_emb:
-    missing = [
-        (src, dst) for (src, dst) in all_links
-        if (src, dst) not in sim_map and (dst, src) not in sim_map
-        and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
-    ]
-    if missing:
-        I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
-        J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
-        Vf = _Vmat  # float32, L2-normalisiert
-        sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)  # Cosine für alle fehlenden Paare
-        for (src, dst), s in zip(missing, sims):
-            val = float(s)
-            sim_map[(src, dst)] = val
-            sim_map[(dst, src)] = val
-
-# 3) Waster-Score (Quelle) + Klassifikation
-raw_score_map: Dict[str, float] = {}
-for _, r in metrics_df.iterrows():
-    u   = remember_original(r.iloc[m_url_idx])
-    inl = _num(r.iloc[m_in_idx])
-    outl= _num(r.iloc[m_out_idx])
-    raw_score_map[u] = outl - inl
-
-adjusted_score_map: Dict[str, float] = {}
-for u, raw in raw_score_map.items():
-    bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-    impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
-    factor = 2.0 if backlink_weight_2x else 1.0
-    malus = 5.0 * factor if impact == 0 else 0.0
-    adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
-
-w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
-if w_vals.size == 0:
-    q70 = q90 = 0.0
-else:
-    q70 = float(np.quantile(w_vals, 0.70))   # ab hier „mittel“
-    q90 = float(np.quantile(w_vals, 0.90))   # ab hier „hoch“
-
-def waster_class_for(u: str) -> Tuple[str, float]:
-    score = float(adjusted_score_map.get(u, 0.0))
-    if score >= q90:
-        return "hoch", score
-    elif score >= q70:
-        return "mittel", score
-    else:
-        return "niedrig", score
-
-# 4) Output bauen (Anzeige mit Original-URLs)
-out_rows = []
-rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
-out_header = [
-    "Quelle",
-    "Ziel",
-    "Waster-Klasse (Quelle)",
-    "Waster-Score (Quelle)",
-    "Semantische Ähnlichkeit",
-    *rest_cols,
-]
-
-for row in inlinks_df.itertuples(index=False, name=None):
-    quelle = remember_original(row[src_idx])
-    ziel   = remember_original(row[dst_idx])
-    if not quelle or not ziel:
-        continue
-
-    w_class, w_score = waster_class_for(normalize_url(quelle))
-
-    sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
-
-    if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
-        i = _idx_map.get(normalize_url(quelle))
-        j = _idx_map.get(normalize_url(ziel))
-        if i is not None and j is not None:
-            sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
-
-    if isinstance(sim, (int, float)) and np.isfinite(sim):
-        sim_display = round(float(sim), 3)
-        if float(sim) > float(not_similar_threshold):
-            continue
-    else:
-        sim_display = (
-            "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
-            if mode == "Related URLs" else
-            "Cosine Similarity nicht erfasst"
-        )
-
-    rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-    out_rows.append([
-        disp(quelle),
-        disp(ziel),
-        w_class,
-        round(float(w_score), 3),
-        sim_display,
-        *rest,
-    ])
-
-out_df = pd.DataFrame(out_rows, columns=out_header)
-st.session_state.out_df = out_df
-st.dataframe(out_df, use_container_width=True, hide_index=True)
-
-csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
-st.download_button(
-    "Download 'Potenziell zu entfernende Links' (CSV)",
-    data=csv2,
-    file_name="potenziell_zu_entfernende_links.csv",
-    mime="text/csv",
-)
-
-# kleines Aufräumen am Ende des Runs
-if run_clicked:
-    try:
-        placeholder.empty()
-    except Exception:
-        pass
-    st.success("✅ Berechnung abgeschlossen!")
-    st.session_state.ready = True
+    
+    # kleines Aufräumen am Ende des Runs
+    if run_clicked:
+        try:
+            placeholder.empty()
+        except Exception:
+            pass
+        st.success("✅ Berechnung abgeschlossen!")
+        st.session_state.ready = True
 
 
 # =========================================================
@@ -1939,7 +1961,6 @@ try:
             ph3.empty()
         st.success("✅ Analyse abgeschlossen!")
         st.session_state["__ready_gems__"] = True
-        st.experimental_rerun()  # <— hinzufügen
 
     else:
         st.session_state["__gems_loading__"] = False
@@ -1947,16 +1968,15 @@ try:
         if ph3:
             ph3.empty()
         st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
-        st.experimental_rerun()  # <— hinzufügen
 
-except Exception as e:
-    # Niemals mit aktivem Loader hängen bleiben
-    st.session_state["__gems_loading__"] = False
-    ph3 = st.session_state.get("__gems_ph__")
-    if ph3:
-        ph3.empty()
-    st.exception(e)
-    st.stop()
+    except Exception as e:
+        # Niemals mit aktivem Loader hängen bleiben
+        st.session_state["__gems_loading__"] = False
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3:
+            ph3.empty()
+        st.exception(e)
+        st.stop()
 
 
 
