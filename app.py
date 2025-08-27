@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 import inspect
+import re
 
 def bordered_container():
     """
@@ -94,12 +95,28 @@ def robust_norm(x: float, lo: float, hi: float) -> float:
     return float(np.clip(v, 0.0, 1.0))
 
 
+def _norm_header(s: str) -> str:
+    """Header robust normalisieren: BOM/NBSP/Zero-Width entfernen, Kleinbuchstaben,
+    Trennzeichen vereinheitlichen, Sonderzeichen entfernen, Mehrfachspaces reduzieren."""
+    s = str(s or "")
+    s = s.replace("\ufeff", "")   # BOM
+    s = s.replace("\u200b", "")  # Zero-Width Space
+    s = s.replace("\xa0", " ")   # NBSP -> normales Leerzeichen
+    s = s.strip().lower()
+    s = s.replace("_", " ").replace("-", " ")
+    s = re.sub(r"[^\w\s]", " ", s)   # restliche Satzzeichen raus
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
 def find_column_index(header: List[str], possible_names: List[str]) -> int:
-    lower = [str(h).strip().lower() for h in header]
-    for i, h in enumerate(lower):
-        if h in possible_names:
+    """Finde Spalte per robuster Normalisierung (siehe _norm_header)."""
+    hdr_norm = [_norm_header(h) for h in header]
+    cand = {_norm_header(x) for x in possible_names}
+    for i, h in enumerate(hdr_norm):
+        if h in cand:
             return i
     return -1
+
 
 def normalize_url(u: str) -> str:
     """URL-Kanonisierung: Protokoll ergänzen, Tracking-Parameter entfernen, Query sortieren,
@@ -1457,46 +1474,59 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 colA, colB = st.columns(2)
 
 with colA:
+    st.markdown("**Gewicht: Hidden Champions**")
     w_lihd = st.slider(
-        "Gewicht: Hidden Champions",
-        0.0, 1.0, 0.30, 0.05, disabled=not has_gsc,
-        help="Heißt: viel Such-Nachfrage (Search Console Impressions), aber zu schwach verlinkt ⇒ höherer Linkbedarf."
+        label="",
+        min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+        disabled=not has_gsc,
+        help="Hidden Champion URLs sind URLs mit hoher Such-Nachfrage (gemessen an Search Console Impressions), aber zu schwacher Verlinkung ⇒ höherer Linkbedarf."
     )
+
+    st.markdown("**Gewicht: Semantische Linklücke**")
     w_def  = st.slider(
-        "Gewicht: Semantische Linklücke",
-        0.0, 1.0, 0.30, 0.05,
-        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken."
+        label="",
+        min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' URLs (= semantisch ähnlicher URLs), die noch nicht aus dem Content heraus auf URL verlinken."
     )
+
 
 with colB:
-    # --- Sprungbrett-URLs (Gewicht + Feineinstellung) ---
-    with bordered_container():
-        st.markdown("**Sprungbrett-URLs – Feineinstellung**")
-        w_rank = st.slider(
-            "Gewicht: Sprungbrett-URLs",
-            0.0, 1.0, 0.30, 0.05, disabled=not has_pos,
-            help="Bonus für URLs mit Position im Sweet-Spot (z. B. 8–20). Benötigt Search-Console-Position."
-        )
-        rank_minmax = st.slider(
-            "Ranking Sprungbrett-URL (Positionsbereich)",
-            1, 50, (8, 20), 1,
-            help="Positionsbereich, der bevorzugt wird (Default 8–20).",
-            disabled=not has_pos
-        )
+    box_left, box_right = st.columns(2)
 
-    # --- Mauerblümchen (Gewicht + Feineinstellung) ---
-    with bordered_container():
-        st.markdown("**Mauerblümchen – Feineinstellung**")
-        w_orph = st.slider(
-            "Gewicht: Mauerblümchen",
-            0.0, 1.0, 0.10, 0.05,
-            help="Seiten mit schlechter Linkversorgung aus dem Content heraus stärker gewichten."
-        )
-        thin_k = st.slider(
-            "Thin-Schwelle (Inlinks ≤ K)",
-            0, 10, 2, 1,
-            help="Ab wie vielen eingehenden **Content**-Links gilt eine Seite nicht mehr als 'thin'?"
-        )
+    # --- Box 1: Sprungbrett-URLs ---
+    with box_left:
+        with bordered_container():
+            st.markdown("**Gewicht: Sprungbrett-URLs**")
+            st.caption("Sprungbrett-URLs – Feineinstellung")
+            w_rank = st.slider(
+                label="",
+                min_value=0.0, max_value=1.0, value=0.30, step=0.05,
+                disabled=not has_pos,
+                help="Bonus für URLs mit Position im eingestellten Positionsbereich / Sweet-Spot (z. B. 8–20). Benötigt Search-Console-Rankingposition für URL."
+            )
+            rank_minmax = st.slider(
+                "Ranking Sprungbrett-URL (Positionsbereich)",
+                1, 50, (8, 20), 1,
+                help="Wenn durchschnittliches Ranking der URL in diesem Positionsbereich liegt (Default 8–20), wird diese URL stärker priorisiert.",
+                disabled=not has_pos
+            )
+
+    # --- Box 2: Mauerblümchen ---
+    with box_right:
+        with bordered_container():
+            st.markdown("**Gewicht: Mauerblümchen**")
+            st.caption("Mauerblümchen – Feineinstellung")
+            w_orph = st.slider(
+                label="",
+                min_value=0.0, max_value=1.0, value=0.10, step=0.05,
+                help="Mauerblümchen-URLs = Seiten mit schlechter Linkversorgung (nur Content-Links werden hier betrachtet). Diese können hier stärker gewichtet werden. Orphan = 0 eingehende Links, Thin = kann über Regler definiert werden."
+            )
+            thin_k = st.slider(
+                "Thin-Schwelle (Inlinks ≤ K)",
+                0, 10, 2, 1,
+                help="Ab wie vielen eingehenden **Content**-Links gilt eine Seite nicht mehr als 'thin' verlinkt?"
+            )
+
 
 # Info zur Summe (nur Hinweis, wir normalisieren intern)
 eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
@@ -1505,11 +1535,11 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
 with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
-    st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
+    st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger PRIO hinsichtlich Verlinkungsbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
     offpage_damp_enabled = st.checkbox(
         "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
         value=True,
-        help="Offpage-Dämpfung: Seiten mit Backlinks von vielen verschiedenen Domains (Referring Domains) bekommen etwas weniger Dringlichkeit / Linkbedarf."
+        help="Offpage-Dämpfung: Seiten mit Backlinks von vielen verschiedenen Domains (Referring Domains) bekommen etwas weniger PRIO hinsichtlich Verlinkungsbedarf verliehen."
     )
     beta_offpage = st.slider(
         "Stärke der Dämpfung durch Offpage-Signale",
@@ -1521,29 +1551,33 @@ with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
 
 # Sortierlogik (laienfreundliche Labels, gleiche Mechanik) – jetzt im Expander
 with st.expander("Reihenfolge der Empfehlungen", expanded=False):
+    st.caption(
+        "Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
+        "• Mix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
+        "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
+        "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst"
+    )
+
     sort_labels = {
-        "rank_mix":   "Mix (inhaltliche Nähe & Linkbedarf kombiniert)",
+        "rank_mix":   "Mix (Nähe & Linkbearf kombiniert)",
         "prio_only":  "Nur Linkbedarf",
         "sim_only":   "Nur inhaltliche Nähe",
     }
     sort_choice = st.radio(
         label="",
         options=list(sort_labels.keys()),
-        index=0,  # Default: Mix
+        index=0,
         format_func=lambda k: sort_labels[k],
         horizontal=True,
-        help=("Hier legst du fest, **in welcher Reihenfolge die Ziel-URLs pro Gem** angezeigt werden:\n"
-              "• Empfehlungsmix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
-              "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
-              "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst")
     )
 
     alpha = st.slider(
         "Gewichtung: inhaltliche Nähe vs. Linkbedarf",
-        min_value=0.0, max_value=1.0, value=0.5, step=0.05,  # Default jetzt 0.5
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05,
         help=("Gilt nur für den **Mix**: Links = Linkbedarf wichtiger, "
               "Rechts = inhaltliche Nähe wichtiger.")
     )
+
 
 
 
