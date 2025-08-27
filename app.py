@@ -31,7 +31,7 @@ st.title("ONE Link Intelligence")
 
 st.markdown(
     """
-<div style="background-color: #f2f2f2; color: #000000; padding: 15px 20px; border-radius: 6px; font-size: 0.9em; max-width: 900px; margin-bottom: 1.5em; line-height: 1.5;">
+<div style="background-color: #f2f2f2; color: #000000; padding: 15px 20px; border-radius: 6px; font-size: 0.9em; max-width: 850px; margin-bottom: 1.5em; line-height: 1.5;">
   Entwickelt von <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">Daniel Kremer</a> von <a href="https://onebeyondsearch.com/" target="_blank">ONE Beyond Search</a> &nbsp;|&nbsp;
   Folge mir auf <a href="https://www.linkedin.com/in/daniel-kremer-b38176264/" target="_blank">LinkedIn</a> für mehr SEO-Insights und Tool-Updates
 </div>
@@ -56,6 +56,28 @@ def _num(x, default: float = 0.0) -> float:
 def _safe_minmax(lo, hi) -> Tuple[float, float]:
     """Sichere Min/Max-Ranges (verhindert +/-inf oder hi<=lo)."""
     return (lo, hi) if np.isfinite(lo) and np.isfinite(hi) and hi > lo else (0.0, 1.0)
+
+def robust_range(values, lo_q: float = 0.05, hi_q: float = 0.95) -> Tuple[float, float]:
+    """Robuste Spannweite über Quantile (z. B. 5–95%). Fällt zurück auf min/max, wenn nötig."""
+    arr = np.asarray(list(values), dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return (0.0, 1.0)
+    lo = float(np.quantile(arr, lo_q))
+    hi = float(np.quantile(arr, hi_q))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(np.nanmin(arr)), float(np.nanmax(arr))
+        if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+            return (0.0, 1.0)
+    return (lo, hi)
+
+def robust_norm(x: float, lo: float, hi: float) -> float:
+    """Normierung auf 0..1 innerhalb [lo, hi] (clip), robust gegen Ausreißer."""
+    if not np.isfinite(x) or hi <= lo:
+        return 0.0
+    v = (float(x) - lo) / (hi - lo)
+    return float(np.clip(v, 0.0, 1.0))
+
 
 def find_column_index(header: List[str], possible_names: List[str]) -> int:
     lower = [str(h).strip().lower() for h in header]
@@ -215,72 +237,235 @@ def read_any_file(f) -> Optional[pd.DataFrame]:
         st.error(f"Fehler beim Lesen von {getattr(f, 'name', 'Datei')}: {e}")
         return None
 
+# ======== Caching-Helper ========
+
+@st.cache_data(show_spinner=False)
+def read_any_file_cached(filename: str, raw: bytes) -> Optional[pd.DataFrame]:
+    """
+    Gleiches Verhalten wie read_any_file(), aber cachebar:
+    Cache-Key = (filename, raw-bytes).
+    """
+    from io import BytesIO
+    if not raw:
+        return None
+    name = (filename or "").lower()
+    try:
+        if name.endswith(".csv"):
+            # Versuche mehrere Encodings; bei Fehlern zusätzlich feste Separatoren
+            for enc in ["utf-8-sig", "utf-8", "cp1252", "latin1"]:
+                try:
+                    return pd.read_csv(
+                        BytesIO(raw),
+                        sep=None,
+                        engine="python",
+                        encoding=enc,
+                        on_bad_lines="skip",
+                    )
+                except UnicodeDecodeError:
+                    continue
+                except Exception:
+                    for sep_try in [";", ",", "\t"]:
+                        try:
+                            return pd.read_csv(
+                                BytesIO(raw),
+                                sep=sep_try,
+                                engine="python",
+                                encoding=enc,
+                                on_bad_lines="skip",
+                            )
+                        except Exception:
+                            continue
+            raise ValueError("Kein passendes Encoding/Trennzeichen gefunden.")
+        else:
+            return pd.read_excel(BytesIO(raw))
+    except Exception as e:
+        st.error(f"Fehler beim Lesen von {filename or 'Datei'}: {e}")
+        return None
+
 def build_related_from_embeddings(
     urls: List[str],
     V: np.ndarray,
     top_k: int,
     sim_threshold: float,
     backend: str,
-    faiss_available: bool,
 ) -> pd.DataFrame:
     """
-    Erzeugt eine DataFrame wie das GAS-Tab 'Related URLs' mit Spalten: Ziel, Quelle, Similarity
-    - V muss L2-normalisiert sein.
-    - Bei FAISS verwenden wir Inner Product auf L2-normalisierten Vektoren (entspricht Cosine).
+    Baut 'Related URLs' (Ziel, Quelle, Similarity).
+    Erwartet L2-normalisierte Vektoren V.
+    Nutzt FAISS (Inner Product) falls gewählt & verfügbar, sonst exaktes NumPy-Chunking.
     """
     n = V.shape[0]
     if n < 2:
         return pd.DataFrame(columns=["Ziel", "Quelle", "Similarity"])
 
     K = int(top_k)
-    pairs = []  # (target, source, sim)
+    pairs: List[List[object]] = []
 
-    if backend == "Schnell (FAISS)" and faiss_available:
+    # ---- Versuch: FAISS ----
+    if backend == "Schnell (FAISS)":
+        try:
+            import faiss  # type: ignore
+            dim = V.shape[1]
+            index = faiss.IndexFlatIP(dim)
+            Vf = V.astype("float32", copy=False)
+            index.add(Vf)
+            topk = min(K + 1, n)
+            D, I = index.search(Vf, topk)
+            for i in range(n):
+                taken = 0
+                for rank, j in enumerate(I[i]):
+                    if j == -1 or j == i:
+                        continue
+                    s = float(D[i][rank])
+                    if s < sim_threshold:
+                        continue
+                    pairs.append([urls[i], urls[j], s])
+                    taken += 1
+                    if taken >= K:
+                        break
+        except Exception:
+            # Fallback auf NumPy-Chunking
+            backend = "Exakt (NumPy)"
+
+    # ---- Exakt (NumPy) mit 2D-Chunking ----
+    if backend == "Exakt (NumPy)":
+        Vf = V.astype(np.float32, copy=False)
+        row_chunk = 512
+        col_chunk = 2048
+
+        for r0 in range(0, n, row_chunk):
+            r1 = min(r0 + row_chunk, n)
+            block = Vf[r0:r1]                # (b, d)
+            b = r1 - r0
+
+            top_vals = np.full((b, K), -np.inf, dtype=np.float32)
+            top_idx  = np.full((b, K), -1,      dtype=np.int32)
+
+            for c0 in range(0, n, col_chunk):
+                c1 = min(c0 + col_chunk, n)
+                part = Vf[c0:c1]             # (c, d)
+                sims = block @ part.T        # (b, c)
+
+                # Self-Matches maskieren
+                if (c0 < r1) and (c1 > r0):
+                    o0 = max(r0, c0); o1 = min(r1, c1)
+                    br = np.arange(o0 - r0, o1 - r0)
+                    bc = np.arange(o0 - c0, o1 - c0)
+                    sims[br, bc] = -1.0
+
+                # lokale Top-K
+                if K < sims.shape[1]:
+                    part_idx = np.argpartition(sims, -K, axis=1)[:, -K:]
+                else:
+                    part_idx = np.argsort(sims, axis=1)
+                rows = np.arange(b)[:, None]
+                cand_vals = sims[rows, part_idx]
+                cand_idx  = part_idx + c0
+
+                # mit globalen Top-K mergen
+                all_vals = np.concatenate([top_vals, cand_vals], axis=1)
+                all_idx  = np.concatenate([top_idx,  cand_idx],  axis=1)
+                sel = np.argpartition(all_vals, -K, axis=1)[:, -K:]
+                top_vals = all_vals[rows, sel]
+                top_idx  = all_idx[rows,  sel]
+
+                order = np.argsort(top_vals, axis=1)[:, ::-1]
+                top_vals = top_vals[rows, order]
+                top_idx  = top_idx[rows,  order]
+
+            # Ergebnisse einsammeln
+            for bi, i in enumerate(range(r0, r1)):
+                taken = 0
+                for v, j in zip(top_vals[bi], top_idx[bi]):
+                    s = float(v)
+                    if j == -1 or s < sim_threshold:
+                        continue
+                    pairs.append([urls[i], urls[int(j)], s])
+                    taken += 1
+                    if taken >= K:
+                        break
+
+
+
+# ===== Backend-Diagnose & Auto-Switch =====
+def _faiss_available() -> bool:
+    try:
         import faiss  # type: ignore
+        return True
+    except Exception:
+        return False
 
-        dim = V.shape[1]
-        index = faiss.IndexFlatIP(dim)
-        Vf = V.astype("float32")
-        index.add(Vf)
-        topk = min(K + 1, n)
-        D, I = index.search(Vf, topk)
-        for i in range(n):
-            taken = 0
-            for rank, j in enumerate(I[i]):
-                if j == -1 or j == i:
-                    continue
-                s = float(D[i][rank])
-                if s < sim_threshold:
-                    continue
-                pairs.append([urls[i], urls[j], s])
-                taken += 1
-                if taken >= K:
-                    break
-    else:
-        sims_full = V @ V.T  # N x N
-        np.fill_diagonal(sims_full, -1.0)
-        for i in range(n):
-            sims = sims_full[i]
-            if K < n - 1:
-                idx = np.argpartition(sims, -K)[-K:]
-            else:
-                idx = np.argsort(sims)
-            idx = idx[np.argsort(sims[idx])][::-1]
-            taken = 0
-            for j in idx:
-                s = float(sims[j])
-                if s < sim_threshold:
-                    continue
-                pairs.append([urls[i], urls[j], s])
-                taken += 1
-                if taken >= K:
-                    break
+def _numpy_footprint_gb(n: int) -> float:
+    """Grober RAM-Bedarf für volle NxN-Ähnlichkeitsmatrix in float64."""
+    return (n * n * 8) / (1024**3)
 
-    if not pairs:
-        return pd.DataFrame(columns=["Ziel", "Quelle", "Similarity"])
+def choose_backend(prefer: str, n_items: int, mem_budget_gb: float = 1.5) -> Tuple[str, str]:
+    """
+    Liefert (effective_backend, reason).
+    prefer: "Exakt (NumPy)" oder "Schnell (FAISS)".
+    Schaltet bei Bedarf um (RAM-Budget / FAISS-Verfügbarkeit).
+    """
+    faiss_ok = _faiss_available()
+    if prefer == "Schnell (FAISS)":
+        if faiss_ok:
+            return "Schnell (FAISS)", "FAISS gewählt"
+        else:
+            return "Exakt (NumPy)", "FAISS nicht installiert → NumPy"
 
-    df_rel = pd.DataFrame(pairs, columns=["Ziel", "Quelle", "Similarity"])
-    return df_rel
+    # prefer NumPy
+    est = _numpy_footprint_gb(max(0, int(n_items)))
+    if est > mem_budget_gb and faiss_ok:
+        return "Schnell (FAISS)", f"NumPy-Schätzung {est:.2f} GB > Budget {mem_budget_gb:.2f} GB → FAISS"
+    return "Exakt (NumPy)", "NumPy innerhalb Budget"
+
+@st.cache_data(show_spinner=False)
+def build_related_cached(
+    urls: tuple,
+    V: np.ndarray,
+    top_k: int,
+    sim_threshold: float,
+    backend: str,
+    _v: int = 1,
+) -> pd.DataFrame:
+    Vf = V.astype("float32", copy=False)
+    return build_related_from_embeddings(
+        urls=list(urls),
+        V=Vf,
+        top_k=top_k,
+        sim_threshold=sim_threshold,
+        backend=backend,
+    )
+
+def build_related_auto(
+    urls: List[str],
+    V: np.ndarray,
+    top_k: int,
+    sim_threshold: float,
+    prefer_backend: str,
+    mem_budget_gb: float = 1.5,
+) -> pd.DataFrame:
+    """Wählt Backend automatisch und fällt robust um (NumPy<->FAISS)."""
+    n = int(V.shape[0])
+    eff_backend, reason = choose_backend(prefer_backend, n, mem_budget_gb)
+    if eff_backend != prefer_backend:
+        st.info(f"Backend auf **{eff_backend}** umgestellt ({reason}).")
+
+    try:
+        return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), eff_backend, _faiss_available())
+    except MemoryError:
+        # NumPy am Limit? -> auf FAISS wechseln
+        if eff_backend == "Exakt (NumPy)" and _faiss_available():
+            st.warning("NumPy ist am Speicherlimit – Wechsel auf **FAISS**.")
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Schnell (FAISS)", True)
+        raise
+    except Exception as e:
+        # FAISS zickt? -> Fallback auf NumPy
+        if eff_backend == "Schnell (FAISS)":
+            st.warning(f"FAISS-Indexierung fehlgeschlagen ({e}). Fallback auf **NumPy**.")
+            return build_related_cached(tuple(urls), V, int(top_k), float(sim_threshold), "Exakt (NumPy)", False)
+        else:
+            raise
+
 
 # =============================
 # Hilfe / Tool-Dokumentation (Expander)
@@ -352,27 +537,18 @@ with st.sidebar:
 
     st.header("Einstellungen")
 
-    try:
-        import faiss  # type: ignore
-        faiss_available = True
-    except Exception:
-        faiss_available = False
-
-    backend_default = "Schnell (FAISS)" if faiss_available else "Exakt (NumPy)"
     backend = st.radio(
-        "Matching-Backend",
+        "Matching-Backend (Auto-Switch bei Bedarf)",
         ["Exakt (NumPy)", "Schnell (FAISS)"],
-        index=0 if backend_default=="Exakt (NumPy)" else 1,
+        index=0,
         horizontal=True,
-        help=("Bestimmt, wie semantische Nachbarn ermittelt werden (Cosine Similarity):\n\n"
-              "- **Exakt (NumPy)**: O(N²), sehr genau. Gut bis ca. 2.000–5.000 URLs (abhängig von RAM & Dim.).\n"
-              "- **Schnell (FAISS)**: Approximate Nearest Neighbor, sehr schnell & speichereffizient. "
-              "Empfohlen ab ~5.000–10.000 URLs oder wenn NumPy zu langsam wird.\n\n"
-              "Beide liefern Cosine-Similarity (0–1). Wenn 'faiss-cpu' nicht installiert ist, fällt die App automatisch auf NumPy zurück.")
+        help=("Bestimmt, wie semantische Nachbarn ermittelt werden (Cosine Similarity). "
+          "Mit **Auto-Switch**: Wenn NumPy voraussichtlich zu viel RAM braucht, "
+          "oder FAISS nicht verfügbar ist, wird automatisch umgeschaltet.")
     )
-    if not faiss_available and backend == "Schnell (FAISS)":
-        st.warning("FAISS ist in dieser Umgebung nicht verfügbar – wechsle auf 'Exakt (NumPy)'.")
-        backend = "Exakt (NumPy)"
+    if not _faiss_available():
+        st.caption("FAISS ist hier nicht installiert – Auto-Switch nutzt ggf. NumPy.")
+
 
     st.subheader("Gewichtung (Linkpotenzial)")
     st.caption(
@@ -537,10 +713,11 @@ Weitere Spalten werden ignoriert."""
         )
 
     # Dateien erst NACH den with-Blöcken einlesen (immer noch im if-Block!)
-    emb_df = read_any_file(up_emb)
-    inlinks_df = read_any_file(inlinks_up)
-    metrics_df = read_any_file(metrics_up)
-    backlinks_df = read_any_file(backlinks_up)
+    emb_df       = read_any_file_cached(getattr(up_emb,       "name", ""), up_emb.getvalue())         if up_emb       else None
+    inlinks_df   = read_any_file_cached(getattr(inlinks_up,   "name", ""), inlinks_up.getvalue())     if inlinks_up   else None
+    metrics_df   = read_any_file_cached(getattr(metrics_up,   "name", ""), metrics_up.getvalue())     if metrics_up   else None
+    backlinks_df = read_any_file_cached(getattr(backlinks_up, "name", ""), backlinks_up.getvalue())   if backlinks_up else None
+
 
 elif mode == "Related URLs":
     st.write(
@@ -587,10 +764,11 @@ Weitere Spalten werden ignoriert."""
         )
 
     # Dateien einlesen (immer noch im elif-Block!)
-    related_df  = read_any_file(related_up)
-    inlinks_df  = read_any_file(inlinks_up)
-    metrics_df  = read_any_file(metrics_up)
-    backlinks_df = read_any_file(backlinks_up)
+    related_df   = read_any_file_cached(getattr(related_up,  "name", ""), related_up.getvalue())    if related_up  else None
+    inlinks_df   = read_any_file_cached(getattr(inlinks_up,  "name", ""), inlinks_up.getvalue())    if inlinks_up  else None
+    metrics_df   = read_any_file_cached(getattr(metrics_up,  "name", ""), metrics_up.getvalue())    if metrics_up  else None
+    backlinks_df = read_any_file_cached(getattr(backlinks_up,"name", ""), backlinks_up.getvalue())  if backlinks_up else None
+
 
 
 # ===============================
@@ -673,14 +851,16 @@ if run_clicked or st.session_state.ready:
             if shorter > 0:
                 st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
 
-            related_df = build_related_from_embeddings(
-                urls=urls,  # kanonische Keys
-                V=V,
+            related_df = build_related_auto(
+                urls=list(urls),
+                V=V,  # castet intern auf float32
                 top_k=int(max_related),
                 sim_threshold=float(sim_threshold),
-                backend=backend,
-                faiss_available=bool(faiss_available),
+                prefer_backend=backend,   # "Exakt (NumPy)" oder "Schnell (FAISS)"
+                mem_budget_gb=1.5,        # optional
             )
+
+
 
             # Embeddings & URLs im Session-State ablegen
             try:
@@ -716,11 +896,8 @@ if run_clicked or st.session_state.ready:
     metrics_df.iloc[:, 0] = metrics_df.iloc[:, 0].astype(str)
 
     metrics_map: Dict[str, Dict[str, float]] = {}
-    min_ils, max_ils = float("inf"), float("-inf")
-    min_prd, max_prd = float("inf"), float("-inf")
-
     for _, r in metrics_df.iterrows():
-        u = remember_original(r.iloc[0])  # merke Original, nutze Key
+        u = remember_original(r.iloc[0])
         if not u:
             continue
         score = _num(r.iloc[1])
@@ -728,8 +905,7 @@ if run_clicked or st.session_state.ready:
         outlinks = _num(r.iloc[3])
         prdiff = inlinks - outlinks
         metrics_map[u] = {"score": score, "prDiff": prdiff}
-        min_ils, max_ils = min(min_ils, score), max(max_ils, score)
-        min_prd, max_prd = min(min_prd, prdiff), max(max_prd, prdiff)
+
 
     # Backlinks map (URL -> backlinks, referring domains)
     backlinks_df = backlinks_df.copy()
@@ -738,9 +914,6 @@ if run_clicked or st.session_state.ready:
         st.stop()
 
     backlink_map: Dict[str, Dict[str, float]] = {}
-    min_rd, max_rd = float("inf"), float("-inf")
-    min_bl, max_bl = float("inf"), float("-inf")
-
     for _, r in backlinks_df.iterrows():
         u = remember_original(r.iloc[0])
         if not u:
@@ -748,14 +921,25 @@ if run_clicked or st.session_state.ready:
         bl = _num(r.iloc[1])
         rd = _num(r.iloc[2])
         backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
-        min_bl, max_bl = min(min_bl, bl), max(max_bl, bl)
-        min_rd, max_rd = min(min_rd, rd), max(max_rd, rd)
 
-    # Safe ranges
-    min_ils, max_ils = _safe_minmax(min_ils, max_ils)
-    min_prd, max_prd = _safe_minmax(min_prd, max_prd)
-    min_bl, max_bl = _safe_minmax(min_bl, max_bl)
-    min_rd, max_rd = _safe_minmax(min_rd, max_rd)
+
+    # --- Robuste Ranges (Quantile) ---
+    ils_vals = [m["score"] for m in metrics_map.values()]
+    prd_vals = [m["prDiff"] for m in metrics_map.values()]
+    bl_vals  = [b["backlinks"] for b in backlink_map.values()]
+    rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
+
+    min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
+    min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
+    min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
+    min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
+
+    # --- Offpage: Log-Skalen + robuste Ranges für die Dämpfung ---
+    bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
+    rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
+    lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
+    lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
+
 
     # Inlinks: gather all and content links  (=> Keys als Tupel (src, dst))
     inlinks_df = inlinks_df.copy()
@@ -821,10 +1005,11 @@ if run_clicked or st.session_state.ready:
         bl_raw = _num(bl.get("backlinks"))
         rd_raw = _num(bl.get("referringDomains"))
 
-        norm_ils = (ils_raw - min_ils) / (max_ils - min_ils) if max_ils > min_ils else 0.0
-        norm_pr = (pr_raw - min_prd) / (max_prd - min_prd) if max_prd > min_prd else 0.0
-        norm_bl = (bl_raw - min_bl) / (max_bl - min_bl) if max_bl > min_bl else 0.0
-        norm_rd = (rd_raw - min_rd) / (max_rd - min_rd) if max_rd > min_rd else 0.0
+        norm_ils = robust_norm(ils_raw, min_ils, max_ils)
+        norm_pr  = robust_norm(pr_raw,  min_prd, max_prd)
+        norm_bl  = robust_norm(bl_raw,  min_bl,  max_bl)   # hier OHNE Log, bewusst linear
+        norm_rd  = robust_norm(rd_raw,  min_rd,  max_rd)   # hier OHNE Log, bewusst linear
+
 
         final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
         source_potential_map[u] = round(final_score, 4)
@@ -833,11 +1018,16 @@ if run_clicked or st.session_state.ready:
     st.session_state["_metrics_map"] = metrics_map
     st.session_state["_backlink_map"] = backlink_map
     st.session_state["_norm_ranges"] = {
+        # Robuste (Quantil-)Ranges für lineare Normierungen
         "ils": (min_ils, max_ils),
         "prd": (min_prd, max_prd),
-        "bl": (min_bl, max_bl),
-        "rd": (min_rd, max_rd),
+        "bl":  (min_bl,  max_bl),
+        "rd":  (min_rd,  max_rd),
+        # Zusätzlich: Log-basierte robuste Ranges NUR für die Offpage-Dämpfung
+        "bl_log": (lo_bl_log, hi_bl_log),
+        "rd_log": (lo_rd_log, hi_rd_log),
     }
+
 
     # ===============================
     # Analyse 1: Interne Verlinkungsmöglichkeiten
@@ -1087,7 +1277,7 @@ has_gsc = False
 has_pos = False
 
 if gsc_up is not None:
-    gsc_df_loaded = read_any_file(gsc_up)
+    gsc_df_loaded = read_any_file_cached(getattr(gsc_up, "name", ""), gsc_up.getvalue())
 
 if gsc_df_loaded is not None and not gsc_df_loaded.empty:
     has_gsc = True
@@ -1269,8 +1459,8 @@ for s, t in st.session_state.get("_content_links", set()):
 min_ils, max_ils = norm_ranges.get("ils", (0.0, 1.0))
 
 # --- Offpage: normalisierte externe Autorität & Dämpfungsfaktor ---
-min_bl, max_bl = norm_ranges.get("bl", (0.0, 1.0))
-min_rd, max_rd = norm_ranges.get("rd", (0.0, 1.0))
+lo_bl_log, hi_bl_log = norm_ranges.get("bl_log", (0.0, 1.0))
+lo_rd_log, hi_rd_log = norm_ranges.get("rd_log", (0.0, 1.0))
 backlink_map: Dict[str, Dict[str, float]] = st.session_state.get("_backlink_map", {})
 
 def _safe_norm(x: float, lo: float, hi: float) -> float:
@@ -1280,19 +1470,50 @@ def _safe_norm(x: float, lo: float, hi: float) -> float:
     return 0.0
 
 def ext_auth_norm_for(u: str) -> float:
-    """Externe Autorität 0..1 aus Backlinks & Ref. Domains (min-max über dein Dataset)."""
+    """Externe Autorität (0..1) für die Dämpfung – log-transformiert + robust skaliert."""
     bl = backlink_map.get(u, {})
     bl_raw = float(bl.get("backlinks", 0.0) or 0.0)
     rd_raw = float(bl.get("referringDomains", 0.0) or 0.0)
-    bl_n = _safe_norm(bl_raw, min_bl, max_bl)
-    rd_n = _safe_norm(rd_raw, min_rd, max_rd)
+
+    bl_log = float(np.log1p(max(0.0, bl_raw)))
+    rd_log = float(np.log1p(max(0.0, rd_raw)))
+
+    bl_n = robust_norm(bl_log, lo_bl_log, hi_bl_log)
+    rd_n = robust_norm(rd_log, lo_rd_log, hi_rd_log)
     return 0.5 * (bl_n + rd_n)
 
+
 def damp_factor(u: str) -> float:
-    """Dämpfungsfaktor 1 − β · ExtAuth_norm (bei deaktivierter Dämpfung = 1.0)."""
+    """
+    Logistische Offpage-Dämpfung (sanfter als linear):
+      - x  = externe Autorität in [0,1] (aus ext_auth_norm_for)
+      - s  = Sigmoid( x; k, m ) auf [0,1] renormiert
+      - Dämpfung = 1 − β · s
+
+    Effekte:
+      * wenig Offpage  → nahe 1.0 (kaum Dämpfung)
+      * mittel Offpage → moderat gedämpft
+      * viel Offpage   → nähert sich 1 − β (stärker gedämpft)
+    """
     if not offpage_damp_enabled:
         return 1.0
-    return float(np.clip(1.0 - beta_offpage * ext_auth_norm_for(u), 0.0, 1.0))
+
+    # Externe Autorität (bereits 0..1-normalisiert, idealerweise robust/log-transformiert)
+    x = float(np.clip(ext_auth_norm_for(u), 0.0, 1.0))
+
+    # Form der S-Kurve: k = Steilheit, m = Wendepunkt
+    k = 6.0   # typ. 4–10; höher = steiler
+    m = 0.5   # Mittelpunkt (0..1)
+
+    # Sigmoid und anschließende Renormierung auf exakt [0,1]
+    s  = 1.0 / (1.0 + np.exp(-k * (x - m)))
+    s0 = 1.0 / (1.0 + np.exp(-k * (0.0 - m)))
+    s1 = 1.0 / (1.0 + np.exp(-k * (1.0 - m)))
+    s_norm = (s - s0) / (s1 - s0)
+    s_norm = float(np.clip(s_norm, 0.0, 1.0))
+
+    # Endgültiger Dämpfungsfaktor
+    return float(np.clip(1.0 - beta_offpage * s_norm, 0.0, 1.0))
 
 
 def ils_norm_for(u: str) -> float:
