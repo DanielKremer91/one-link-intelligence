@@ -959,6 +959,11 @@ if run_clicked or st.session_state.ready:
     all_links: set[Tuple[str, str]] = set()
     content_links: set[Tuple[str, str]] = set()
 
+    # Fallback: Embeddings aus Analyse 1, um fehlende Similarities direkt zu berechnen
+    _idx_map = st.session_state.get("_emb_index_by_url")
+    _Vmat    = st.session_state.get("_emb_matrix")
+    _has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
+
     for _, r in inlinks_df.iterrows():
         source = remember_original(r.iloc[src_idx])
         target = remember_original(r.iloc[dst_idx])
@@ -1096,7 +1101,7 @@ if run_clicked or st.session_state.ready:
     # ===============================
     st.markdown("## Analyse 2: Potenziell zu entfernende Links")
 
-    # Build similarity map for both directions
+    # 1) Similarity-Map aus Related (beidseitig)
     sim_map: Dict[Tuple[str, str], float] = {}
     processed_pairs2 = set()
 
@@ -1116,48 +1121,106 @@ if run_clicked or st.session_state.ready:
         sim_map[(b, a)] = sim
         processed_pairs2.add(pair_key)
 
-    # PageRank-Waster-ähnlicher Rohwert und backlink-adjusted Score
+    # 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
+    if _has_emb:
+        for (src, dst) in all_links:
+            if (src, dst) in sim_map or (dst, src) in sim_map:
+                continue
+            i = _idx_map.get(src); j = _idx_map.get(dst)
+            if i is None or j is None:
+                continue
+            # Cosine = Dot-Product (L2-normalisiert)
+            sim_val = float(np.dot(_Vmat[i], _Vmat[j]))
+            sim_map[(src, dst)] = sim_val
+            sim_map[(dst, src)] = sim_val
+
+    # 3) Waster-Score (Quelle) + Klassifikation
     raw_score_map: Dict[str, float] = {}
     for _, r in metrics_df.iterrows():
         u = remember_original(r.iloc[0])
         inl = _num(r.iloc[2])
         outl = _num(r.iloc[3])
+        # „Waster“: viele Outlinks, wenig Inlinks
         raw_score_map[u] = outl - inl
 
     adjusted_score_map: Dict[str, float] = {}
     for u, raw in raw_score_map.items():
         bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-        impact = _num(bl.get("backlinks")) * 0.5 + _num(bl.get("referringDomains")) * 0.5
+        impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
         factor = 2.0 if backlink_weight_2x else 1.0
         malus = 5.0 * factor if impact == 0 else 0.0
-        adjusted = (raw or 0.0) - (factor * impact) + malus
-        adjusted_score_map[u] = adjusted
+        adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
 
-    # Build output (Anzeige mit Original-URLs)
+    w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
+    if w_vals.size == 0:
+        q70 = q90 = 0.0
+    else:
+        q70 = float(np.quantile(w_vals, 0.70))   # ab hier „mittel“
+        q90 = float(np.quantile(w_vals, 0.90))   # ab hier „hoch“
+
+    def waster_class_for(u: str) -> Tuple[str, float]:
+        score = float(adjusted_score_map.get(u, 0.0))
+        if score >= q90:
+            return "hoch", score
+        elif score >= q70:
+            return "mittel", score
+        else:
+            return "niedrig", score
+
+    # 4) Output bauen (Anzeige mit Original-URLs)
     out_rows = []
     rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
-    out_header = ["Quelle", "Ziel", "PageRank Waster (Farbindikator)", "Semantische Ähnlichkeit", *rest_cols]
+    out_header = [
+        "Quelle",
+        "Ziel",
+        "Waster-Klasse (Quelle)",
+        "Waster-Score (Quelle)",
+        "Semantische Ähnlichkeit",
+        *rest_cols,
+    ]
 
     for _, r in inlinks_df.iterrows():
         quelle = remember_original(r.iloc[src_idx])
-        ziel = remember_original(r.iloc[dst_idx])
+        ziel   = remember_original(r.iloc[dst_idx])
         if not quelle or not ziel:
             continue
 
+        # Waster-Klasse/-Score für die QUELL-URL
+        w_class, w_score = waster_class_for(normalize_url(quelle))
+
+        # Similarity aus Map (beidseitig) …
         sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
 
-        if not (isinstance(sim, (int, float)) and not np.isnan(sim)):
-            sim_display = "Ähnlichkeit unter Schwelle oder nicht erfasst"
-            is_weak = True
-        else:
-            sim_display = sim
-            is_weak = sim <= not_similar_threshold
+        # … sonst optional on-the-fly aus Embeddings berechnen
+        if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
+            i = _idx_map.get(normalize_url(quelle))
+            j = _idx_map.get(normalize_url(ziel))
+            if i is not None and j is not None:
+                sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
 
-        if not is_weak:
-            continue
+        # Filter/Anzeige:
+        # - numerisch: nur Links <= not_similar_threshold in den „zu entfernen“-Report
+        # - nicht vorhanden: mit Hinweistext ausgeben
+        if isinstance(sim, (int, float)) and np.isfinite(sim):
+            sim_display = round(float(sim), 3)
+            if float(sim) > float(not_similar_threshold):
+                continue  # stark genug -> nicht entfernen
+        else:
+            sim_display = (
+                "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
+                if mode == "Related URLs" else
+                "Cosine Similarity nicht erfasst"
+            )
 
         rest = [r.iloc[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-        out_rows.append([disp(quelle), disp(ziel), "", sim_display, *rest])
+        out_rows.append([
+            disp(quelle),
+            disp(ziel),
+            w_class,
+            round(float(w_score), 3),
+            sim_display,
+            *rest,
+        ])
 
     out_df = pd.DataFrame(out_rows, columns=out_header)
     st.session_state.out_df = out_df
@@ -1171,6 +1234,7 @@ if run_clicked or st.session_state.ready:
         mime="text/csv",
     )
 
+    # kleines Aufräumen am Ende des Runs
     if run_clicked:
         try:
             placeholder.empty()
@@ -1178,6 +1242,7 @@ if run_clicked or st.session_state.ready:
             pass
         st.success("✅ Berechnung abgeschlossen!")
         st.session_state.ready = True
+
 
 # =========================================================
 # Analyse 3: Gems & „Cheat-Sheet der internen Verlinkung“ (Similarity × PRIO, ohne Opportunity)
@@ -1359,6 +1424,11 @@ with colB:
         help="Seiten mit schlechter Linkversorgung aus dem Content heraus (Navi / Footer wird hier nicht betrachtet). Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
     )
 
+# Info zur Summe (nur Hinweis, wir normalisieren intern)
+eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
+if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
+    st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (kein Problem, wenn > 1 oder < 1, wird intern normalisiert)")
+
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
 st.markdown("##### Offpage-Einfluss (Backlinks & Ref. Domains)")
 st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild standardmäßig gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
@@ -1380,7 +1450,7 @@ st.markdown("##### Mauerblümchen-Definition")
 
 thin_k = st.slider(
     "Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1,
-    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin' (sehr schwach verlinkt)?"
+    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin' (sehr schwach verlinkt) bzw. ab welcher Anzahl an eingehenden Links nicht mehr als schwach verlinkt?"
 )
 
 # Ranking-Sweet-Spot (direkt sichtbar)
@@ -1414,10 +1484,6 @@ alpha = st.slider(
           "Rechts = inhaltliche Nähe wichtiger.")
 )
 
-# Info zur Summe (nur Hinweis, wir normalisieren intern)
-eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
-if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
-    st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (wird intern normalisiert)")
 
 # --- Let's Go Button jetzt UNTEN, nach Balance ---
 if "__gems_loading__" not in st.session_state:
