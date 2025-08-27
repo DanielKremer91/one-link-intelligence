@@ -964,15 +964,16 @@ if run_clicked or st.session_state.ready:
     _Vmat    = st.session_state.get("_emb_matrix")
     _has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
 
-    for _, r in inlinks_df.iterrows():
-        source = remember_original(r.iloc[src_idx])
-        target = remember_original(r.iloc[dst_idx])
+    for row in inlinks_df.itertuples(index=False, name=None):
+        source = remember_original(row[src_idx])
+        target = remember_original(row[dst_idx])
         if not source or not target:
             continue
         key = (source, target)
         all_links.add(key)
-        if pos_idx != -1 and is_content_position(r.iloc[pos_idx]):
+        if pos_idx != -1 and is_content_position(row[pos_idx]):
             content_links.add(key)
+
 
     st.session_state["_all_links"] = all_links
     st.session_state["_content_links"] = content_links
@@ -1123,16 +1124,22 @@ if run_clicked or st.session_state.ready:
 
     # 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
     if _has_emb:
-        for (src, dst) in all_links:
-            if (src, dst) in sim_map or (dst, src) in sim_map:
-                continue
-            i = _idx_map.get(src); j = _idx_map.get(dst)
-            if i is None or j is None:
-                continue
-            # Cosine = Dot-Product (L2-normalisiert)
-            sim_val = float(np.dot(_Vmat[i], _Vmat[j]))
-            sim_map[(src, dst)] = sim_val
-            sim_map[(dst, src)] = sim_val
+        missing = [
+            (src, dst) for (src, dst) in all_links
+            if (src, dst) not in sim_map and (dst, src) not in sim_map
+            and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
+        ]
+        if missing:
+            I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
+            J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
+            Vf = _Vmat  # float32, L2-normalisiert
+            sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)  # Cosine für alle fehlenden Paare
+            for (src, dst), s in zip(missing, sims):
+                val = float(s)
+                sim_map[(src, dst)] = val
+                sim_map[(dst, src)] = val
+
+
 
     # 3) Waster-Score (Quelle) + Klassifikation
     raw_score_map: Dict[str, float] = {}
@@ -1179,32 +1186,26 @@ if run_clicked or st.session_state.ready:
         *rest_cols,
     ]
 
-    for _, r in inlinks_df.iterrows():
-        quelle = remember_original(r.iloc[src_idx])
-        ziel   = remember_original(r.iloc[dst_idx])
+    for row in inlinks_df.itertuples(index=False, name=None):
+        quelle = remember_original(row[src_idx])
+        ziel   = remember_original(row[dst_idx])
         if not quelle or not ziel:
             continue
 
-        # Waster-Klasse/-Score für die QUELL-URL
         w_class, w_score = waster_class_for(normalize_url(quelle))
 
-        # Similarity aus Map (beidseitig) …
         sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
 
-        # … sonst optional on-the-fly aus Embeddings berechnen
         if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
             i = _idx_map.get(normalize_url(quelle))
             j = _idx_map.get(normalize_url(ziel))
             if i is not None and j is not None:
                 sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
 
-        # Filter/Anzeige:
-        # - numerisch: nur Links <= not_similar_threshold in den „zu entfernen“-Report
-        # - nicht vorhanden: mit Hinweistext ausgeben
-        if isinstance(sim, (int, float)) and np.isfinite(sim):
+        if isinstance(sim, (int, float)) and np.isfinite(sim)):
             sim_display = round(float(sim), 3)
             if float(sim) > float(not_similar_threshold):
-                continue  # stark genug -> nicht entfernen
+                continue
         else:
             sim_display = (
                 "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
@@ -1212,7 +1213,7 @@ if run_clicked or st.session_state.ready:
                 "Cosine Similarity nicht erfasst"
             )
 
-        rest = [r.iloc[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
+        rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
         out_rows.append([
             disp(quelle),
             disp(ziel),
@@ -1221,6 +1222,7 @@ if run_clicked or st.session_state.ready:
             sim_display,
             *rest,
         ])
+
 
     out_df = pd.DataFrame(out_rows, columns=out_header)
     st.session_state.out_df = out_df
@@ -1276,7 +1278,7 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
      Ebenfalls **Offpage-gedämpft**: starke Offpage-Signale des **Ziels** reduzieren den Linkbedarf.
    - **Ranking Sprungbrett-URLs** *(Search Console Position nötig)*  
      Bonus für URLs, deren **durchschnittliche Position** im eingestellten **Sweet-Spot (z. B. 8–20)** liegt.
-     Die Erfahrung zeigt, durch gezielte Optimierungsmaßnahmen (z.B. Verbesserung der internen Verlinkung) können sog.**Sprungbrett-URLs** schneller bessere Rankings erreichen als wenn eine Seite von Position 50 auf die erste Ergebnisseite gehoben werden soll.
+     Die Erfahrung zeigt, durch gezielte Optimierungsmaßnahmen (z.B. Verbesserung der internen Verlinkung) können sog. **Sprungbrett-URLs** schneller bessere Rankings erreichen als wenn eine Seite von Position 50 auf die erste Ergebnisseite gehoben werden soll.
    - **Mauerblümchen**  
      Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt. **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**). Analyse ezieht sich rein auf Links aus dem **Content**.
 
@@ -1321,13 +1323,14 @@ max_targets_per_gem = st.number_input(
 # --------------------------
 # Gewichtung Dringlichkeit (PRIO) inkl. GSC-Upload (direkt hier)
 # --------------------------
-st.markdown("#### Linkbedarf-Gewichtung")
+st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
 
 gsc_up = st.file_uploader(
     "Search Console Daten (CSV/Excel)",
     type=["csv", "xlsx", "xlsm", "xls"],
     key="gsc_up_merged_no_opp",
     help=(
+        "Search Console Daten können bei der Priorisierung welche Ziel-URLs am ehesten von den starken URLs (Gems) verlinkt werden sollten, helfen."
         "Erforderlich: URL, Impressions · Optional: Clicks, Position\n"
         "Spalten dürfen in **beliebiger Reihenfolge** stehen. Erkannte Header (Beispiele):\n"
         "• URL: url, page, seite, address/adresse\n"
@@ -1410,7 +1413,7 @@ with colA:
     w_def  = st.slider(
         "Gewicht: Semantische Linklücke",
         0.0, 1.0, 0.30, 0.05,
-        help="Fehlen Links von semantisch ähnlichen URLs? --> Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto stärker fällt der fehlende Link ins Gewicht."
+        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto stärker fällt der fehlende Link ins Gewicht."
     )
 with colB:
     w_rank = st.slider(
@@ -1431,7 +1434,7 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
 st.markdown("##### Offpage-Einfluss (Backlinks & Ref. Domains)")
-st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild standardmäßig gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
+st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
 offpage_damp_enabled = st.checkbox(
     "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
     value=True,
@@ -1441,7 +1444,7 @@ beta_offpage = st.slider(
     "Stärke der Dämpfung durch Offpage-Signale",
     0.0, 1.0, 0.30, 0.05,
     disabled=not offpage_damp_enabled,
-    help="0 = keine Dämpfung. Höherer Wert = stärkere Dämpfung -->  stärkere Reduktion des Bedarfs, interne Links setzen zu müssen für URLs mit vielen Backlinks/Ref. Domains."
+    help="0 = keine Dämpfung. Höherer Wert = stärkere Dämpfung → stärkere Reduktion des Bedarfs, interne Links setzen zu müssen für URLs mit vielen Backlinks/Ref. Domains."
 )
 
 
@@ -1499,8 +1502,13 @@ if run_gems:
     st.session_state["__ready_gems__"] = False
 
 # GIF anzeigen, solange Lade-Flag aktiv ist
+# Placeholder für das Analyse-3-GIF einmalig anlegen
+if "__gems_ph__" not in st.session_state:
+    st.session_state["__gems_ph__"] = st.empty()
+
 if st.session_state["__gems_loading__"]:
-    with st.container():
+    ph3 = st.session_state["__gems_ph__"]
+    with ph3.container():
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             st.image(
@@ -1508,6 +1516,7 @@ if st.session_state["__gems_loading__"]:
                 width=280,
             )
             st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+
 
 # Gate: nur stoppen, wenn weder geladen wird noch Ergebnis vorliegt
 if not (st.session_state["__gems_loading__"] or st.session_state.get("__ready_gems__", False)):
@@ -1796,10 +1805,17 @@ if gem_rows:
     )
 
     st.session_state["__gems_loading__"] = False
+    ph3 = st.session_state.get("__gems_ph__")
+    if ph3:
+        ph3.empty()  # GIF ausblenden
     st.success("✅ Analyse abgeschlossen!")
     st.session_state["__ready_gems__"] = True
 
 else:
     st.session_state["__gems_loading__"] = False
+    ph3 = st.session_state.get("__gems_ph__")
+    if ph3:
+        ph3.empty()  # GIF ausblenden
     st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
+
 
