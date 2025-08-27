@@ -587,7 +587,7 @@ with st.sidebar:
 
     st.subheader("Gewichtung (Linkpotenzial)")
     st.caption(
-        "Das Linkpotenzial gibt Aufschluss über die Lukrativität der **Quell-URL** als Linkgeber. "
+        "Das Linkpotenzial gibt Aufschluss über die Lukrativität einer **URL** als Linkgeber. "
     )
     w_ils = st.slider(
         "Interner Link Score",
