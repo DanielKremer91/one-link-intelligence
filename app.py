@@ -5,6 +5,21 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+import inspect
+
+def bordered_container():
+    """
+    Container mit Rand, wenn von eurer Streamlit-Version unterstützt;
+    sonst normaler Container (ohne Fehler).
+    """
+    try:
+        if "border" in inspect.signature(st.container).parameters:
+            return st.container(border=True)
+    except Exception:
+        pass
+    return st.container()
+
+
 # ===============================
 # Page config & Branding
 # ===============================
@@ -878,372 +893,408 @@ if run_clicked or st.session_state.ready:
             except Exception:
                 pass
 
-    # Prüfen, ob alles da ist
-    have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
-    if not have_all:
-        st.error("Bitte alle benötigten Tabellen bereitstellen.")
-        st.stop()
+# Prüfen, ob alles da ist
+have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
+if not have_all:
+    st.error("Bitte alle benötigten Tabellen bereitstellen.")
+    st.stop()
 
-    # ===============================
-    # Normalization maps / data prep
-    # ===============================
+# ===============================
+# Normalization maps / data prep
+# ===============================
 
-    # Build metrics map (URL -> score, prDiff)
-    metrics_df = metrics_df.copy()
-    metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
+# --- FLEXIBEL: Linkmetriken header-basiert einlesen ---
+metrics_df = metrics_df.copy()
+metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
+m_header = [str(c).strip() for c in metrics_df.columns]
 
-    if metrics_df.shape[1] < 4:
-        st.error("'Linkmetriken' braucht mindestens 4 Spalten: URL, Score, Inlinks, Outlinks (in dieser Reihenfolge).")
-        st.stop()
+m_url_idx   = find_column_index(m_header, ["url", "urls", "page", "seite", "address", "adresse"])
+m_score_idx = find_column_index(m_header, ["score", "interner link score", "internal link score", "ils", "link score", "linkscore"])
+m_in_idx    = find_column_index(m_header, ["inlinks", "in links", "interne inlinks", "eingehende links", "eingehende interne links", "inbound internal links"])
+m_out_idx   = find_column_index(m_header, ["outlinks", "out links", "ausgehende links", "interne outlinks", "outbound links"])
 
-    metrics_df.iloc[:, 0] = metrics_df.iloc[:, 0].astype(str)
-
-    metrics_map: Dict[str, Dict[str, float]] = {}
-    for _, r in metrics_df.iterrows():
-        u = remember_original(r.iloc[0])
-        if not u:
-            continue
-        score = _num(r.iloc[1])
-        inlinks = _num(r.iloc[2])
-        outlinks = _num(r.iloc[3])
-        prdiff = inlinks - outlinks
-        metrics_map[u] = {"score": score, "prDiff": prdiff}
-
-
-    # Backlinks map (URL -> backlinks, referring domains)
-    backlinks_df = backlinks_df.copy()
-    if backlinks_df.shape[1] < 3:
-        st.error("'Backlinks' braucht mindestens 3 Spalten: URL, Backlinks, Referring Domains (in dieser Reihenfolge).")
-        st.stop()
-
-    backlink_map: Dict[str, Dict[str, float]] = {}
-    for _, r in backlinks_df.iterrows():
-        u = remember_original(r.iloc[0])
-        if not u:
-            continue
-        bl = _num(r.iloc[1])
-        rd = _num(r.iloc[2])
-        backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
-
-
-    # --- Robuste Ranges (Quantile) ---
-    ils_vals = [m["score"] for m in metrics_map.values()]
-    prd_vals = [m["prDiff"] for m in metrics_map.values()]
-    bl_vals  = [b["backlinks"] for b in backlink_map.values()]
-    rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
-
-    min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
-    min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
-    min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
-    min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
-
-    # --- Offpage: Log-Skalen + robuste Ranges für die Dämpfung ---
-    bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
-    rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
-    lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
-    lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
-
-
-    # Inlinks: gather all and content links  (=> Keys als Tupel (src, dst))
-    inlinks_df = inlinks_df.copy()
-    header = [str(c).strip() for c in inlinks_df.columns]
-
-    src_idx = find_column_index(header, POSSIBLE_SOURCE)
-    dst_idx = find_column_index(header, POSSIBLE_TARGET)
-    pos_idx = find_column_index(header, POSSIBLE_POSITION)
-
-    if src_idx == -1 or dst_idx == -1:
-        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
-        st.stop()
-
-    all_links: set[Tuple[str, str]] = set()
-    content_links: set[Tuple[str, str]] = set()
-
-    # Fallback: Embeddings aus Analyse 1, um fehlende Similarities direkt zu berechnen
-    _idx_map = st.session_state.get("_emb_index_by_url")
-    _Vmat    = st.session_state.get("_emb_matrix")
-    _has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
-
-    for row in inlinks_df.itertuples(index=False, name=None):
-        source = remember_original(row[src_idx])
-        target = remember_original(row[dst_idx])
-        if not source or not target:
-            continue
-        key = (source, target)
-        all_links.add(key)
-        if pos_idx != -1 and is_content_position(row[pos_idx]):
-            content_links.add(key)
-
-
-    st.session_state["_all_links"] = all_links
-    st.session_state["_content_links"] = content_links
-
-    # Related map (bidirectional, thresholded)
-    related_df = related_df.copy()
-    if related_df.shape[1] < 3:
-        st.error("'Related URLs' braucht mindestens 3 Spalten: Ziel, Quelle, Similarity (in dieser Reihenfolge).")
-        st.stop()
-
-    related_map: Dict[str, List[Tuple[str, float]]] = {}
-    processed_pairs = set()
-
-    for _, r in related_df.iterrows():
-        urlA = remember_original(r.iloc[0])  # Ziel (Key + Original merken)
-        urlB = remember_original(r.iloc[1])  # Quelle (Key + Original merken)
-        try:
-            sim = float(str(r.iloc[2]).replace(",", "."))
-        except Exception:
-            sim = np.nan
-        if not urlA or not urlB or np.isnan(sim):
-            continue
-        if sim < sim_threshold:
-            continue
-        pair_key = "↔".join(sorted([urlA, urlB]))
-        if pair_key in processed_pairs:
-            continue
-        related_map.setdefault(urlA, []).append((urlB, sim))
-        related_map.setdefault(urlB, []).append((urlA, sim))
-        processed_pairs.add(pair_key)
-
-    # Precompute "Linkpotenzial" als reine Quelleigenschaft (ohne Similarity)
-    source_potential_map: Dict[str, float] = {}
-    for u, m in metrics_map.items():
-        ils_raw = _num(m.get("score"))
-        pr_raw = _num(m.get("prDiff"))
-        bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-        bl_raw = _num(bl.get("backlinks"))
-        rd_raw = _num(bl.get("referringDomains"))
-
-        norm_ils = robust_norm(ils_raw, min_ils, max_ils)
-        norm_pr  = robust_norm(pr_raw,  min_prd, max_prd)
-        norm_bl  = robust_norm(bl_raw,  min_bl,  max_bl)   # hier OHNE Log, bewusst linear
-        norm_rd  = robust_norm(rd_raw,  min_rd,  max_rd)   # hier OHNE Log, bewusst linear
-
-
-        final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
-        source_potential_map[u] = round(final_score, 4)
-
-    st.session_state["_source_potential_map"] = source_potential_map
-    st.session_state["_metrics_map"] = metrics_map
-    st.session_state["_backlink_map"] = backlink_map
-    st.session_state["_norm_ranges"] = {
-        # Robuste (Quantil-)Ranges für lineare Normierungen
-        "ils": (min_ils, max_ils),
-        "prd": (min_prd, max_prd),
-        "bl":  (min_bl,  max_bl),
-        "rd":  (min_rd,  max_rd),
-        # Zusätzlich: Log-basierte robuste Ranges NUR für die Offpage-Dämpfung
-        "bl_log": (lo_bl_log, hi_bl_log),
-        "rd_log": (lo_rd_log, hi_rd_log),
-    }
-
-
-    # ===============================
-    # Analyse 1: Interne Verlinkungsmöglichkeiten
-    # ===============================
-    st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
-
-    cols = ["Ziel-URL"]
-    for i in range(1, int(max_related) + 1):
-        cols.extend([
-            f"Related URL {i}",
-            f"Ähnlichkeit {i}",
-            f"überhaupt verlinkt {i}?",
-            f"aus Inhalt heraus verlinkt {i}?",
-            f"Linkpotenzial {i}",
-        ])
-
-    rows_norm = []
-    rows_view = []
-
-    for target, related_list in sorted(related_map.items()):
-        related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
-        row_norm = [target]
-        row_view = [disp(target)]
-        for source, sim in related_sorted:
-            anywhere = "ja" if (source, target) in all_links else "nein"
-            from_content = "ja" if (source, target) in content_links else "nein"
-            final_score = source_potential_map.get(source, 0.0)
-
-            row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
-            row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
-
-        # pad
-        while len(row_norm) < len(cols):
-            row_norm.append(np.nan)
-        while len(row_view) < len(cols):
-            row_view.append(np.nan)
-
-        rows_norm.append(row_norm)
-        rows_view.append(row_view)
-
-    # interne (kanonische) DF für spätere Berechnungen
-    res1_df = pd.DataFrame(rows_norm, columns=cols)
-    st.session_state.res1_df = res1_df
-
-    # Anzeige-DF
-    res1_view_df = pd.DataFrame(rows_view, columns=cols)
-    sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
-    for c in sim_cols:
-        res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
-
-    st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
-
-    csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
-        data=csv1,
-        file_name="interne_verlinkungsmoeglichkeiten.csv",
-        mime="text/csv",
-    )
-
-    # ===============================
-    # Analyse 2: Potenziell zu entfernende Links
-    # ===============================
-    st.markdown("## Analyse 2: Potenziell zu entfernende Links")
-
-    # 1) Similarity-Map aus Related (beidseitig)
-    sim_map: Dict[Tuple[str, str], float] = {}
-    processed_pairs2 = set()
-
-    for _, r in related_df.iterrows():
-        a = remember_original(r.iloc[1])  # Quelle
-        b = remember_original(r.iloc[0])  # Ziel
-        try:
-            sim = float(str(r.iloc[2]).replace(",", "."))
-        except Exception:
-            continue
-        if not a or not b:
-            continue
-        pair_key = "↔".join(sorted([a, b]))
-        if pair_key in processed_pairs2:
-            continue
-        sim_map[(a, b)] = sim
-        sim_map[(b, a)] = sim
-        processed_pairs2.add(pair_key)
-
-    # 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
-    if _has_emb:
-        missing = [
-            (src, dst) for (src, dst) in all_links
-            if (src, dst) not in sim_map and (dst, src) not in sim_map
-            and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
-        ]
-        if missing:
-            I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
-            J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
-            Vf = _Vmat  # float32, L2-normalisiert
-            sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)  # Cosine für alle fehlenden Paare
-            for (src, dst), s in zip(missing, sims):
-                val = float(s)
-                sim_map[(src, dst)] = val
-                sim_map[(dst, src)] = val
-
-
-
-    # 3) Waster-Score (Quelle) + Klassifikation
-    raw_score_map: Dict[str, float] = {}
-    for _, r in metrics_df.iterrows():
-        u = remember_original(r.iloc[0])
-        inl = _num(r.iloc[2])
-        outl = _num(r.iloc[3])
-        # „Waster“: viele Outlinks, wenig Inlinks
-        raw_score_map[u] = outl - inl
-
-    adjusted_score_map: Dict[str, float] = {}
-    for u, raw in raw_score_map.items():
-        bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-        impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
-        factor = 2.0 if backlink_weight_2x else 1.0
-        malus = 5.0 * factor if impact == 0 else 0.0
-        adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
-
-    w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
-    if w_vals.size == 0:
-        q70 = q90 = 0.0
+if -1 in (m_url_idx, m_score_idx, m_in_idx, m_out_idx):
+    if metrics_df.shape[1] >= 4:
+        if m_url_idx   == -1: m_url_idx   = 0
+        if m_score_idx == -1: m_score_idx = 1
+        if m_in_idx    == -1: m_in_idx    = 2
+        if m_out_idx   == -1: m_out_idx   = 3
+        st.warning("Linkmetriken: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–4).")
     else:
-        q70 = float(np.quantile(w_vals, 0.70))   # ab hier „mittel“
-        q90 = float(np.quantile(w_vals, 0.90))   # ab hier „hoch“
+        st.error("'Linkmetriken' braucht mindestens 4 Spalten (URL, Score, Inlinks, Outlinks).")
+        st.stop()
 
-    def waster_class_for(u: str) -> Tuple[str, float]:
-        score = float(adjusted_score_map.get(u, 0.0))
-        if score >= q90:
-            return "hoch", score
-        elif score >= q70:
-            return "mittel", score
-        else:
-            return "niedrig", score
+metrics_df.iloc[:, m_url_idx] = metrics_df.iloc[:, m_url_idx].astype(str)
 
-    # 4) Output bauen (Anzeige mit Original-URLs)
-    out_rows = []
-    rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
-    out_header = [
-        "Quelle",
-        "Ziel",
-        "Waster-Klasse (Quelle)",
-        "Waster-Score (Quelle)",
-        "Semantische Ähnlichkeit",
-        *rest_cols,
+metrics_map: Dict[str, Dict[str, float]] = {}
+for _, r in metrics_df.iterrows():
+    u = remember_original(r.iloc[m_url_idx])
+    if not u:
+        continue
+    score    = _num(r.iloc[m_score_idx])
+    inlinks  = _num(r.iloc[m_in_idx])
+    outlinks = _num(r.iloc[m_out_idx])
+    prdiff   = inlinks - outlinks
+    metrics_map[u] = {"score": score, "prDiff": prdiff}
+
+# --- FLEXIBEL: Backlinks header-basiert einlesen ---
+backlinks_df = backlinks_df.copy()
+backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
+b_header = [str(c).strip() for c in backlinks_df.columns]
+
+b_url_idx = find_column_index(b_header, ["url", "urls", "page", "seite", "address", "adresse"])
+b_bl_idx  = find_column_index(b_header, ["backlinks", "backlink", "external backlinks", "back links", "backlinks total"])
+b_rd_idx  = find_column_index(b_header, ["referring domains", "ref domains", "verweisende domains", "verweisende domain", "domains", "rd"])
+
+if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
+    if backlinks_df.shape[1] >= 3:
+        if b_url_idx == -1: b_url_idx = 0
+        if b_bl_idx  == -1: b_bl_idx  = 1
+        if b_rd_idx  == -1: b_rd_idx  = 2
+        st.warning("Backlinks: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
+    else:
+        st.error("'Backlinks' braucht mindestens 3 Spalten (URL, Backlinks, Referring Domains).")
+        st.stop()
+
+backlink_map: Dict[str, Dict[str, float]] = {}
+for _, r in backlinks_df.iterrows():
+    u = remember_original(r.iloc[b_url_idx])
+    if not u:
+        continue
+    bl = _num(r.iloc[b_bl_idx])
+    rd = _num(r.iloc[b_rd_idx])
+    backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
+       
+
+
+# --- Robuste Ranges (Quantile) ---
+ils_vals = [m["score"] for m in metrics_map.values()]
+prd_vals = [m["prDiff"] for m in metrics_map.values()]
+bl_vals  = [b["backlinks"] for b in backlink_map.values()]
+rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
+
+min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
+min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
+min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
+min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
+
+# --- Offpage: Log-Skalen + robuste Ranges für die Dämpfung ---
+bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
+rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
+lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
+lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
+
+# Inlinks: gather all and content links  (=> Keys als Tupel (src, dst))
+inlinks_df = inlinks_df.copy()
+header = [str(c).strip() for c in inlinks_df.columns]
+
+src_idx = find_column_index(header, POSSIBLE_SOURCE)
+dst_idx = find_column_index(header, POSSIBLE_TARGET)
+pos_idx = find_column_index(header, POSSIBLE_POSITION)
+
+if src_idx == -1 or dst_idx == -1:
+    st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
+    st.stop()
+
+all_links: set[Tuple[str, str]] = set()
+content_links: set[Tuple[str, str]] = set()
+
+# Fallback: Embeddings aus Analyse 1, um fehlende Similarities direkt zu berechnen
+_idx_map = st.session_state.get("_emb_index_by_url")
+_Vmat    = st.session_state.get("_emb_matrix")
+_has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
+
+for row in inlinks_df.itertuples(index=False, name=None):
+    source = remember_original(row[src_idx])
+    target = remember_original(row[dst_idx])
+    if not source or not target:
+        continue
+    key = (source, target)
+    all_links.add(key)
+    if pos_idx != -1 and is_content_position(row[pos_idx]):
+        content_links.add(key)
+
+st.session_state["_all_links"] = all_links
+st.session_state["_content_links"] = content_links
+
+# --- FLEXIBEL: Spalten in Related-URLs erkennen & Map bauen ---
+related_df = related_df.copy()
+if related_df.shape[1] < 3:
+    st.error("'Related URLs' braucht mindestens 3 Spalten.")
+    st.stop()
+
+rel_header = [str(c).strip() for c in related_df.columns]
+rel_dst_idx = find_column_index(rel_header, POSSIBLE_TARGET)  # Ziel
+rel_src_idx = find_column_index(rel_header, POSSIBLE_SOURCE)  # Quelle
+rel_sim_idx = find_column_index(rel_header, ["similarity", "similarität", "ähnlichkeit", "cosine", "cosine similarity", "semantische ähnlichkeit", "sim"])
+
+if -1 in (rel_dst_idx, rel_src_idx, rel_sim_idx):
+    if related_df.shape[1] >= 3:
+        if rel_dst_idx == -1: rel_dst_idx = 0
+        if rel_src_idx == -1: rel_src_idx = 1
+        if rel_sim_idx == -1: rel_sim_idx = 2
+        st.warning("Related URLs: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
+    else:
+        st.error("'Related URLs' braucht mindestens 3 Spalten (Ziel, Quelle, Similarity).")
+        st.stop()
+
+# Related map (bidirectional, thresholded)
+related_map: Dict[str, List[Tuple[str, float]]] = {}
+processed_pairs = set()
+
+for _, r in related_df.iterrows():
+    urlA = remember_original(r.iloc[rel_dst_idx])   # Ziel
+    urlB = remember_original(r.iloc[rel_src_idx])   # Quelle
+    try:
+        sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
+    except Exception:
+        sim = np.nan
+    if not urlA or not urlB or np.isnan(sim):
+        continue
+    if sim < sim_threshold:
+        continue
+    pair_key = "↔".join(sorted([urlA, urlB]))
+    if pair_key in processed_pairs:
+        continue
+    related_map.setdefault(urlA, []).append((urlB, sim))
+    related_map.setdefault(urlB, []).append((urlA, sim))
+    processed_pairs.add(pair_key)
+
+
+# Precompute "Linkpotenzial" als reine Quelleigenschaft (ohne Similarity)
+source_potential_map: Dict[str, float] = {}
+for u, m in metrics_map.items():
+    ils_raw = _num(m.get("score"))
+    pr_raw  = _num(m.get("prDiff"))
+    bl      = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+    bl_raw  = _num(bl.get("backlinks"))
+    rd_raw  = _num(bl.get("referringDomains"))
+
+    norm_ils = robust_norm(ils_raw, min_ils, max_ils)
+    norm_pr  = robust_norm(pr_raw,  min_prd, max_prd)
+    norm_bl  = robust_norm(bl_raw,  min_bl,  max_bl)   # linear
+    norm_rd  = robust_norm(rd_raw,  min_rd,  max_rd)   # linear
+
+    final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
+    source_potential_map[u] = round(final_score, 4)
+
+
+st.session_state["_source_potential_map"] = source_potential_map
+st.session_state["_metrics_map"] = metrics_map
+st.session_state["_backlink_map"] = backlink_map
+st.session_state["_norm_ranges"] = {
+    # Robuste (Quantil-)Ranges für lineare Normierungen
+    "ils": (min_ils, max_ils),
+    "prd": (min_prd, max_prd),
+    "bl":  (min_bl,  max_bl),
+    "rd":  (min_rd,  max_rd),
+    # Zusätzlich: Log-basierte robuste Ranges NUR für die Offpage-Dämpfung
+    "bl_log": (lo_bl_log, hi_bl_log),
+    "rd_log": (lo_rd_log, hi_rd_log),
+}
+
+# ===============================
+# Analyse 1: Interne Verlinkungsmöglichkeiten
+# ===============================
+st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
+
+cols = ["Ziel-URL"]
+for i in range(1, int(max_related) + 1):
+    cols.extend([
+        f"Related URL {i}",
+        f"Ähnlichkeit {i}",
+        f"überhaupt verlinkt {i}?",
+        f"aus Inhalt heraus verlinkt {i}?",
+        f"Linkpotenzial {i}",
+    ])
+
+rows_norm = []
+rows_view = []
+
+for target, related_list in sorted(related_map.items()):
+    related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
+    row_norm = [target]
+    row_view = [disp(target)]
+    for source, sim in related_sorted:
+        anywhere = "ja" if (source, target) in all_links else "nein"
+        from_content = "ja" if (source, target) in content_links else "nein"
+        final_score = source_potential_map.get(source, 0.0)
+
+        row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
+        row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
+
+    # pad
+    while len(row_norm) < len(cols):
+        row_norm.append(np.nan)
+    while len(row_view) < len(cols):
+        row_view.append(np.nan)
+
+    rows_norm.append(row_norm)
+    rows_view.append(row_view)
+
+# interne (kanonische) DF für spätere Berechnungen
+res1_df = pd.DataFrame(rows_norm, columns=cols)
+st.session_state.res1_df = res1_df
+
+# Anzeige-DF
+res1_view_df = pd.DataFrame(rows_view, columns=cols)
+sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
+for c in sim_cols:
+    res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
+
+st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
+
+csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
+st.download_button(
+    "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
+    data=csv1,
+    file_name="interne_verlinkungsmoeglichkeiten.csv",
+    mime="text/csv",
+)
+
+# ===============================
+# Analyse 2: Potenziell zu entfernende Links
+# ===============================
+st.markdown("## Analyse 2: Potenziell zu entfernende Links")
+
+# 1) Similarity-Map aus Related (beidseitig)
+sim_map: Dict[Tuple[str, str], float] = {}
+processed_pairs2 = set()
+
+for _, r in related_df.iterrows():
+    a = remember_original(r.iloc[rel_src_idx])  # Quelle
+    b = remember_original(r.iloc[rel_dst_idx])  # Ziel
+    try:
+        sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
+    except Exception:
+        continue
+    if not a or not b:
+        continue
+    pair_key = "↔".join(sorted([a, b]))
+    if pair_key in processed_pairs2:
+        continue
+    sim_map[(a, b)] = sim
+    sim_map[(b, a)] = sim
+    processed_pairs2.add(pair_key)
+
+# 2) Fehlende Similarities für ALLE Inlinks nachrechnen (nur wenn Embeddings da)
+if _has_emb:
+    missing = [
+        (src, dst) for (src, dst) in all_links
+        if (src, dst) not in sim_map and (dst, src) not in sim_map
+        and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
     ]
+    if missing:
+        I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
+        J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
+        Vf = _Vmat  # float32, L2-normalisiert
+        sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)  # Cosine für alle fehlenden Paare
+        for (src, dst), s in zip(missing, sims):
+            val = float(s)
+            sim_map[(src, dst)] = val
+            sim_map[(dst, src)] = val
 
-    for row in inlinks_df.itertuples(index=False, name=None):
-        quelle = remember_original(row[src_idx])
-        ziel   = remember_original(row[dst_idx])
-        if not quelle or not ziel:
+# 3) Waster-Score (Quelle) + Klassifikation
+raw_score_map: Dict[str, float] = {}
+for _, r in metrics_df.iterrows():
+    u   = remember_original(r.iloc[m_url_idx])
+    inl = _num(r.iloc[m_in_idx])
+    outl= _num(r.iloc[m_out_idx])
+    raw_score_map[u] = outl - inl
+
+adjusted_score_map: Dict[str, float] = {}
+for u, raw in raw_score_map.items():
+    bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+    impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
+    factor = 2.0 if backlink_weight_2x else 1.0
+    malus = 5.0 * factor if impact == 0 else 0.0
+    adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
+
+w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
+if w_vals.size == 0:
+    q70 = q90 = 0.0
+else:
+    q70 = float(np.quantile(w_vals, 0.70))   # ab hier „mittel“
+    q90 = float(np.quantile(w_vals, 0.90))   # ab hier „hoch“
+
+def waster_class_for(u: str) -> Tuple[str, float]:
+    score = float(adjusted_score_map.get(u, 0.0))
+    if score >= q90:
+        return "hoch", score
+    elif score >= q70:
+        return "mittel", score
+    else:
+        return "niedrig", score
+
+# 4) Output bauen (Anzeige mit Original-URLs)
+out_rows = []
+rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
+out_header = [
+    "Quelle",
+    "Ziel",
+    "Waster-Klasse (Quelle)",
+    "Waster-Score (Quelle)",
+    "Semantische Ähnlichkeit",
+    *rest_cols,
+]
+
+for row in inlinks_df.itertuples(index=False, name=None):
+    quelle = remember_original(row[src_idx])
+    ziel   = remember_original(row[dst_idx])
+    if not quelle or not ziel:
+        continue
+
+    w_class, w_score = waster_class_for(normalize_url(quelle))
+
+    sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
+
+    if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
+        i = _idx_map.get(normalize_url(quelle))
+        j = _idx_map.get(normalize_url(ziel))
+        if i is not None and j is not None:
+            sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
+
+    if isinstance(sim, (int, float)) and np.isfinite(sim):
+        sim_display = round(float(sim), 3)
+        if float(sim) > float(not_similar_threshold):
             continue
+    else:
+        sim_display = (
+            "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
+            if mode == "Related URLs" else
+            "Cosine Similarity nicht erfasst"
+        )
 
-        w_class, w_score = waster_class_for(normalize_url(quelle))
+    rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
+    out_rows.append([
+        disp(quelle),
+        disp(ziel),
+        w_class,
+        round(float(w_score), 3),
+        sim_display,
+        *rest,
+    ])
 
-        sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
+out_df = pd.DataFrame(out_rows, columns=out_header)
+st.session_state.out_df = out_df
+st.dataframe(out_df, use_container_width=True, hide_index=True)
 
-        if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
-            i = _idx_map.get(normalize_url(quelle))
-            j = _idx_map.get(normalize_url(ziel))
-            if i is not None and j is not None:
-                sim = float(np.dot(_Vmat[i], _Vmat[j]))  # Cosine (L2-normalisiert)
+csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
+st.download_button(
+    "Download 'Potenziell zu entfernende Links' (CSV)",
+    data=csv2,
+    file_name="potenziell_zu_entfernende_links.csv",
+    mime="text/csv",
+)
 
-        if isinstance(sim, (int, float)) and np.isfinite(sim):
-            sim_display = round(float(sim), 3)
-            if float(sim) > float(not_similar_threshold):
-                continue
-        else:
-            sim_display = (
-                "Cosine Similarity nicht erfasst / URL-Paar nicht im Input-Dokument vorhanden"
-                if mode == "Related URLs" else
-                "Cosine Similarity nicht erfasst"
-            )
-
-        rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-        out_rows.append([
-            disp(quelle),
-            disp(ziel),
-            w_class,
-            round(float(w_score), 3),
-            sim_display,
-            *rest,
-        ])
-
-
-    out_df = pd.DataFrame(out_rows, columns=out_header)
-    st.session_state.out_df = out_df
-    st.dataframe(out_df, use_container_width=True, hide_index=True)
-
-    csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Download 'Potenziell zu entfernende Links' (CSV)",
-        data=csv2,
-        file_name="potenziell_zu_entfernende_links.csv",
-        mime="text/csv",
-    )
-
-    # kleines Aufräumen am Ende des Runs
-    if run_clicked:
-        try:
-            placeholder.empty()
-        except Exception:
-            pass
-        st.success("✅ Berechnung abgeschlossen!")
-        st.session_state.ready = True
+# kleines Aufräumen am Ende des Runs
+if run_clicked:
+    try:
+        placeholder.empty()
+    except Exception:
+        pass
+    st.success("✅ Berechnung abgeschlossen!")
+    st.session_state.ready = True
 
 
 # =========================================================
@@ -1330,7 +1381,7 @@ gsc_up = st.file_uploader(
     type=["csv", "xlsx", "xlsm", "xls"],
     key="gsc_up_merged_no_opp",
     help=(
-        "Search Console Daten können bei der Priorisierung welche Ziel-URLs am ehesten von den starken URLs (Gems) verlinkt werden sollten, helfen."
+        "Search Console Daten können bei der Priorisierung, welche Ziel-URLs am ehesten von den starken URLs (Gems) verlinkt werden sollten, helfen."
         "Erforderlich: URL, Impressions · Optional: Clicks, Position\n"
         "Spalten dürfen in **beliebiger Reihenfolge** stehen. Erkannte Header (Beispiele):\n"
         "• URL: url, page, seite, address/adresse\n"
@@ -1404,6 +1455,7 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
 
 # PRIO-Regler (GSC-abhängige Slider automatisch ausgrauen)
 colA, colB = st.columns(2)
+
 with colA:
     w_lihd = st.slider(
         "Gewicht: Hidden Champions",
@@ -1413,19 +1465,38 @@ with colA:
     w_def  = st.slider(
         "Gewicht: Semantische Linklücke",
         0.0, 1.0, 0.30, 0.05,
-        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken. Similarity dient als **Gewicht**, heißt: Je ähnlicher die Themen, desto stärker fällt der fehlende Link ins Gewicht."
+        help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' Quellen, die noch nicht aus dem Content heraus verlinken."
     )
+
 with colB:
-    w_rank = st.slider(
-        "Gewicht: Sprungbrett-URLs",
-        0.0, 1.0, 0.30, 0.05, disabled=not has_pos,
-        help="URLs mit durchschnittlicher Rankingosition im eingestellten Sprungbrett-Bereich (z. B. 8–20) erhalten ein höheres Gewicht. Benötigt die SC-Position für die URL."
-    )
-    w_orph = st.slider(
-        "Gewicht: Mauerblümchen",
-        0.0, 1.0, 0.10, 0.05,
-        help="Seiten mit schlechter Linkversorgung aus dem Content heraus (Navi / Footer wird hier nicht betrachtet). Orphan = 0 interne Inlinks. Thin = sehr wenige Inlinks. Hebt 'vergessene' Seiten hervor."
-    )
+    # --- Sprungbrett-URLs (Gewicht + Feineinstellung) ---
+    with bordered_container():
+        st.markdown("**Sprungbrett-URLs – Feineinstellung**")
+        w_rank = st.slider(
+            "Gewicht: Sprungbrett-URLs",
+            0.0, 1.0, 0.30, 0.05, disabled=not has_pos,
+            help="Bonus für URLs mit Position im Sweet-Spot (z. B. 8–20). Benötigt Search-Console-Position."
+        )
+        rank_minmax = st.slider(
+            "Ranking Sprungbrett-URL (Positionsbereich)",
+            1, 50, (8, 20), 1,
+            help="Positionsbereich, der bevorzugt wird (Default 8–20).",
+            disabled=not has_pos
+        )
+
+    # --- Mauerblümchen (Gewicht + Feineinstellung) ---
+    with bordered_container():
+        st.markdown("**Mauerblümchen – Feineinstellung**")
+        w_orph = st.slider(
+            "Gewicht: Mauerblümchen",
+            0.0, 1.0, 0.10, 0.05,
+            help="Seiten mit schlechter Linkversorgung aus dem Content heraus stärker gewichten."
+        )
+        thin_k = st.slider(
+            "Thin-Schwelle (Inlinks ≤ K)",
+            0, 10, 2, 1,
+            help="Ab wie vielen eingehenden **Content**-Links gilt eine Seite nicht mehr als 'thin'?"
+        )
 
 # Info zur Summe (nur Hinweis, wir normalisieren intern)
 eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
@@ -1433,59 +1504,47 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
     st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (kein Problem, wenn > 1 oder < 1, wird intern normalisiert)")
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
-st.markdown("##### Offpage-Einfluss (Backlinks & Ref. Domains)")
-st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
-offpage_damp_enabled = st.checkbox(
-    "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
-    value=True,
-    help="Offpage-Dämpfung: Seiten mit Backlinks von vielen verschiedenen Domains (Referring Domains) bekommen etwas weniger Dringlichkeit / Linkbedarf."
-)
-beta_offpage = st.slider(
-    "Stärke der Dämpfung durch Offpage-Signale",
-    0.0, 1.0, 0.30, 0.05,
-    disabled=not offpage_damp_enabled,
-    help="0 = keine Dämpfung. Höherer Wert = stärkere Dämpfung → stärkere Reduktion des Bedarfs, interne Links setzen zu müssen für URLs mit vielen Backlinks/Ref. Domains."
-)
+with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
+    st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger Dringlichkeit / Linkbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
+    offpage_damp_enabled = st.checkbox(
+        "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
+        value=True,
+        help="Offpage-Dämpfung: Seiten mit Backlinks von vielen verschiedenen Domains (Referring Domains) bekommen etwas weniger Dringlichkeit / Linkbedarf."
+    )
+    beta_offpage = st.slider(
+        "Stärke der Dämpfung durch Offpage-Signale",
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05,   # Default jetzt 0.5
+        disabled=not offpage_damp_enabled,
+        help="0 = keine Dämpfung. Höherer Wert = stärkere Dämpfung → stärkere Reduktion des Bedarfs, interne Links setzen zu müssen für URLs mit vielen Backlinks/Ref. Domains."
+    )
 
 
-# Abgrenzende Überschrift für Thin-Schwelle
-st.markdown("##### Mauerblümchen-Definition")
+# Sortierlogik (laienfreundliche Labels, gleiche Mechanik) – jetzt im Expander
+with st.expander("Reihenfolge der Empfehlungen", expanded=False):
+    sort_labels = {
+        "rank_mix":   "Mix (inhaltliche Nähe & Linkbedarf kombiniert)",
+        "prio_only":  "Nur Linkbedarf",
+        "sim_only":   "Nur inhaltliche Nähe",
+    }
+    sort_choice = st.radio(
+        label="",
+        options=list(sort_labels.keys()),
+        index=0,  # Default: Mix
+        format_func=lambda k: sort_labels[k],
+        horizontal=True,
+        help=("Hier legst du fest, **in welcher Reihenfolge die Ziel-URLs pro Gem** angezeigt werden:\n"
+              "• Empfehlungsmix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
+              "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
+              "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst")
+    )
 
-thin_k = st.slider(
-    "Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1,
-    help="Ab wie vielen eingehenden internen Links gilt eine Seite als 'thin' (sehr schwach verlinkt) bzw. ab welcher Anzahl an eingehenden Links nicht mehr als schwach verlinkt?"
-)
+    alpha = st.slider(
+        "Gewichtung: inhaltliche Nähe vs. Linkbedarf",
+        min_value=0.0, max_value=1.0, value=0.5, step=0.05,  # Default jetzt 0.5
+        help=("Gilt nur für den **Mix**: Links = Linkbedarf wichtiger, "
+              "Rechts = inhaltliche Nähe wichtiger.")
+    )
 
-# Ranking-Sweet-Spot (direkt sichtbar)
-rank_minmax = st.slider(
-    "Ranking Sprungbrett-URL (Positionsbereich)",
-    1, 50, (8, 20), 1,
-    help="Bereich der durchschnittlichen Position einer (Sprungbrett-)URL, der bevorzugt wird (z. B. 8–20). These: URLs mit Rankings in diesem Bereich haben schon eine gewisse Relevanz aufgebaut, eine Optimierung in Form der Verbesserung der internen Verlinkung zahlt sich hier schneller aus als wenn eine URL von Position 50 auf Position 1 gehoben werden soll.",
-    disabled=not has_pos
-)
-
-# Sortierlogik (laienfreundliche Labels, gleiche Mechanik)
-sort_labels = {
-    "rank_mix":   "Mix (Nähe & Linkbearf kombiniert)",
-    "prio_only":  "Nur Linkbedarf",
-    "sim_only":   "Nur inhaltliche Nähe",
-}
-sort_choice = st.radio(
-    "Reihenfolge der Empfehlungen",
-    options=list(sort_labels.keys()),
-    format_func=lambda k: sort_labels[k],
-    horizontal=True,
-    help=("Hier legst du fest, **in welcher Reihenfolge die Ziel-URLs pro Gem** angezeigt werden:\n"
-          "• Empfehlungsmix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
-          "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
-          "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst")
-)
-alpha = st.slider(
-    "Gewichtung: inhaltliche Nähe vs. Linkbedarf",
-    0.0, 1.0, 0.6, 0.05,
-    help=("Gilt nur für den **Mix**: Links = Linkbedarf wichtiger, "
-          "Rechts = inhaltliche Nähe wichtiger.")
-)
 
 
 # --- Let's Go Button jetzt UNTEN, nach Balance ---
