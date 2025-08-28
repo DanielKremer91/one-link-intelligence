@@ -1414,7 +1414,7 @@ if not st.session_state.get("__gems_loading__", False):
 # Analyse 3: Gems & „Cheat-Sheet der internen Verlinkung“ (Similarity × PRIO, ohne Opportunity)
 # =========================================================
 st.markdown("---")
-st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks")
+st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
 st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
 # >>> HIER EINFÜGEN: Loader-GIF für Analyse 3 <<<
@@ -1451,7 +1451,7 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
 
 3) **Linkbedarf (PRIO) berechnen**  
    Jede Ziel-URL erhält einen **PRIO-Wert** aus vier Signalen (Gewichte per Slider; Summe muss nicht 1 sein — wir normalisieren intern):
-   - **Hidden Champtions** *(Search Console Daten nötig)*  
+   - **Hidden Champions** *(Search Console Daten nötig)*  
      Formel: `Hidden Champions = (1 − ILS_norm) × Demand_norm × (1 − β × Offpage_norm)`  
      Bedeutet: viel Such-Nachfrage (Search Console Impressions) + schwacher interner Link-Score ⇒ höherer Linkbedarf.  
      **Offpage-Dämpfung** (standardmäßig aktiv): viele Backlinks/Ref. Domains reduzieren den Linkbedarf einer URL; Stärke des Einflusses von Offpage-Signalen über **Regler** steuerbar.
@@ -1463,7 +1463,7 @@ with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=
      Bonus für URLs, deren **durchschnittliche Position** im eingestellten **Sweet-Spot (z. B. 8–20)** liegt.
      Die Erfahrung zeigt, durch gezielte Optimierungsmaßnahmen (z.B. Verbesserung der internen Verlinkung) können sog. **Sprungbrett-URLs** schneller bessere Rankings erreichen als wenn eine Seite von Position 50 auf die erste Ergebnisseite gehoben werden soll.
    - **Mauerblümchen**  
-     Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt. **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**). Analyse ezieht sich rein auf Links aus dem **Content**.
+     Gar nicht (Orphan) oder nur sehr schwach (Thin) intern verlinkt. **Orphan** = 0 interne Inlinks. **Thin** = Inlinks ≤ **K** (Slider **„Thin-Schwelle“**). Analyse bezieht sich rein auf Links aus dem **Content**.
 
 4) **Ausgabe & Reihenfolge der Empfehlungen**  
    Pro Gem listen wir die **Top-Z Ziele** (Slider **„Top-Ziele je Gem“**).  
@@ -1506,21 +1506,20 @@ max_targets_per_gem = st.number_input(
 # --------------------------
 # Gewichtung Dringlichkeit (PRIO) inkl. GSC-Upload (direkt hier)
 # --------------------------
-st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
 
 gsc_up = st.file_uploader(
     "Search Console Daten (CSV/Excel)",
     type=["csv", "xlsx", "xlsm", "xls"],
     key="gsc_up_merged_no_opp",
     help=(
-        "Search Console Daten können bei der Priorisierung, welche Ziel-URLs am ehesten von den starken URLs (Gems) verlinkt werden sollten, helfen."
-        "Erforderlich: URL, Impressions · Optional: Clicks, Position\n"
-        "Spalten dürfen in **beliebiger Reihenfolge** stehen. Erkannte Header (Beispiele):\n"
-        "• URL: url, page, seite, address/adresse\n"
-        "• Impressions: impressions, impr, search impressions, impressions_total\n"
-        "• Clicks: clicks, klicks\n" 
-        "• Position: position, avg/average position, (de) durchschnittliche/durchschn. position\n"
-        "Impressions werden per log1p normalisiert. URLs werden intern normalisiert; Anzeige bleibt im Original."
+    "Search Console Daten helfen bei der Priorisierung, welche Ziel-URLs Gems verlinken sollten.\n"
+    "Erforderlich: URL, Impressions · Optional: Clicks, Position\n"
+    "Spalten dürfen in beliebiger Reihenfolge stehen. Erkannte Header (Beispiele):\n"
+    "• URL: url, page, seite, address/adresse, landingpage/landing page\n"
+    "• Impressions: impressions, impressionen, impr, suchimpressionen, search impressions, impressions_total\n"
+    "• Clicks: clicks, klicks\n"
+    "• Position: position, avg/average position, durchschnittliche/durchschn. position, (durchschn.) ranking(position)\n"
+    "Hinweis: Impressions werden per log1p normalisiert. URLs werden intern normalisiert; Anzeige bleibt im Original."
     ),
 )
 
@@ -1682,7 +1681,7 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
 with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains) - *standardmäßig Offpage-Dämpfung aktiviert, Grad der Dämpfung oder ob überhaupt gedämpft werden soll, ist hier einstellbar*", expanded=False):
-    st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger PRIO hinsichtlich Verlinkungsbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
+    st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger PRIO hinsichtlich Verlinkungsbedarf verliehen. Wir beziehen für ein realistischeres Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
     offpage_damp_enabled = st.checkbox(
         "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
         value=True,
