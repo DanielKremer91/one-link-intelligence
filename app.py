@@ -565,6 +565,8 @@ Alle drei Analysen zahlen direkt auf die **Optimierung deiner internen Verlinkun
   - Position: `position`, `avg position`, `average position`, `durchschnittliche position`, `durchschn. position`  
   **Hinweise:** Impressions werden intern per `log1p` normalisiert; Position wird nur für den „Sprungbrett“-Score benötigt.
 
+💡 Wir beziehen alle Input-Dateien, bis auf die Offpage-Daten (diese kommen aus Ahrefs), aus dem **Screaming Frog**. Hinweis: Es ist im Frog möglich, APIs (KI-Systeme und Search Console) anzubinden und so die Daten direkt in den Crawl zu holen.
+
 Hinweis: Spaltenerkennung ist tolerant gegenüber deutsch/englischen Varianten.  
 Trennzeichen (Komma/Semikolon) und Encodings (UTF-8/UTF-8-SIG/Windows-1252/Latin-1) werden automatisch erkannt.  
 URLs werden kanonisiert (Protokoll ergänzt, www. entfernt, Tracking-Parameter entfernt, Pfade vereinheitlicht).
@@ -576,7 +578,7 @@ URLs werden kanonisiert (Protokoll ergänzt, www. entfernt, Tracking-Parameter e
 Die Berechnung des Linkpotenzials basiert auf folgenden Faktoren:  
 
 - **Interner Link Score**  
-  Bewertet, wie wichtig eine Seite im internen Linkgraph ist (ähnlich dem Link Score in Screaming Frog). Je höher der Wert, desto stärker kann die Seite Linkpower weitergeben.  
+  Bewertet, wie wichtig eine Seite im internen Linkgraph ist (Empfehlung: Link Score in der Crawl-Analyse in Screaming Frog (im Anschluss an den Crawl) berechnen lassen). Je höher der Wert, desto stärker kann die Seite Linkpower weitergeben.  
 
 - **PageRank-Horder-Score**  
   Was ist ein *PageRank-Horder*? Vereinfacht gesagt: Je mehr eingehende Links (intern & extern) und je weniger ausgehende Links eine URL hat, desto mehr Linkpower kann sie „vererben“. Das „Robin-Hood-Prinzip“ – take it from the rich, give it to the poor.  
@@ -584,11 +586,9 @@ Die Berechnung des Linkpotenzials basiert auf folgenden Faktoren:
 - **Backlinks** & **Referring Domains**  
   Berücksichtigen externe Signale (Autorität/Vertrauen) der Quell-URL.  
 
-💡 **Interpretation des Linkpotenzial-Scores in der Output-Datei:**  
-Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen, wie lukrativ ein Link wäre.  
-Je **höher** der Score im Vergleich zu den übrigen, desto sinnvoller ist die Verlinkung.
+💡 **Interpretation des Linkpotenzial-Scores in den Output-Dateien bei Analysen 1 und 3:**  
+Der Wert ist **relativ** – er zeigt im Verhältnis zu den anderen, wie lukrativ ein Link wäre bzw. wie lukrativ die URL als Linkgeber ist.  
 
-*Hinweis:* Die Ermittlung **zu entfernender Links** berücksichtigt **alle Similarities** (nicht nur ≥ Schwelle), damit auch sehr schwache Verbindungen sichtbar werden.
 """)
 
 # ===============================
