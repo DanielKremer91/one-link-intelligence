@@ -966,19 +966,16 @@ if run_clicked or st.session_state.ready:
             V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
 
             if shorter > 0:
-            st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
-            with st.expander("Was bedeutet das ‘Padden’ der Embeddings?"):
-                st.markdown(
-                    "- Einige Embeddings sind kürzer als die Ziel-Dimension "
-                    f"(**{max_dim}**). Diese werden mit `0` aufgefüllt, damit alle "
-                    "Vektoren gleich lang sind.\n"
-                    "- Das ist rein technisch – es fügt **keine Information** hinzu.\n"
-                    "- Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, "
-                    "sofern alle Embeddings aus **demselben Modell/Space** stammen.\n"
-                    "- Wenn Embeddings aus **verschiedenen Modellen** stammen, sind "
-                    "Ähnlichkeitswerte nur bedingt vergleichbar. Empfehlung: "
-                    "alle Embeddings mit demselben Modell/Durchlauf erzeugen."
-                )
+                st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
+                with st.expander("Was bedeutet das ‘Padden’ der Embeddings?"):
+                    st.markdown(
+                        f"""
+            - Einige Embeddings sind kürzer als die Ziel-Dimension (**{max_dim}**). Diese werden mit `0` aufgefüllt, damit alle Vektoren gleich lang sind.
+            - Das ist rein technisch – es fügt **keine Information** hinzu.
+            - Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, sofern alle Embeddings aus **demselben Modell/Space** stammen.
+            - Wenn Embeddings aus **verschiedenen Modellen** stammen, sind Ähnlichkeitswerte nur bedingt vergleichbar. Empfehlung: alle Embeddings mit demselben Modell/Durchlauf erzeugen oder unterschiedlich dimensionierte Datensätze separat behandeln.
+                        """
+                    )
 
 
             related_df = build_related_auto(
