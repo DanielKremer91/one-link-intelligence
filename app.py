@@ -1629,7 +1629,6 @@ with col1:
             disabled=not has_gsc,
             help="Hidden Champion URLs sind URLs mit hoher Such-Nachfrage (gemessen an Search Console Impressions), aber zu schwacher Verlinkung ⇒ höherer Linkbedarf."
         )
-        st.caption("Hidden Champions – Feineinstellung")
 
 # 2) Semantische Linklücke
 with col2:
@@ -1640,7 +1639,6 @@ with col2:
             min_value=0.0, max_value=1.0, value=0.30, step=0.05,
             help="Fehlen Links von semantisch ähnlichen URLs? → Anteil der 'Related' URLs (= semantisch ähnlicher URLs), die noch nicht aus dem Content heraus auf URL verlinken."
         )
-        st.caption("Semantische Linklücke – Feineinstellung")
 
 # 3) Sprungbrett-URLs
 with col3:
