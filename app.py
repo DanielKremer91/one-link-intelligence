@@ -1681,7 +1681,7 @@ if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
     st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (kein Problem, wenn > 1 oder < 1, wird intern normalisiert)")
 
 # --- Offpage-Dämpfung (standardmäßig aktiv) ---
-with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
+with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains) - *standardmäßig Offpage-Dämpfung aktiviert, Grad der Dämpfung oder ob überhaupt gedämpft werden soll, ist hier einstellbar*", expanded=False):
     st.caption("Seiten mit Backlinks von vielen verschiedenen Domains bekommen etwas weniger PRIO hinsichtlich Verlinkungsbedarf verliehen. Wir beziehen für ein realisitischers Gesamtbild gemäß des TIPR-Ansatzes auch die Offpage-Daten in die Optimierung der internen Verlinkung mit ein.")
     offpage_damp_enabled = st.checkbox(
         "Offpage-Dämpfung auf Hidden Champions & Semantische Linklücke anwenden",
@@ -1697,7 +1697,7 @@ with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
 
 
 # Sortierlogik (laienfreundliche Labels, gleiche Mechanik) – jetzt im Expander
-with st.expander("Reihenfolge der Empfehlungen", expanded=False):
+with st.expander("Reihenfolge der Empfehlungen - *OPTIONAL*", expanded=False):
     st.caption(
         "Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
         "• Mix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
