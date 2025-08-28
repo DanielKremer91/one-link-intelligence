@@ -513,7 +513,6 @@ def build_related_auto(
         else:
             raise
 
-
 # =============================
 # Hilfe / Tool-Dokumentation (Expander)
 # =============================
