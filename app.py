@@ -972,7 +972,8 @@ if run_clicked or st.session_state.ready:
             - Einige Embeddings sind kürzer als die Ziel-Dimension (**{max_dim}**). Diese werden mit `0` aufgefüllt, damit alle Vektoren gleich lang sind.
             - Das ist rein technisch – es fügt **keine Information** hinzu.
             - Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, sofern alle Embeddings aus **demselben Modell/Space** stammen.
-            - Wenn Embeddings aus **verschiedenen Modellen** stammen, sind Ähnlichkeitswerte nur bedingt vergleichbar. Empfehlung: alle Embeddings mit demselben Modell/Durchlauf erzeugen oder unterschiedlich dimensionierte Datensätze separat behandeln.
+            - Wenn Embeddings aus **verschiedenen Modellen** stammen, sind Ähnlichkeitswerte nur bedingt vergleichbar.
+            - **Empfehlung**: alle Embeddings mit demselben Modell / im selben Durchlauf erzeugen.
                         """
                     )
 
