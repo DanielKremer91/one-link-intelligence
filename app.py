@@ -1701,7 +1701,7 @@ with st.expander("Reihenfolge der Empfehlungen - *OPTIONAL*", expanded=False):
     st.caption(
         "Hier legst du fest, in welcher Reihenfolge die Ziel-URLs pro Gem angezeigt werden:\n"
         "• Mix: Kombination aus inhaltlicher Nähe (Similarity) und Linkbedarf (PRIO)\n"
-        "• Nur Linkbedarf: Seiten mit höchster PRIO zuerst\n"
+        "• Nur Linkbedarf: Seiten mit höchster Linkbedarf-PRIO zuerst\n"
         "• Nur inhaltliche Nähe: Seiten mit höchster Similarity zuerst"
     )
 
