@@ -530,7 +530,7 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
    - Analysiert bestehende interne Links und erkennt solche, die thematisch unpassend oder schwach sind.  
    - Grundlage ist die semantische Ähnlichkeit sowie ein vereinfachter *PageRank-Waster-Ansatz* (Seiten mit vielen Outlinks, aber wenigen Inlinks).  
 
-3. **Wertvollsten Links aus SEO-Sicht identifizieren**  
+3. **Wertvollsten Links aus SEO-Sicht identifizieren (SEO-Potenziallinks)**  
    - Ermittelt die **stärksten internen Linkgeber (Gems)** anhand des Linkpotenzials und listet **wertvolle, noch nicht vorhandene Content-Links** zu passenden Ziel-URLs.  
    - Aus Performance-Gründen erst sichtbar **nach Abschluss von Analyse 1 & 2**.
 
