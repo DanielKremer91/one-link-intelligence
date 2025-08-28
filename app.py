@@ -531,7 +531,11 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
    - Analysiert bestehende interne Links und erkennt solche, die thematisch unpassend oder schwach sind.  
    - Grundlage ist die semantische Ähnlichkeit sowie ein vereinfachter *PageRank-Waster-Ansatz* (Seiten mit vielen Outlinks, aber wenigen Inlinks).  
 
-Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein.
+3. **Wertvollsten Links aus SEO-Sicht identifizieren**  
+   - Ermittelt die **stärksten internen Linkgeber (Gems)** anhand des Linkpotenzials und listet **wertvolle, noch nicht vorhandene Content-Links** zu passenden Ziel-URLs.  
+   - Aus Performance-Gründen erst sichtbar **nach Abschluss von Analyse 1 & 2**.
+
+Alle drei Analysen zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein.
 """)
 
     st.markdown("""
@@ -542,14 +546,25 @@ Beide Tools zahlen direkt auf die **Optimierung deiner internen Verlinkung** ein
   - **URL** (Spaltenname: z. B. URL, Adresse, Address, Page, Seite)  
   - **Embeddings** (Spaltenname: z. B. Embedding, Embeddings, Vector). Werte können als JSON-Array ([0.1, 0.2, ...]) oder durch Komma/Leerzeichen/;/| getrennt vorliegen.  
 
-  Zusätzlich erforderlich:  
-  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**. Weitere Spalten sind nicht erforderlich. **Tipp**: Lösche alle Linktypen, die keine Hyperlinks sind und die anderen Spalten vor dem Upload heraus, um eine geringere Dateigröße zu erzielen.
-  - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Score**, **Inlinks**, **Outlinks**  
-  - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains**  
-
 - **Option 2: Related URLs**  
   Tabelle mit mindestens drei Spalten:  
-  - **Ziel-URL**, **Quell-URL**, **Ähnlichkeitswert (0–1)** (z. B. aus Screaming Frog *Massenexport → Inhalt → Semantisch ähnlich*).  
+  - **Ziel-URL**, **Quell-URL**, **Ähnlichkeitswert (0–1)** (z. B. aus Screaming Frog *Massenexport → Inhalt → Semantisch ähnlich*).
+
+- Zusätzlich erforderlich:  
+  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**. Weitere Spalten sind nicht erforderlich. **Tipp**: Lösche alle Linktypen, die keine Hyperlinks sind und die anderen Spalten vor dem Upload heraus, um eine geringere Dateigröße zu erzielen.
+  - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Score**, **Inlinks**, **Outlinks**  
+  - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains**
+
+- **Optional (für Analyse 3): Search-Console-Daten**  
+  Datei als **CSV/Excel** mit mindestens:  
+  - **URL**, **Impressions**  
+  *Optional:* **Clicks**, **Position** (für „Sprungbrett-URLs“).  
+  **Header-Erkennung (Reihenfolge egal):**  
+  - URL: `url`, `page`, `seite`, `address`, `adresse`  
+  - Impressions: `impressions`, `impressionen`, `impr`, `search impressions`, `impressions_total`  
+  - Clicks: `clicks`, `klicks`  
+  - Position: `position`, `avg position`, `average position`, `durchschnittliche position`, `durchschn. position`  
+  **Hinweise:** Impressions werden intern per `log1p` normalisiert; Position wird nur für den „Sprungbrett“-Score benötigt.
 
 Hinweis: Spaltenerkennung ist tolerant gegenüber deutsch/englischen Varianten.  
 Trennzeichen (Komma/Semikolon) und Encodings (UTF-8/UTF-8-SIG/Windows-1252/Latin-1) werden automatisch erkannt.  
@@ -860,19 +875,65 @@ if run_clicked or st.session_state.ready:
 
         if emb_df is not None and not emb_df.empty:
             # Spalten erkennen: URL + Embedding
-            cols = [c for c in emb_df.columns]
-            url_col = None
-            emb_col = None
-            for c in cols:
-                lc = str(c).strip().lower()
-                if url_col is None and lc in ("url", "urls", "page", "seite", "adresse", "address"):
-                    url_col = c
-                if emb_col is None and lc in ("embedding", "embeddings", "vector", "embedding_json", "vec"):
-                    emb_col = c
-            if url_col is None:
-                url_col = cols[0]
-            if emb_col is None and len(cols) >= 2:
-                emb_col = cols[1]
+            # --- Spalten robust erkennen (Embeddings-Datei) ---
+            hdr = [_norm_header(c) for c in emb_df.columns]
+            
+            def pick_col(candidates: list, default=None):
+                """Präferenzreihenfolge respektieren: exakt -> Token-Subset -> Substring -> Regex-Fallback."""
+                cand_norm = [_norm_header(c) for c in candidates]
+            
+                # 1) exakte Übereinstimmung (in Kandidaten-Reihenfolge)
+                for cand in cand_norm:
+                    for i, h in enumerate(hdr):
+                        if h == cand:
+                            return i
+            
+                # 2) fuzzy: alle Tokens des Kandidaten im Header enthalten (contains)
+                for cand in cand_norm:
+                    toks = cand.split()
+                    for i, h in enumerate(hdr):
+                        if all(t in h for t in toks):
+                            return i
+            
+                # 3) fuzzy: ganzer Kandidat als Substring
+                for cand in cand_norm:
+                    for i, h in enumerate(hdr):
+                        if cand in h:
+                            return i
+            
+                # 4) Regex-Fallbacks (Embedding bevorzugen)
+                import re
+                for i, h in enumerate(hdr):
+                    if re.search(r"\bembed(ding)?s?\b", h):
+                        return i
+                for i, h in enumerate(hdr):
+                    if re.search(r"\bvec(tor)?\b", h) and "url" not in h:
+                        return i
+            
+                return default
+            
+            url_i = pick_col(
+                ["url", "urls", "page", "seite", "address", "adresse", "landingpage", "landing page"],
+                0
+            )
+            emb_i = pick_col(
+                [
+                    # Bevorzugte Begriffe zuerst (deterministisch):
+                    "embedding", "embeddings", "embedding json", "embedding_json",
+                    "text embedding", "openai embedding", "sentence embedding", "vektor embeddings", "vektor-embeddings", "vektor embedding", "vektor-embedding",
+                    # eher generisch:
+                    "vector", "vec", "content embedding", "sf embedding", "embedding 1536", "embedding_1536",
+                ],
+                1 if emb_df.shape[1] >= 2 else None
+            )
+            
+            url_col = emb_df.columns[url_i] if url_i is not None else emb_df.columns[0]
+            emb_col = (
+                emb_df.columns[emb_i] if emb_i is not None
+                else (emb_df.columns[1] if emb_df.shape[1] >= 2 else emb_df.columns[0])
+            )
+
+
 
             # URLs + Vektoren extrahieren
             urls: List[str] = []
@@ -905,7 +966,20 @@ if run_clicked or st.session_state.ready:
             V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
 
             if shorter > 0:
-                st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
+            st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
+            with st.expander("Was bedeutet das ‘Padden’ der Embeddings?"):
+                st.markdown(
+                    "- Einige Embeddings sind kürzer als die Ziel-Dimension "
+                    f"(**{max_dim}**). Diese werden mit `0` aufgefüllt, damit alle "
+                    "Vektoren gleich lang sind.\n"
+                    "- Das ist rein technisch – es fügt **keine Information** hinzu.\n"
+                    "- Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, "
+                    "sofern alle Embeddings aus **demselben Modell/Space** stammen.\n"
+                    "- Wenn Embeddings aus **verschiedenen Modellen** stammen, sind "
+                    "Ähnlichkeitswerte nur bedingt vergleichbar. Empfehlung: "
+                    "alle Embeddings mit demselben Modell/Durchlauf erzeugen."
+                )
+
 
             related_df = build_related_auto(
                 urls=list(urls),
@@ -1135,6 +1209,7 @@ st.session_state["_norm_ranges"] = {
 # Analyse 1: Interne Verlinkungsmöglichkeiten
 # ===============================
 st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
+st.caption("Diese Analyse schlägt thematisch passende interne Verlinkungen vor, zeigt bestehende (Content-)Links und bewertet das Linkpotenzial der Linkgeber.")
 if not st.session_state.get("__gems_loading__", False):
 
     # Neue, ausführliche Spaltenlabels
@@ -1196,6 +1271,7 @@ if not st.session_state.get("__gems_loading__", False):
     # Analyse 2: Potenziell zu entfernende Links
     # ===============================
     st.markdown("## Analyse 2: Potenziell zu entfernende Links")
+    st.caption("Diese Analyse legt bestehende Links zwischen semantisch nicht stark verwandten URLs offen.")
     
     # 1) Similarity-Map aus Related (beidseitig)
     sim_map: Dict[Tuple[str, str], float] = {}
@@ -1341,7 +1417,8 @@ if not st.session_state.get("__gems_loading__", False):
 # Analyse 3: Gems & „Cheat-Sheet der internen Verlinkung“ (Similarity × PRIO, ohne Opportunity)
 # =========================================================
 st.markdown("---")
-st.subheader("Analyse 3 (optional): Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten")
+st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks")
+st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
 # >>> HIER EINFÜGEN: Loader-GIF für Analyse 3 <<<
 if st.session_state.get("__gems_loading__", False):
@@ -1464,22 +1541,50 @@ if gsc_df_loaded is not None and not gsc_df_loaded.empty:
     df = gsc_df_loaded.copy()
     df.columns = [str(c).strip() for c in df.columns]
 
-    # --- Spalten robust erkennen (Header-basiert, mit Fallback auf Positionen) ---
-    hdr = [str(c).strip().lower() for c in df.columns]
-
-    def _find_idx(candidates, default=None):
+    # --- GSC-Spaltenerkennung (robust) ---
+    hdr = [_norm_header(c) for c in df.columns]
+    
+    def _find_idx(candidates: set, default=None):
+        # Kandidaten ebenfalls normalisieren
+        cand_norm = {_norm_header(c) for c in candidates}
+    
+        # 1) Exakt (nach Normalisierung)
         for i, h in enumerate(hdr):
-            if h in candidates:
+            if h in cand_norm:
                 return i
+    
+        # 2) Fuzzy: Teilstring (z. B. "impression" matcht "search impressions total")
+        for i, h in enumerate(hdr):
+            if any(c in h for c in cand_norm):
+                return i
+    
         return default
-
-    url_idx  = _find_idx({"url", "page", "seite", "address", "adresse"}, 0)
-    impr_idx = _find_idx({"impressions", "impr", "search impressions", "impressions_total"}, 1)
-    click_idx = _find_idx({"clicks", "klicks"}, 2 if df.shape[1] >= 3 else None)
+    
+    url_idx  = _find_idx(
+        {"url", "page", "seite", "address", "adresse", "landingpage", "landing page"},
+        0
+    )
+    
+    impr_idx = _find_idx(
+        {"impressions", "impr", "search impressions", "impressions_total",
+         "impressionen", "impression", "suchimpressionen"},
+        1
+    )
+    
+    click_idx = _find_idx(
+        {"clicks", "klicks", "click", "klick"},
+        2 if df.shape[1] >= 3 else None
+    )
+    
     pos_idx   = _find_idx(
-        {"position", "avg position", "average position", "durchschnittliche position", "durchschn. position"},
+        {"position", "avg position", "average position",
+         "durchschnittliche position", "durchschn. position",
+         "durchschn. rankingposition", "durchschnittliche rankingposition",
+         "durchschnittliches ranking", "durchschn. ranking",
+         "ranking", "rankingposition"},
         3 if df.shape[1] >= 4 else None
     )
+
 
     # URLs normalisieren (nur für den Key), aber Anzeige bleibt Original via disp()
     df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
