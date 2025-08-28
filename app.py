@@ -1622,7 +1622,7 @@ col1, col2, col3, col4 = st.columns(4)
 # 1) Hidden Champions
 with col1:
     with bordered_container():
-        st.markdown("**Gewicht: Hidden Champions**")
+        st.markdown("Gewicht: **Hidden Champions**")
         w_lihd = st.slider(
             label="",
             min_value=0.0, max_value=1.0, value=0.30, step=0.05,
@@ -1633,7 +1633,7 @@ with col1:
 # 2) Semantische Linklücke
 with col2:
     with bordered_container():
-        st.markdown("**Gewicht: Semantische Linklücke**")
+        st.markdown("Gewicht: **Semantische Linklücke**")
         w_def  = st.slider(
             label="",
             min_value=0.0, max_value=1.0, value=0.30, step=0.05,
@@ -1643,7 +1643,7 @@ with col2:
 # 3) Sprungbrett-URLs
 with col3:
     with bordered_container():
-        st.markdown("**Gewicht: Sprungbrett-URLs**")
+        st.markdown("Gewicht: **Sprungbrett-URLs**")
         w_rank = st.slider(
             label="",
             min_value=0.0, max_value=1.0, value=0.30, step=0.05,
@@ -1661,7 +1661,7 @@ with col3:
 # 4) Mauerblümchen
 with col4:
     with bordered_container():
-        st.markdown("**Gewicht: Mauerblümchen**")
+        st.markdown("Gewicht: **Mauerblümchen**")
         w_orph = st.slider(
             label="",
             min_value=0.0, max_value=1.0, value=0.10, step=0.05,
