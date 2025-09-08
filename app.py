@@ -547,12 +547,12 @@ Alle drei Analysen zahlen direkt auf die **Optimierung deiner internen Verlinkun
 
 - **Option 2: Related URLs**  
   Tabelle mit mindestens drei Spalten:  
-  - **Ziel-URL**, **Quell-URL**, **Ähnlichkeitswert (0–1)** (z. B. aus Screaming Frog *Massenexport → Inhalt → Semantisch ähnlich*).
+  - **URL 1**, **URL 2**, **Ähnlichkeitswert (0–1)** (z. B. aus Screaming Frog *Massenexport → Inhalt → Semantisch ähnlich*).
 
 - Zusätzlich erforderlich:  
-  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**. Weitere Spalten sind nicht erforderlich. **Tipp**: Lösche alle Linktypen, die keine Hyperlinks sind und die anderen Spalten vor dem Upload heraus, um eine geringere Dateigröße zu erzielen.
-  - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Score**, **Inlinks**, **Outlinks**  
-  - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains**
+  - **All Inlinks** (CSV/Excel, aus Screaming Frog: *Massenexport → Links → Alle Inlinks*) — enthält mindestens folgende Spalten: **Quelle/Source**, **Ziel/Destination**, optional **Linkposition/Link Position**. Weitere Spalten sind nicht erforderlich. **Tipp**: Lösche alle Linktypen, die keine Hyperlinks sind und die anderen Spalten vor dem Upload heraus, um eine geringere Dateigröße zu erzielen.
+  - **Linkmetriken** (CSV/Excel) — **erste 4 Spalten** in dieser Reihenfolge: **URL**, **Link-Score**, **Inlinks**, **Outlinks**  - Für den Link Score bitte nach dem Crawl im Screaming Frog die Crawl Analyse durchführen
+  - **Backlinks** (CSV/Excel) — **erste 3 Spalten** in dieser Reihenfolge: **URL**, **Backlinks**, **Referring Domains** - z. B. aus ahrefs exportieren
 
 - **Optional (für Analyse 3): Search-Console-Daten**  
   Datei als **CSV/Excel** mit mindestens:  
