@@ -190,6 +190,11 @@ def is_content_position(position_raw) -> bool:
 # --- Anzeige-Originale merken/anzeigen ---
 _ORIG_MAP: Dict[str, str] = {}  # key: canonical -> original (bevorzugt mit Slash, falls verfügbar)
 
+# globales _ORIG_MAP raus
+
+if "_ORIG_MAP" not in st.session_state:
+    st.session_state["_ORIG_MAP"] = {}
+
 def remember_original(raw: str) -> str:
     """Merkt sich die original eingegebene URL-Form für die Anzeige, liefert den kanonischen Key zurück."""
     s = str(raw or "").strip()
@@ -198,18 +203,14 @@ def remember_original(raw: str) -> str:
     key = normalize_url(s)
     if not key:
         return ""
-    prev = _ORIG_MAP.get(key)
-    if prev is None:
-        _ORIG_MAP[key] = s
-    else:
-        # Bevorzuge eine Version MIT trailing slash in der Anzeige
-        if (not prev.endswith("/")) and s.endswith("/"):
-            _ORIG_MAP[key] = s
+    prev = st.session_state["_ORIG_MAP"].get(key)
+    if prev is None or (not prev.endswith("/") and s.endswith("/")):
+        st.session_state["_ORIG_MAP"][key] = s
     return key
 
 def disp(key_or_url: str) -> str:
     """Gibt die gemerkte Original-URL-Form zur Anzeige zurück (Fallback: Eingabe)."""
-    return _ORIG_MAP.get(str(key_or_url), str(key_or_url))
+    return st.session_state["_ORIG_MAP"].get(str(key_or_url), str(key_or_url))
 
 # --- Embedding parser helper (robust) ---
 def parse_vec(x) -> Optional[np.ndarray]:
@@ -952,14 +953,14 @@ if run_clicked or st.session_state.ready:
             # Dimensionalitäts-Check / -Harmonisierung
             dims = [v.size for v in vecs]
             max_dim = max(dims)
-            V = np.zeros((len(vecs), max_dim), dtype=float)
+            V = np.zeros((len(vecs), max_dim), dtype=np.float32)
             shorter = sum(1 for d in dims if d < max_dim)
             for i, v in enumerate(vecs):
                 d = min(max_dim, v.size)
                 V[i, :d] = v[:d]
 
             # L2-Norm
-            norms = np.linalg.norm(V, axis=1, keepdims=True)
+            norms = np.linalg.norm(V, axis=1, keepdims=True).astype(np.float32, copy=False)
             norms[norms == 0] = 1.0
             V = V / norms
             V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
@@ -1247,23 +1248,67 @@ if not st.session_state.get("__gems_loading__", False):
     res1_df = pd.DataFrame(rows_norm, columns=cols)
     st.session_state.res1_df = res1_df
     
-    # Anzeige-DF
-    res1_view_df = pd.DataFrame(rows_view, columns=cols)
-    sim_cols = [c for c in res1_view_df.columns if c.startswith("Ähnlichkeit ")]
-    for c in sim_cols:
-        res1_view_df[c] = pd.to_numeric(res1_view_df[c], errors="coerce")
+    # Anzeige-DF (neu: Long-Format mit fixem Spaltenschema)
+    long_rows = []
+    max_i = int(max_related)
     
-    # WICHTIG: Schweres Rendering pausieren, solange Analyse 3 lädt
-    if not st.session_state.get("__gems_loading__", False):
-        st.dataframe(res1_view_df, use_container_width=True, hide_index=True)
-        csv1 = res1_view_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "Download 'Interne Verlinkungsmöglichkeiten' (CSV)",
-            data=csv1,
-            file_name="interne_verlinkungsmoeglichkeiten.csv",
-            mime="text/csv",
-        )
+    for _, r in res1_df.iterrows():
+        ziel = r["Ziel-URL"]
+        for i in range(1, max_i + 1):
+            col_src = f"Related URL {i}"
+            col_sim = f"Ähnlichkeit {i}"
+            col_any = f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?"
+            col_con = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
+            col_pot = f"Linkpotenzial Related URL {i}"
     
+            if col_src not in res1_df.columns:
+                break  # falls weniger Spalten existieren als max_related
+    
+            src = r.get(col_src, "")
+            if not isinstance(src, str) or not src:
+                continue  # leere Slots überspringen
+    
+            sim = r.get(col_sim, np.nan)
+            anywhere = r.get(col_any, "nein")
+            from_content = r.get(col_con, "nein")
+            pot = r.get(col_pot, 0.0)
+    
+            long_rows.append([
+                disp(ziel),
+                disp(src),
+                round(float(sim), 3) if pd.notna(sim) else np.nan,
+                anywhere,
+                from_content,
+                float(pot),
+            ])
+    
+    res1_view_long = pd.DataFrame(long_rows, columns=[
+        "Ziel-URL",
+        "Related URL",
+        "Ähnlichkeit (Cosinus Ähnlichkeit)",
+        "Link von Related URL auf Ziel-URL vorhanden?",
+        "Link von Related URL auf Ziel-URL aus Inhalt heraus vorhanden?",
+        "Linkpotenzial",
+    ])
+    
+    # Optional: sortieren (erst Ziel-URL, dann absteigend nach Ähnlichkeit)
+    if not res1_view_long.empty:
+        res1_view_long = res1_view_long.sort_values(
+            by=["Ziel-URL", "Ähnlichkeit (Cosinus Ähnlichkeit)"],
+            ascending=[True, False],
+            kind="mergesort"  # stabile Sortierung
+        ).reset_index(drop=True)
+    
+    # Render & Download
+    st.dataframe(res1_view_long, use_container_width=True, hide_index=True)
+    csv1 = res1_view_long.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "Download 'Interne Verlinkungsmöglichkeiten (Long-Format)' (CSV)",
+        data=csv1,
+        file_name="interne_verlinkungsmoeglichkeiten_long.csv",
+        mime="text/csv",
+    )
+
     # ===============================
     # Analyse 2: Potenziell zu entfernende Links
     # ===============================
@@ -1988,7 +2033,7 @@ try:
                 sort_key = lambda r: (r[2], r[3])
             else:  # Mix
                 # falls du meinen vorherigen Tipp übernommen hast, heißt der Slider alpha_mix
-                mix_alpha = alpha_mix if 'alpha_mix' in locals() else alpha
+                mix_alpha = alpha_mix
                 sort_score = float(mix_alpha) * float(simf) + (1.0 - float(mix_alpha)) * float(prio_t)
                 sort_key = lambda r: (r[4], r[2], r[3])
 
