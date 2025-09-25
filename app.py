@@ -1307,7 +1307,9 @@ if not st.session_state.get("__gems_loading__", False):
         data=csv1,
         file_name="interne_verlinkungsmoeglichkeiten_long.csv",
         mime="text/csv",
+        key="dl_interne_verlinkung_long",
     )
+
 
     # ===============================
     # Analyse 2: Potenziell zu entfernende Links
@@ -1443,7 +1445,9 @@ if not st.session_state.get("__gems_loading__", False):
         data=csv2,
         file_name="potenziell_zu_entfernende_links.csv",
         mime="text/csv",
+        key="dl_remove_candidates",
     )
+
     
     # kleines Aufräumen am Ende des Runs
     if run_clicked:
@@ -1979,8 +1983,6 @@ if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
 # Empfehlungen pro Gem effizient bauen (Index statt O(G×N×R))
 # --------------------------
 try:
-    from collections import defaultdict
-
     # 1) Index: für jede SOURCE (Related URL) -> Liste (TARGET, SIM)
     related_by_source: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
     if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
@@ -2017,11 +2019,12 @@ try:
     gem_rows: List[List] = []
     N_TOP = int(max_targets_per_gem)
     TOTAL_CAP = 3000
+    
     for gem in gems:
         candidates = related_by_source.get(gem, [])
         if not candidates:
             continue
-
+    
         rows = []
         for target, simf in candidates:
             prio_t = float(target_priority_map.get(target, 0.0))
@@ -2032,83 +2035,83 @@ try:
                 sort_score = simf
                 sort_key = lambda r: (r[2], r[3])
             else:  # Mix
-                # falls du meinen vorherigen Tipp übernommen hast, heißt der Slider alpha_mix
                 mix_alpha = alpha_mix
                 sort_score = float(mix_alpha) * float(simf) + (1.0 - float(mix_alpha)) * float(prio_t)
                 sort_key = lambda r: (r[4], r[2], r[3])
-
+    
             rows.append([gem, target, float(simf), float(prio_t), float(sort_score)])
-
+    
         rows.sort(key=sort_key, reverse=True)
         gem_rows.extend(rows[:N_TOP])
         if len(gem_rows) >= TOTAL_CAP:
-            st.info(f"Ausgabe auf {TOTAL_CAP} Empfehlungen gekappt (Performance-Schutz). "
-                    f"Nutze Download, um alles zu erhalten.")
+            st.info(
+                f"Ausgabe auf {TOTAL_CAP} Empfehlungen gekappt (Performance-Schutz). "
+                f"Nutze Download, um alles zu erhalten."
+            )
             break
+    
+    # 3) Ausgabe (NEU: Long-Format wie Analyse 1)
+    if gem_rows:
+        def pot_for(g: str) -> float:
+            return float(st.session_state.get("_source_potential_map", {})
+                         .get(normalize_url(g), 0.0))
+    
+        # Long-Rows: eine Zeile pro (Gem, Ziel)
+        long_rows = []
+        for gem, target, simv, prio_t, sortv in gem_rows:
+            long_rows.append([
+                disp(gem),                  # Gem (Quell-URL) - Anzeigeform
+                round(pot_for(gem), 3),     # Linkpotenzial (Quell-URL)
+                disp(target),               # Ziel-URL - Anzeigeform
+                round(float(simv), 3),      # Similarity (inhaltliche Nähe)
+                round(float(prio_t), 3),    # Linkbedarf
+                round(float(sortv), 3),     # Score für Sortierung
+            ])
+    
+        cheat_long_df = pd.DataFrame(
+            long_rows,
+            columns=[
+                "Gem (Quell-URL)",
+                "Linkpotenzial (Quell-URL)",
+                "Ziel-URL",
+                "Similarity (inhaltliche Nähe)",
+                "Linkbedarf",
+                "Score für Sortierung",
+            ],
+        )
+    
+        if not cheat_long_df.empty:
+            cheat_long_df = cheat_long_df.sort_values(
+                by=["Gem (Quell-URL)", "Score für Sortierung", "Similarity (inhaltliche Nähe)"],
+                ascending=[True, False, False],
+                kind="mergesort",
+            ).reset_index(drop=True)
+    
+        st.dataframe(cheat_long_df, use_container_width=True, hide_index=True)
+    
+        csv_cheat_long = cheat_long_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "Download »Cheat-Sheet der internen Verlinkung (Long-Format)« (CSV)",
+            data=csv_cheat_long,
+            file_name="Cheat-Sheet_der_internen_Verlinkung_long.csv",
+            mime="text/csv",
+            key="cheat_sheet_long_download",  # eindeutiger Key
+        )
+    
+        # Flags & UI aufräumen
+        st.session_state["__gems_loading__"] = False
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3: ph3.empty()
+        st.success("✅ Analyse abgeschlossen!")
+        st.session_state["__ready_gems__"] = True
+    
+    else:
+        st.session_state["__gems_loading__"] = False
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3: ph3.empty()
+        st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
 
-        # 3) Ausgabe (NEU: Long-Format wie Analyse 1)
-        if gem_rows:
-            from collections import defaultdict
-    
-            def pot_for(g: str) -> float:
-                return float(st.session_state.get("_source_potential_map", {})
-                             .get(normalize_url(g), 0.0))
-    
-            # Long-Rows: eine Zeile pro (Gem, Ziel)
-            long_rows = []
-            for gem, target, simv, prio_t, sortv in gem_rows:
-                long_rows.append([
-                    disp(gem),                     # Gem (Quell-URL) - Anzeigeform
-                    round(pot_for(gem), 3),        # Linkpotenzial (Quell-URL)
-                    disp(target),                  # Ziel-URL - Anzeigeform
-                    round(float(simv), 3),         # Similarity (inhaltliche Nähe)
-                    round(float(prio_t), 3),       # Linkbedarf
-                    round(float(sortv), 3),        # Score für Sortierung
-                ])
-    
-            cheat_long_df = pd.DataFrame(
-                long_rows,
-                columns=[
-                    "Gem (Quell-URL)",
-                    "Linkpotenzial (Quell-URL)",
-                    "Ziel-URL",
-                    "Similarity (inhaltliche Nähe)",
-                    "Linkbedarf",
-                    "Score für Sortierung",
-                ],
-            )
-    
-            # Sortierung: zuerst nach Gem, dann nach "Score für Sortierung" absteigend,
-            # als sekundär nach Similarity absteigend (stabile Sortierung).
-            if not cheat_long_df.empty:
-                cheat_long_df = cheat_long_df.sort_values(
-                    by=["Gem (Quell-URL)", "Score für Sortierung", "Similarity (inhaltliche Nähe)"],
-                    ascending=[True, False, False],
-                    kind="mergesort",
-                ).reset_index(drop=True)
-    
-            st.dataframe(cheat_long_df, use_container_width=True, hide_index=True)
-    
-            csv_cheat_long = cheat_long_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "Download »Cheat-Sheet der internen Verlinkung (Long-Format)« (CSV)",
-                data=csv_cheat_long,
-                file_name="Cheat-Sheet_der_internen_Verlinkung_long.csv",
-                mime="text/csv",
-            )
-    
-            # Flags & UI aufräumen wie bisher
-            st.session_state["__gems_loading__"] = False
-            ph3 = st.session_state.get("__gems_ph__")
-            if ph3: ph3.empty()
-            st.success("✅ Analyse abgeschlossen!")
-            st.session_state["__ready_gems__"] = True
-    
-        else:
-            st.session_state["__gems_loading__"] = False
-            ph3 = st.session_state.get("__gems_ph__")
-            if ph3: ph3.empty()
-            st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
+
 
 
 except Exception as e:
