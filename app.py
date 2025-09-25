@@ -2046,56 +2046,70 @@ try:
                     f"Nutze Download, um alles zu erhalten.")
             break
 
-    # 3) Ausgabe
-    if gem_rows:
-        by_gem: Dict[str, List[Tuple[str, float, float, float]]] = defaultdict(list)
-        for gem, target, simv, prio_t, sortv in gem_rows:
-            by_gem[gem].append((target, float(simv), float(prio_t), float(sortv)))
+        # 3) Ausgabe (NEU: Long-Format wie Analyse 1)
+        if gem_rows:
+            from collections import defaultdict
+    
+            def pot_for(g: str) -> float:
+                return float(st.session_state.get("_source_potential_map", {})
+                             .get(normalize_url(g), 0.0))
+    
+            # Long-Rows: eine Zeile pro (Gem, Ziel)
+            long_rows = []
+            for gem, target, simv, prio_t, sortv in gem_rows:
+                long_rows.append([
+                    disp(gem),                     # Gem (Quell-URL) - Anzeigeform
+                    round(pot_for(gem), 3),        # Linkpotenzial (Quell-URL)
+                    disp(target),                  # Ziel-URL - Anzeigeform
+                    round(float(simv), 3),         # Similarity (inhaltliche Nähe)
+                    round(float(prio_t), 3),       # Linkbedarf
+                    round(float(sortv), 3),        # Score für Sortierung
+                ])
+    
+            cheat_long_df = pd.DataFrame(
+                long_rows,
+                columns=[
+                    "Gem (Quell-URL)",
+                    "Linkpotenzial (Quell-URL)",
+                    "Ziel-URL",
+                    "Similarity (inhaltliche Nähe)",
+                    "Linkbedarf",
+                    "Score für Sortierung",
+                ],
+            )
+    
+            # Sortierung: zuerst nach Gem, dann nach "Score für Sortierung" absteigend,
+            # als sekundär nach Similarity absteigend (stabile Sortierung).
+            if not cheat_long_df.empty:
+                cheat_long_df = cheat_long_df.sort_values(
+                    by=["Gem (Quell-URL)", "Score für Sortierung", "Similarity (inhaltliche Nähe)"],
+                    ascending=[True, False, False],
+                    kind="mergesort",
+                ).reset_index(drop=True)
+    
+            st.dataframe(cheat_long_df, use_container_width=True, hide_index=True)
+    
+            csv_cheat_long = cheat_long_df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "Download »Cheat-Sheet der internen Verlinkung (Long-Format)« (CSV)",
+                data=csv_cheat_long,
+                file_name="Cheat-Sheet_der_internen_Verlinkung_long.csv",
+                mime="text/csv",
+            )
+    
+            # Flags & UI aufräumen wie bisher
+            st.session_state["__gems_loading__"] = False
+            ph3 = st.session_state.get("__gems_ph__")
+            if ph3: ph3.empty()
+            st.success("✅ Analyse abgeschlossen!")
+            st.session_state["__ready_gems__"] = True
+    
+        else:
+            st.session_state["__gems_loading__"] = False
+            ph3 = st.session_state.get("__gems_ph__")
+            if ph3: ph3.empty()
+            st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
 
-        cols = ["Gem (Quelle)", "Linkpotenzial (Quelle)"]
-        for i in range(1, N_TOP + 1):
-            cols += [f"Ziel {i}", f"Similarity (inhaltliche Nähe) {i}",
-                     f"Linkbedarf PRIO {i}", f"Score für Sortierung {i}"]
-
-        def pot_for(g: str) -> float:
-            return float(st.session_state.get("_source_potential_map", {})
-                         .get(normalize_url(g), 0.0))
-
-        ordered_gems = sorted(by_gem.keys(), key=pot_for, reverse=True)
-        rows = []
-        for gem in ordered_gems:
-            items = by_gem[gem]
-            row = [disp(gem), round(pot_for(gem), 3)]
-            for i in range(N_TOP):
-                if i < len(items):
-                    target, simv, prio_t, sortv = items[i]
-                    row += [disp(target), round(simv, 3), round(prio_t, 3), round(sortv, 3)]
-                else:
-                    row += [np.nan, np.nan, np.nan, np.nan]
-            rows.append(row)
-
-        cheat_df = pd.DataFrame(rows, columns=cols)
-        st.dataframe(cheat_df, use_container_width=True, hide_index=True)
-
-        csv_cheat = cheat_df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "Download »Cheat-Sheet der internen Verlinkung« (CSV)",
-            data=csv_cheat,
-            file_name="Cheat-Sheet der internen Verlinkung.csv",
-            mime="text/csv",
-        )
-
-        st.session_state["__gems_loading__"] = False
-        ph3 = st.session_state.get("__gems_ph__")
-        if ph3: ph3.empty()
-        st.success("✅ Analyse abgeschlossen!")
-        st.session_state["__ready_gems__"] = True
-
-    else:
-        st.session_state["__gems_loading__"] = False
-        ph3 = st.session_state.get("__gems_ph__")
-        if ph3: ph3.empty()
-        st.caption("Keine Gem-Empfehlungen gefunden – prüfe GSC-Upload/Signale, Gem-Perzentil oder Similarity/PRIO-Gewichte.")
 
 except Exception as e:
     # Niemals mit aktivem Loader hängen bleiben
