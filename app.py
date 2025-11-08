@@ -1,4 +1,3 @@
-pip install sentence-transformers plotly
 import math
 from typing import Dict, List, Tuple, Optional, Iterable
 
