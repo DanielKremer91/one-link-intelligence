@@ -1196,505 +1196,561 @@ PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Spru
 # =========================================================
 # Analyse 4: Anchor & Query Intelligence (Embeddings)
 # =========================================================
-st.markdown("---")
-st.subheader("🔎 Analyse 4: Anchor & Query Intelligence (Embeddings)")
+if A4_NAME in selected_analyses:
 
-with st.sidebar:
-    st.markdown("### 🔎 Analyse 4: Optionen")
-    a4_enable = st.toggle("Analyse 4 aktivieren", value=False, help="Aktiviere die Anchor/Query-Checks & Reports.")
-    st.caption("— nur Problemfälle werden angezeigt & exportiert —")
+    st.markdown("---")
+    st.subheader("🔎 Analyse 4: Anchor & Query Intelligence (Embeddings)")
+    st.caption("Verknüpft Suchanfragen, Ankertexte und Zielseiten via Embeddings. Findet Over-Anchors, fehlende Query-Anchors, Leader-Konflikte und nicht verlinkte Ziel-Keywords.")
 
-if not a4_enable:
-    st.info("Aktiviere **Analyse 4** in der Sidebar, um die Anchor/Query-Checks auszuführen.")
-    st.stop()
+    # -----------------------------
+    # Uploads und Parameter (Hauptbereich)
+    # -----------------------------
+    st.markdown("#### Uploads")
+    gsc_up_a4 = st.file_uploader("Search Console: URL | Query | Clicks | Impressions", type=["csv","xlsx","xlsm","xls"], key="a4_gsc_up")
+    kwmap_up  = st.file_uploader("Keyword-Zielvorgaben: URL + Keyword-Spalten", type=["csv","xlsx","xlsm","xls"], key="a4_kwmap_up")
 
-# ---- Eingaben für Analyse 4 (Sidebar) ----
-with st.sidebar:
     st.markdown("#### Brand-Handling")
-    brand_text = st.text_area("Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="")
-    brand_file = st.file_uploader("Optional: Brand-Liste (CSV/Excel, 1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="brand_file")
+    col_b1, col_b2 = st.columns([2,1])
+    with col_b1:
+        brand_text = st.text_area("Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="")
+    with col_b2:
+        brand_file = st.file_uploader("Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file")
     auto_variants = st.checkbox("Automatisch Varianten erzeugen (z. B. „bora kochfeld“, „bora-kochfeld“)", value=True)
     head_nouns_text = st.text_input("Head-Nomen (kommagetrennt, editierbar)", value="kochfeld, kochfeldabzug, system, kochfelder")
     brand_mode = st.radio("Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"], index=0, horizontal=True)
 
     st.markdown("#### Matching")
-    metric_choice = st.radio("GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True)
-    check_exact = st.checkbox("Exact Match prüfen", value=True)
-    check_embed = st.checkbox("Embedding Match prüfen", value=True)
-    embed_model_name = st.selectbox("Embedding-Modell", ["sentence-transformers/all-MiniLM-L6-v2","sentence-transformers/all-MiniLM-L12-v2","sentence-transformers/all-mpnet-base-v2"], index=0, help="Standard: all-MiniLM-L6-v2")
-    embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01)
+    col_m1, col_m2, col_m3 = st.columns(3)
+    with col_m1:
+        metric_choice = st.radio("GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True)
+    with col_m2:
+        check_exact = st.checkbox("Exact Match prüfen", value=True)
+    with col_m3:
+        check_embed = st.checkbox("Embedding Match prüfen", value=True)
 
-    st.markdown("#### Schwellen")
-    min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10)
-    min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50)
-    topN_default = st.number_input("Top-N Queries pro URL (als zusätzliche Bedingung)", min_value=1, value=10, step=1)
-    top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10)
-    top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1)
+    col_e1, col_e2 = st.columns(2)
+    with col_e1:
+        embed_model_name = st.selectbox(
+            "Embedding-Modell",
+            ["sentence-transformers/all-MiniLM-L6-v2",
+             "sentence-transformers/all-MiniLM-L12-v2",
+             "sentence-transformers/all-mpnet-base-v2"],
+            index=0,
+            help="Standard: all-MiniLM-L6-v2"
+        )
+    with col_e2:
+        embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01)
 
-    st.markdown("#### Zusätzliche Uploads")
-    gsc_up_a4 = st.file_uploader("Search Console: URL | Query | Clicks | Impressions", type=["csv","xlsx","xlsm","xls"], key="gsc_a4")
-    kwmap_up  = st.file_uploader("Keyword-Zielvorgaben: URL + Keyword-Spalten", type=["csv","xlsx","xlsm","xls"], key="kwmap")
+    st.markdown("#### Schwellen & Filter")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10)
+    with col_s2:
+        min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50)
+    with col_s3:
+        topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1)
+
+    col_o1, col_o2 = st.columns(2)
+    with col_o1:
+        top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10)
+    with col_o2:
+        top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1)
+
+    st.markdown("#### Visualisierung")
     show_treemap = st.checkbox("Treemap-Visualisierung aktivieren", value=True)
     treemap_topK = st.number_input("Treemap: Top-K Anchors anzeigen", min_value=3, max_value=50, value=12, step=1)
 
-# ---- Helper: Brand-Liste bauen ----
-def split_list_text(s: str) -> List[str]:
-    if not s:
-        return []
-    arr = []
-    for line in s.replace(";", ",").splitlines():
-        for tok in line.split(","):
-            v = tok.strip()
-            if v:
-                arr.append(v)
-    return arr
+    st.divider()
 
-def read_single_col_file(up) -> List[str]:
-    if up is None:
-        return []
-    df = read_any_file_cached(getattr(up, "name", ""), up.getvalue())
-    if df is None or df.empty:
-        return []
-    col = df.columns[0]
-    vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
-    return vals
+    # ----------------------------------------
+    # Start-Button (manuelle Berechnung starten)
+    # ----------------------------------------
+    run_a4 = st.button("Let's Go (Analyse 4)", type="secondary", key="btn_a4")
+    if run_a4:
+        st.session_state["__a4_loading__"] = True
+        st.session_state["__ready_a4__"] = False
+        st.rerun()
 
-def make_brand_variants(brands: List[str], nouns: List[str], auto: bool) -> List[str]:
-    base = set()
-    for b in brands:
-        b = b.strip()
-        if not b:
-            continue
-        base.add(b)
-    if auto:
-        out = set(base)
-        for b in base:
-            for n in nouns:
-                n = n.strip()
-                if not n:
-                    continue
-                out.add(f"{b} {n}")
-                out.add(f"{b}-{n}")
-        return sorted(out)
-    return sorted(base)
-
-brand_list = split_list_text(brand_text)
-brand_list += read_single_col_file(brand_file)
-brand_list = sorted({b.strip() for b in brand_list if b.strip()})
-head_nouns = [x.strip() for x in head_nouns_text.split(",") if x.strip()]
-brand_all_terms = make_brand_variants(brand_list, head_nouns, auto_variants)
-
-def is_brand_query(q: str) -> bool:
-    s = (q or "").lower().strip()
-    if not s:
-        return False
-    tokens = [re.escape(t.lower()) for t in brand_all_terms]
-    if not tokens:
-        return False
-    pat = r"(?:^|[^a-z0-9äöüß])(" + "|".join(tokens) + r")(?:$|[^a-z0-9äöüß])"
-    return re.search(pat, s, flags=re.IGNORECASE) is not None
-
-def is_navigational(anchor: str) -> bool:
-    return (anchor or "").strip().lower() in NAVIGATIONAL_ANCHORS
-
-# ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
-def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    hdr = [str(c).strip() for c in df.columns]
-    a_idx = find_column_index(hdr, POSSIBLE_ANCHOR)
-    alt_i = find_column_index(hdr, POSSIBLE_ALT)
-    for row in df.itertuples(index=False, name=None):
-        src = remember_original(row[src_idx]); dst = remember_original(row[dst_idx])
-        if not dst:
-            continue
-        anchor_val = None
-        if a_idx != -1:
-            anchor_val = row[a_idx]
-        if (anchor_val is None or (str(anchor_val).strip() == "")) and alt_i != -1:
-            anchor_val = row[alt_i]
-        anchor = str(anchor_val or "").strip()
-        if not anchor:
-            continue
-        rows.append([normalize_url(dst), anchor])
-    if not rows:
-        return pd.DataFrame(columns=["target","anchor","count"])
-    tmp = pd.DataFrame(rows, columns=["target","anchor"])
-    agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
-    return agg
-
-# --- Indizes aus bereits geladenen A1/A2-Inputs übernehmen ---
-# Falls A1/A2 nicht liefen, brauchen wir die Spaltenindizes für All Inlinks neu:
-if "header" in locals():
-    pass  # bereits gesetzt
-else:
-    if 'inlinks_df' not in locals() or inlinks_df is None:
-        st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
-        st.stop()
-    header = [str(c).strip() for c in inlinks_df.columns]
-    src_idx = find_column_index(header, POSSIBLE_SOURCE)
-    dst_idx = find_column_index(header, POSSIBLE_TARGET)
-    if src_idx == -1 or dst_idx == -1:
-        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
-        st.stop()
-
-anchor_inv = extract_anchor_inventory(inlinks_df)
-
-# ---- Over-Anchor ≥ Schwellen (absolut / share) ----
-over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
-if not anchor_inv.empty:
-    totals = anchor_inv.groupby("target")["count"].sum().rename("total")
-    tmp = anchor_inv.merge(totals, on="target", how="left")
-    tmp["share"] = (100.0 * tmp["count"] / tmp["total"]).round(2)
-    filt = (tmp["count"] >= int(top_anchor_abs)) | (tmp["share"] >= float(top_anchor_share))
-    over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
-    over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
-
-# ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
-gsc_df = None
-if "gsc_df_cache_for_a4" not in st.session_state:
-    st.session_state["gsc_df_cache_for_a4"] = None
-if gsc_up_a4 is not None:
-    gsc_df = read_any_file_cached(getattr(gsc_up_a4, "name", ""), gsc_up_a4.getvalue())
-else:
-    gsc_df = st.session_state.get("__gsc_df_raw__", None)
-
-gsc_issues_df = pd.DataFrame(columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
-leader_conflicts_df = pd.DataFrame(columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
-
-if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
-    df = gsc_df.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    hdr = [_norm_header(c) for c in df.columns]
-    def _find_idx(candidates: Iterable[str], default=None):
-        cand_norm = {_norm_header(c) for c in candidates}
-        for i, h in enumerate(hdr):
-            if h in cand_norm: return i
-        for i, h in enumerate(hdr):
-            if any(c in h for c in cand_norm): return i
-        return default
-    url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
-    q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
-    c_i   = _find_idx({"clicks","klicks"}, None)
-    im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
-    if url_i is None or q_i is None or (c_i is None and im_i is None):
-        st.warning("GSC-Datei: Spalten URL + Query + (Clicks/Impressions) wurden nicht vollständig erkannt.")
-    else:
-        df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(normalize_url)
-        df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
-        if c_i is not None:
-            df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
-        if im_i is not None:
-            df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
-
-        # Brand-Filter
-        def brand_filter(row) -> bool:
-            q = str(row.iloc[q_i])
-            is_brand = is_brand_query(q)
-            if brand_mode == "Nur Non-Brand":
-                return (not is_brand)
-            elif brand_mode == "Nur Brand":
-                return is_brand
-            else:
-                return True
-
-        df = df[df.apply(brand_filter, axis=1)]
-        # Mindestschwellen
-        if c_i is not None:
-            df = df[df.iloc[:, c_i] >= int(min_clicks)] if metric_choice == "Clicks" else df
-        if im_i is not None:
-            df = df[df.iloc[:, im_i] >= int(min_impr)] if metric_choice == "Impressions" else df
-
-        # Top-20% je URL (mind. 1) und Top-N-Grenze
-        metric_col = c_i if metric_choice == "Clicks" else im_i
-        df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
-        top_rows = []
-        for u, grp in df.groupby(df.columns[url_i], sort=False):
-            n = max(1, int(math.ceil(0.2 * len(grp))))
-            n = max(1, min(n, int(topN_default)))
-            top_rows.append(grp.head(n))
-        df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
-
-        # Anchor-Inventar als Multiset: target -> {anchor: count}
-        inv_map: Dict[str, Dict[str, int]] = {}
-        for _, r in anchor_inv.iterrows():
-            inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
-
-        # Embedding-Vorbereitung
-        model = None
-        if check_embed:
-            try:
-                from sentence_transformers import SentenceTransformer
-                if "_A4_EMB_MODEL_NAME" not in st.session_state or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name:
-                    st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
-                    st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
-                model = st.session_state["_A4_EMB_MODEL"]
-            except Exception as e:
-                st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
-                check_embed = False
-
-        def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-            A = A.astype(np.float32, copy=False)
-            B = B.astype(np.float32, copy=False)
-            A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
-            B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
-            return A @ B.T
-
-        # Cache Anchor-Embeddings je target
-        anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
-        if check_embed and model is not None:
-            for target, sub in anchor_inv.groupby("target"):
-                anchors = sub["anchor"].astype(str).tolist()
-                if anchors:
-                    try:
-                        emb = model.encode(anchors, batch_size=64, show_progress_bar=False)
-                        anchor_emb_cache[target] = (anchors, np.asarray(emb))
-                    except Exception:
-                        anchor_emb_cache[target] = (anchors, None)
-                else:
-                    anchor_emb_cache[target] = ([], None)
-
-        # 1) Coverage der Top-Queries als Anchors
-        issues_rows = []
-        for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
-            inv = inv_map.get(u, {})
-            a_names = list(inv.keys())
-            a_names_lower = [a.lower() for a in a_names]
-            a_emb = None
-            if check_embed and model is not None and (u in anchor_emb_cache):
-                a_names, a_emb = anchor_emb_cache.get(u, (a_names, None))
-
-            for _, rr in grp.iterrows():
-                q = str(rr.iloc[q_i]).strip()
-                if not q:
-                    continue
-                found = False
-                found_cnt = 0
-                match_type = []
-                # Exact
-                if check_exact:
-                    cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
-                    if cnt > 0:
-                        found = True
-                        found_cnt = max(found_cnt, cnt)
-                        match_type.append("Exact")
-                # Embedding
-                if (not found or check_embed) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
-                    try:
-                        q_emb = model.encode([q], show_progress_bar=False)
-                        S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
-                        idxs = np.where(S >= float(embed_thresh))[0]
-                        if idxs.size > 0:
-                            found = True
-                            cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
-                            found_cnt = max(found_cnt, cnt)
-                            match_type.append("Embedding")
-                    except Exception:
-                        pass
-                if not found:
-                    issues_rows.append([disp(u), q, "+".join(match_type) if match_type else "—", "nein", 0, "Top-Query kommt nicht als Anchor vor"])
-        if issues_rows:
-            gsc_issues_df = pd.DataFrame(issues_rows, columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
-
-        # 2) Leader-Konflikte
-        if metric_choice == "Clicks" and c_i is not None:
-            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, c_i].idxmax(), df.columns[url_i]])
-            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, c_i].max()))
-        else:
-            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, im_i].idxmax(), df.columns[url_i]])
-            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, im_i].max()))
-        leader_map = {q: normalize_url(u) for q, u in lead_ser.to_dict().items() if isinstance(u, str)}
-        leader_val_map = {q: float(v) for q, v in lead_val.to_dict().items()}
-
-        leader_rows = []
-        if check_exact or check_embed:
-            # Precompute Query-Embeddings einmal
-            q_emb_cache: Dict[str, np.ndarray] = {}
-            if check_embed and model is not None:
+    # Loader-Anzeige (wenn Analyse 4 läuft)
+    if st.session_state.get("__a4_loading__", False):
+        ph4 = st.session_state.get("__a4_ph__")
+        if ph4 is None:
+            ph4 = st.empty()
+            st.session_state["__a4_ph__"] = ph4
+        with ph4.container():
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c2:
                 try:
-                    all_qs = list(leader_map.keys())
-                    if all_qs:
-                        E = model.encode(all_qs, batch_size=64, show_progress_bar=False)
-                        for q, e in zip(all_qs, E):
-                            q_emb_cache[q] = np.asarray(e)
+                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExczFvdm16cHZsd3J2NGZ2eDVvOWE1b3k2OXJpajZodDliamxjdzVybCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/WS6C15O7L8Oqk/giphy.gif", width=280)
                 except Exception:
-                    pass
+                    st.write("⏳")
+                st.caption("Analyse 4 läuft … gleich geht’s los!")
 
-            for q, lead_u in leader_map.items():
-                # Kandidaten-Ziele mit passenden Anchors
-                exact_targets = set()
-                if check_exact:
-                    sub = anchor_inv[anchor_inv["anchor"].str.lower() == q.lower()]
-                    exact_targets.update(normalize_url(t) for t in sub["target"].tolist())
+    # -------------------------------------------------
+    # Ab hier: komplette A4-Auswertung (ohne Sidebar)
+    # -------------------------------------------------
 
-                embed_targets = set()
-                if check_embed and model is not None and q in q_emb_cache:
-                    qv = q_emb_cache[q][None, :]
-                    for tgt, (a_names, a_emb) in anchor_emb_cache.items():
-                        if a_emb is None or len(a_names) == 0:
-                            continue
-                        S = cosine_sim_matrix(qv, a_emb)[0]
-                        if (S >= float(embed_thresh)).any():
-                            embed_targets.add(tgt)
+    # ---- Helper: Brand-Liste bauen ----
+    def split_list_text(s: str) -> List[str]:
+        if not s:
+            return []
+        arr = []
+        for line in s.replace(";", ",").splitlines():
+            for tok in line.split(","):
+                v = tok.strip()
+                if v:
+                    arr.append(v)
+        return arr
 
-                for tgt in exact_targets.union(embed_targets):
-                    if not lead_u or not tgt or tgt == lead_u:
+    def read_single_col_file(up) -> List[str]:
+        if up is None:
+            return []
+        df = read_any_file_cached(getattr(up, "name", ""), up.getvalue())
+        if df is None or df.empty:
+            return []
+        col = df.columns[0]
+        vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
+        return vals
+
+    def make_brand_variants(brands: List[str], nouns: List[str], auto: bool) -> List[str]:
+        base = set()
+        for b in brands:
+            b = b.strip()
+            if not b:
+                continue
+            base.add(b)
+        if auto:
+            out = set(base)
+            for b in base:
+                for n in nouns:
+                    n = n.strip()
+                    if not n:
                         continue
-                    # navigative-only Ausschluss
-                    anchors_for_tgt = anchor_inv[anchor_inv["target"] == tgt]["anchor"].astype(str).tolist()
-                    nav_only = True
-                    if check_exact and (q.lower() in [a.lower() for a in anchors_for_tgt]):
-                        if not all(is_navigational(a) for a in anchors_for_tgt if a.lower() == q.lower()):
-                            nav_only = False
-                    if check_embed and model is not None and q in q_emb_cache:
+                    out.add(f"{b} {n}")
+                    out.add(f"{b}-{n}")
+            return sorted(out)
+        return sorted(base)
+
+    brand_list = split_list_text(brand_text)
+    brand_list += read_single_col_file(brand_file)
+    brand_list = sorted({b.strip() for b in brand_list if b.strip()})
+    head_nouns = [x.strip() for x in head_nouns_text.split(",") if x.strip()]
+    brand_all_terms = make_brand_variants(brand_list, head_nouns, auto_variants)
+
+    def is_brand_query(q: str) -> bool:
+        s = (q or "").lower().strip()
+        if not s:
+            return False
+        tokens = [re.escape(t.lower()) for t in brand_all_terms]
+        if not tokens:
+            return False
+        pat = r"(?:^|[^a-z0-9äöüß])(" + "|".join(tokens) + r")(?:$|[^a-z0-9äöüß])"
+        return re.search(pat, s, flags=re.IGNORECASE) is not None
+
+    # Navigative/generische Anchors ausschließen (für Konflikte)
+    def is_navigational(anchor: str) -> bool:
+        return (anchor or "").strip().lower() in NAVIGATIONAL_ANCHORS
+
+    # ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
+    def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
+        rows = []
+        hdr = [str(c).strip() for c in df.columns]
+        a_idx = find_column_index(hdr, POSSIBLE_ANCHOR)
+        alt_i = find_column_index(hdr, POSSIBLE_ALT)
+        for row in df.itertuples(index=False, name=None):
+            src = remember_original(row[src_idx]); dst = remember_original(row[dst_idx])
+            if not dst:
+                continue
+            anchor_val = None
+            if a_idx != -1:
+                anchor_val = row[a_idx]
+            if (anchor_val is None or (str(anchor_val).strip() == "")) and alt_i != -1:
+                anchor_val = row[alt_i]
+            anchor = str(anchor_val or "").strip()
+            if not anchor:
+                continue
+            rows.append([normalize_url(dst), anchor])
+        if not rows:
+            return pd.DataFrame(columns=["target","anchor","count"])
+        tmp = pd.DataFrame(rows, columns=["target","anchor"])
+        agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
+        return agg
+
+    # --- Indizes aus bereits geladenen A1/A2-Inputs übernehmen ---
+    # Falls A1/A2 nicht liefen, brauchen wir die Spaltenindizes für All Inlinks neu:
+    if "header" in locals():
+        pass  # bereits gesetzt
+    else:
+        if 'inlinks_df' not in locals() or inlinks_df is None:
+            st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
+            st.stop()
+        header = [str(c).strip() for c in inlinks_df.columns]
+        src_idx = find_column_index(header, POSSIBLE_SOURCE)
+        dst_idx = find_column_index(header, POSSIBLE_TARGET)
+        if src_idx == -1 or dst_idx == -1:
+            st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
+            st.stop()
+
+    anchor_inv = extract_anchor_inventory(inlinks_df)
+
+    # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
+    over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
+    if not anchor_inv.empty:
+        totals = anchor_inv.groupby("target")["count"].sum().rename("total")
+        tmp = anchor_inv.merge(totals, on="target", how="left")
+        tmp["share"] = (100.0 * tmp["count"] / tmp["total"]).round(2)
+        filt = (tmp["count"] >= int(top_anchor_abs)) | (tmp["share"] >= float(top_anchor_share))
+        over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
+        over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
+
+    # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
+    gsc_df = None
+    if "gsc_df_cache_for_a4" not in st.session_state:
+        st.session_state["gsc_df_cache_for_a4"] = None
+    if gsc_up_a4 is not None:
+        gsc_df = read_any_file_cached(getattr(gsc_up_a4, "name", ""), gsc_up_a4.getvalue())
+    else:
+        gsc_df = st.session_state.get("__gsc_df_raw__", None)
+
+    gsc_issues_df = pd.DataFrame(columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
+    leader_conflicts_df = pd.DataFrame(columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
+
+    if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
+        df = gsc_df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
+        hdr = [_norm_header(c) for c in df.columns]
+        def _find_idx(candidates: Iterable[str], default=None):
+            cand_norm = {_norm_header(c) for c in candidates}
+            for i, h in enumerate(hdr):
+                if h in cand_norm: return i
+            for i, h in enumerate(hdr):
+                if any(c in h for c in cand_norm): return i
+            return default
+        url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
+        q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
+        c_i   = _find_idx({"clicks","klicks"}, None)
+        im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
+        if url_i is None or q_i is None or (c_i is None and im_i is None):
+            st.warning("GSC-Datei: Spalten URL + Query + (Clicks/Impressions) wurden nicht vollständig erkannt.")
+        else:
+            df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(normalize_url)
+            df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
+            if c_i is not None:
+                df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
+            if im_i is not None:
+                df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
+
+            # Brand-Filter
+            def brand_filter(row) -> bool:
+                q = str(row.iloc[q_i])
+                is_brand = is_brand_query(q)
+                if brand_mode == "Nur Non-Brand":
+                    return (not is_brand)
+                elif brand_mode == "Nur Brand":
+                    return is_brand
+                else:
+                    return True
+
+            df = df[df.apply(brand_filter, axis=1)]
+            # Mindestschwellen
+            if c_i is not None and metric_choice == "Clicks":
+                df = df[df.iloc[:, c_i] >= int(min_clicks)]
+            if im_i is not None and metric_choice == "Impressions":
+                df = df[df.iloc[:, im_i] >= int(min_impr)]
+
+            # Top-20% je URL (mind. 1) und Top-N-Grenze
+            metric_col = c_i if metric_choice == "Clicks" else im_i
+            df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
+            top_rows = []
+            for u, grp in df.groupby(df.columns[url_i], sort=False):
+                n = max(1, int(math.ceil(0.2 * len(grp))))
+                n = max(1, min(n, int(topN_default)))
+                top_rows.append(grp.head(n))
+            df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
+
+            # Anchor-Inventar als Multiset: target -> {anchor: count}
+            inv_map: Dict[str, Dict[str, int]] = {}
+            for _, r in anchor_inv.iterrows():
+                inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
+
+            # Embedding-Vorbereitung
+            model = None
+            if check_embed:
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    if "_A4_EMB_MODEL_NAME" not in st.session_state or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name:
+                        st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
+                        st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
+                    model = st.session_state["_A4_EMB_MODEL"]
+                except Exception as e:
+                    st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
+                    check_embed = False
+
+            def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+                A = A.astype(np.float32, copy=False)
+                B = B.astype(np.float32, copy=False)
+                A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
+                B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
+                return A @ B.T
+
+            # Cache Anchor-Embeddings je target
+            anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
+            if check_embed and model is not None:
+                for target, sub in anchor_inv.groupby("target"):
+                    anchors = sub["anchor"].astype(str).tolist()
+                    if anchors:
                         try:
-                            for a in anchors_for_tgt:
-                                a_emb = model.encode([a], show_progress_bar=False)
-                                s = float(cosine_sim_matrix(q_emb_cache[q][None, :], np.asarray(a_emb))[0,0])
-                                if s >= float(embed_thresh) and not is_navigational(a):
-                                    nav_only = False
-                                    break
+                            emb = model.encode(anchors, batch_size=64, show_progress_bar=False)
+                            anchor_emb_cache[target] = (anchors, np.asarray(emb))
+                        except Exception:
+                            anchor_emb_cache[target] = (anchors, None)
+                    else:
+                        anchor_emb_cache[target] = ([], None)
+
+            # 1) Coverage der Top-Queries als Anchors
+            issues_rows = []
+            for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
+                inv = inv_map.get(u, {})
+                a_names = list(inv.keys())
+                a_emb = None
+                if check_embed and model is not None and (u in anchor_emb_cache):
+                    a_names, a_emb = anchor_emb_cache.get(u, (a_names, None))
+
+                for _, rr in grp.iterrows():
+                    q = str(rr.iloc[q_i]).strip()
+                    if not q:
+                        continue
+                    found = False
+                    found_cnt = 0
+                    match_type = []
+                    # Exact
+                    if check_exact:
+                        cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
+                        if cnt > 0:
+                            found = True
+                            found_cnt = max(found_cnt, cnt)
+                            match_type.append("Exact")
+                    # Embedding
+                    if (not found or check_embed) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
+                        try:
+                            q_emb = model.encode([q], show_progress_bar=False)
+                            S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
+                            idxs = np.where(S >= float(embed_thresh))[0]
+                            if idxs.size > 0:
+                                found = True
+                                cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
+                                found_cnt = max(found_cnt, cnt)
+                                match_type.append("Embedding")
                         except Exception:
                             pass
-                    if not nav_only:
-                        leader_rows.append([q, disp(tgt), disp(lead_u), int(leader_val_map.get(q, 0)), "Anchor navigativ? (ausgeschlossen): nein"])
+                    if not found:
+                        issues_rows.append([disp(u), q, "+".join(match_type) if match_type else "—", "nein", 0, "Top-Query kommt nicht als Anchor vor"])
+            if issues_rows:
+                gsc_issues_df = pd.DataFrame(issues_rows, columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
 
-        if leader_rows:
-            leader_conflicts_df = pd.DataFrame(leader_rows, columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
+            # 2) Leader-Konflikte
+            if metric_choice == "Clicks" and c_i is not None:
+                lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, c_i].idxmax(), df.columns[url_i]])
+                lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, c_i].max()))
+            else:
+                lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, im_i].idxmax(), df.columns[url_i]])
+                lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, im_i].max()))
+            leader_map = {q: normalize_url(u) for q, u in lead_ser.to_dict().items() if isinstance(u, str)}
+            leader_val_map = {q: float(v) for q, v in lead_val.to_dict().items()}
 
-# ---- Keyword-Zielvorgaben prüfen (Exact &/oder Embedding) ----
-kw_missing_df = pd.DataFrame(columns=["Ziel-URL","Keyword","Hinweis","Match-Typ"])
-if kwmap_up is not None:
-    kw_df = read_any_file_cached(getattr(kwmap_up, "name", ""), kwmap_up.getvalue())
-    if isinstance(kw_df, pd.DataFrame) and not kw_df.empty:
-        dff = kw_df.copy()
-        dff.columns = [str(c).strip() for c in dff.columns]
-        url_i = find_column_index(dff.columns.tolist(), ["url","urls","page","seite","address","adresse","ziel url","ziel-url"])
-        if url_i == -1:
-            url_i = 0
-        kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i and re.search(r"(keyword|suchanfrage|suchbegriff|query)", _norm_header(c))]
-        if not kw_cols:
-            kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i]
-
-        model_kw = None
-        if check_embed:
-            model_kw = st.session_state.get("_A4_EMB_MODEL", None)
-
-        for _, r in dff.iterrows():
-            url = remember_original(r.iloc[url_i])
-            if not url:
-                continue
-            inv = anchor_inv[anchor_inv["target"] == normalize_url(url)]
-            inv_map_u = {str(a): int(c) for a, c in zip(inv["anchor"].astype(str), inv["count"].astype(int))}
-            a_names_u = list(inv_map_u.keys())
-            a_emb_u = None
-            if check_embed and model_kw is not None and len(a_names_u) > 0:
-                try:
-                    a_emb_u = model_kw.encode(a_names_u, batch_size=64, show_progress_bar=False)
-                    a_emb_u = np.asarray(a_emb_u)
-                except Exception:
-                    a_emb_u = None
-            for col in kw_cols:
-                kw = str(r[col]).strip()
-                if not kw:
-                    continue
-                found = False
-                match_t = []
-                if check_exact and any(kw.lower() == a.lower() for a in a_names_u):
-                    found = True; match_t.append("Exact")
-                if (not found or check_embed) and check_embed and a_emb_u is not None and model_kw is not None:
+            leader_rows = []
+            if check_exact or check_embed:
+                # Precompute Query-Embeddings einmal
+                q_emb_cache: Dict[str, np.ndarray] = {}
+                if check_embed and model is not None:
                     try:
-                        q_emb = model_kw.encode([kw], show_progress_bar=False)
-                        S = cosine_sim_matrix(np.asarray(q_emb), a_emb_u)[0]
-                        if (S >= float(embed_thresh)).any():
-                            found = True; match_t.append("Embedding")
+                        all_qs = list(leader_map.keys())
+                        if all_qs:
+                            E = model.encode(all_qs, batch_size=64, show_progress_bar=False)
+                            for q, e in zip(all_qs, E):
+                                q_emb_cache[q] = np.asarray(e)
                     except Exception:
                         pass
-                if not found:
-                    kw_missing_df.loc[len(kw_missing_df)] = [disp(url), kw, "Ziel-Keyword nicht als Anchor verlinkt", "+".join(match_t) if match_t else "—"]
 
-# ---- Treemap-Visualisierung (optional) ----
-try:
-    import plotly.express as px  # falls oben fehlte
-    _HAS_PLOTLY = True
-except Exception:
-    pass
+                for q, lead_u in leader_map.items():
+                    # Kandidaten-Ziele mit passenden Anchors
+                    exact_targets = set()
+                    if check_exact:
+                        sub = anchor_inv[anchor_inv["anchor"].str.lower() == q.lower()]
+                        exact_targets.update(normalize_url(t) for t in sub["target"].tolist())
 
-if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
-    st.markdown("### Treemap: Ankerverteilung pro Ziel-URL")
-    targets_sorted = sorted(anchor_inv["target"].unique())
-    sel = st.selectbox("Ziel-URL wählen", [disp(t) for t in targets_sorted], index=0)
-    t_norm = None
-    for k, v in st.session_state["_ORIG_MAP"].items():
-        if v == sel:
-            t_norm = k; break
-    if t_norm is None:
-        t_norm = normalize_url(sel)
-    sub = anchor_inv[anchor_inv["target"] == t_norm].sort_values("count", ascending=False)
-    if not sub.empty:
-        top = sub.head(int(treemap_topK)).copy()
-        rest_sum = int(sub["count"].iloc[int(treemap_topK):].sum()) if len(sub) > treemap_topK else 0
-        if rest_sum > 0:
-            top.loc[len(top)] = [t_norm, "— Sonstige —", rest_sum]
-        fig = px.treemap(top, path=["anchor"], values="count", title=f"Anchor-Verteilung: {sel}")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("Keine Anchors für die gewählte URL gefunden.")
+                    embed_targets = set()
+                    if check_embed and model is not None and q in q_emb_cache:
+                        qv = q_emb_cache[q][None, :]
+                        for tgt, (a_names, a_emb) in anchor_emb_cache.items():
+                            if a_emb is None or len(a_names) == 0:
+                                continue
+                            S = cosine_sim_matrix(qv, a_emb)[0]
+                            if (S >= float(embed_thresh)).any():
+                                embed_targets.add(tgt)
 
-# ---- Ergebnisse anzeigen (nur Problemfälle) & Download bündeln ----
-st.markdown("### Ergebnisse (nur Problemfälle)")
-cols = st.columns(3)
-with cols[0]:
-    st.markdown("**Over-Anchor (≥ Schwelle / Share ≥ Schwelle)**")
-    if over_anchor_df.empty:
-        st.caption("Keine Problemfälle.")
-    else:
-        st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
-with cols[1]:
-    st.markdown("**GSC-Top-Queries → nicht als Anchor**")
-    if gsc_issues_df.empty:
-        st.caption("Keine Problemfälle oder keine GSC-Daten.")
-    else:
-        st.dataframe(gsc_issues_df, use_container_width=True, hide_index=True)
-with cols[2]:
-    st.markdown("**Leader-Konflikte**")
-    if leader_conflicts_df.empty:
-        st.caption("Keine Konflikte.")
-    else:
-        st.dataframe(leader_conflicts_df, use_container_width=True, hide_index=True)
+                    for tgt in exact_targets.union(embed_targets):
+                        if not lead_u or not tgt or tgt == lead_u:
+                            continue
+                        # navigative-only Ausschluss
+                        anchors_for_tgt = anchor_inv[anchor_inv["target"] == tgt]["anchor"].astype(str).tolist()
+                        nav_only = True
+                        if check_exact and (q.lower() in [a.lower() for a in anchors_for_tgt]):
+                            if not all(is_navigational(a) for a in anchors_for_tgt if a.lower() == q.lower()):
+                                nav_only = False
+                        if check_embed and model is not None and q in q_emb_cache:
+                            try:
+                                for a in anchors_for_tgt:
+                                    a_emb = model.encode([a], show_progress_bar=False)
+                                    s = float(cosine_sim_matrix(q_emb_cache[q][None, :], np.asarray(a_emb))[0,0])
+                                    if s >= float(embed_thresh) and not is_navigational(a):
+                                        nav_only = False
+                                        break
+                            except Exception:
+                                pass
+                        if not nav_only:
+                            leader_rows.append([q, disp(tgt), disp(lead_u), int(leader_val_map.get(q, 0)), "Anchor navigativ? (ausgeschlossen): nein"])
 
-st.markdown("**Fehlende Ziel-Keywords (URL-Mapping)**")
-if kw_missing_df.empty:
-    st.caption("Keine fehlenden Ziel-Keywords oder keine Mapping-Datei.")
-else:
-    st.dataframe(kw_missing_df, use_container_width=True, hide_index=True)
+            if leader_rows:
+                leader_conflicts_df = pd.DataFrame(leader_rows, columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
 
-# Download als XLSX (mit ZIP-Fallback)
-def export_excel_or_zip(dfs: Dict[str, pd.DataFrame]) -> Tuple[bytes, str, str]:
+    # ---- Keyword-Zielvorgaben prüfen (Exact &/oder Embedding) ----
+    kw_missing_df = pd.DataFrame(columns=["Ziel-URL","Keyword","Hinweis","Match-Typ"])
+    if kwmap_up is not None:
+        kw_df = read_any_file_cached(getattr(kwmap_up, "name", ""), kwmap_up.getvalue())
+        if isinstance(kw_df, pd.DataFrame) and not kw_df.empty:
+            dff = kw_df.copy()
+            dff.columns = [str(c).strip() for c in dff.columns]
+            url_i = find_column_index(dff.columns.tolist(), ["url","urls","page","seite","address","adresse","ziel url","ziel-url"])
+            if url_i == -1:
+                url_i = 0
+            kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i and re.search(r"(keyword|suchanfrage|suchbegriff|query)", _norm_header(c))]
+            if not kw_cols:
+                kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i]
+
+            model_kw = None
+            if check_embed:
+                model_kw = st.session_state.get("_A4_EMB_MODEL", None)
+
+            for _, r in dff.iterrows():
+                url = remember_original(r.iloc[url_i])
+                if not url:
+                    continue
+                inv = anchor_inv[anchor_inv["target"] == normalize_url(url)]
+                inv_map_u = {str(a): int(c) for a, c in zip(inv["anchor"].astype(str), inv["count"].astype(int))}
+                a_names_u = list(inv_map_u.keys())
+                a_emb_u = None
+                if check_embed and model_kw is not None and len(a_names_u) > 0:
+                    try:
+                        a_emb_u = model_kw.encode(a_names_u, batch_size=64, show_progress_bar=False)
+                        a_emb_u = np.asarray(a_emb_u)
+                    except Exception:
+                        a_emb_u = None
+                for col in kw_cols:
+                    kw = str(r[col]).strip()
+                    if not kw:
+                        continue
+                    found = False
+                    match_t = []
+                    if check_exact and any(kw.lower() == a.lower() for a in a_names_u):
+                        found = True; match_t.append("Exact")
+                    if (not found or check_embed) and check_embed and a_emb_u is not None and model_kw is not None:
+                        try:
+                            q_emb = model_kw.encode([kw], show_progress_bar=False)
+                            S = (q_emb / (np.linalg.norm(q_emb, axis=1, keepdims=True)+1e-12)) @ (a_emb_u / (np.linalg.norm(a_emb_u, axis=1, keepdims=True)+1e-12)).T
+                            S = np.asarray(S)[0]
+                            if (S >= float(embed_thresh)).any():
+                                found = True; match_t.append("Embedding")
+                        except Exception:
+                            pass
+                    if not found:
+                        kw_missing_df.loc[len(kw_missing_df)] = [disp(url), kw, "Ziel-Keyword nicht als Anchor verlinkt", "+".join(match_t) if match_t else "—"]
+
+    # ---- Treemap-Visualisierung (optional) ----
     try:
-        bio = io.BytesIO()
-        with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
-            for name, df in dfs.items():
-                df_use = df.copy()
-                if df_use.empty:
-                    df_use = df_use.reindex(columns=["—"])
-                df_use.to_excel(xw, index=False, sheet_name=name[:31])
-        bio.seek(0)
-        return bio.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "analyse4_anchor_query_intelligence.xlsx"
+        import plotly.express as px  # falls oben fehlte
+        _HAS_PLOTLY = True
     except Exception:
         pass
-    zbio = io.BytesIO()
-    with zipfile.ZipFile(zbio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for name, df in dfs.items():
-            csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-            zf.writestr(f"{name}.csv", csv_bytes)
-    zbio.seek(0)
-    return zbio.getvalue(), "application/zip", "analyse4_anchor_query_intelligence.zip"
 
-export_tabs = {
-    "over_anchor_200+": over_anchor_df,
-    "gsc_top_queries_missing_anchor": gsc_issues_df,
-    "leader_conflicts": leader_conflicts_df,
-    "target_keywords_missing": kw_missing_df,
-}
-data_bytes, mime, fname = export_excel_or_zip(export_tabs)
-st.download_button("Download Analyse 4 (XLSX/ZIP)", data=data_bytes, file_name=fname, mime=mime)
+    if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
+        st.markdown("### Treemap: Ankerverteilung pro Ziel-URL")
+        targets_sorted = sorted(anchor_inv["target"].unique())
+        sel = st.selectbox("Ziel-URL wählen", [disp(t) for t in targets_sorted], index=0)
+        t_norm = None
+        for k, v in st.session_state["_ORIG_MAP"].items():
+            if v == sel:
+                t_norm = k; break
+        if t_norm is None:
+            t_norm = normalize_url(sel)
+        sub = anchor_inv[anchor_inv["target"] == t_norm].sort_values("count", ascending=False)
+        if not sub.empty:
+            top = sub.head(int(treemap_topK)).copy()
+            rest_sum = int(sub["count"].iloc[int(treemap_topK):].sum()) if len(sub) > treemap_topK else 0
+            if rest_sum > 0:
+                top.loc[len(top)] = [t_norm, "— Sonstige —", rest_sum]
+            fig = px.treemap(top, path=["anchor"], values="count", title=f"Anchor-Verteilung: {sel}")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("Keine Anchors für die gewählte URL gefunden.")
+
+    # ---- Ergebnisse anzeigen (nur Problemfälle) & Download bündeln ----
+    st.markdown("### Ergebnisse (nur Problemfälle)")
+    cols = st.columns(3)
+    with cols[0]:
+        st.markdown("**Over-Anchor (≥ Schwelle / Share ≥ Schwelle)**")
+        if over_anchor_df.empty:
+            st.caption("Keine Problemfälle.")
+        else:
+            st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
+    with cols[1]:
+        st.markdown("**GSC-Top-Queries → nicht als Anchor**")
+        if gsc_issues_df.empty:
+            st.caption("Keine Problemfälle oder keine GSC-Daten.")
+        else:
+            st.dataframe(gsc_issues_df, use_container_width=True, hide_index=True)
+    with cols[2]:
+        st.markdown("**Leader-Konflikte**")
+        if leader_conflicts_df.empty:
+            st.caption("Keine Konflikte.")
+        else:
+            st.dataframe(leader_conflicts_df, use_container_width=True, hide_index=True)
+
+    st.markdown("**Fehlende Ziel-Keywords (URL-Mapping)**")
+    if kw_missing_df.empty:
+        st.caption("Keine fehlenden Ziel-Keywords oder keine Mapping-Datei.")
+    else:
+        st.dataframe(kw_missing_df, use_container_width=True, hide_index=True)
+
+    # Download als XLSX (mit ZIP-Fallback)
+    def export_excel_or_zip(dfs: Dict[str, pd.DataFrame]) -> Tuple[bytes, str, str]:
+        try:
+            bio = io.BytesIO()
+            with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
+                for name, df in dfs.items():
+                    df_use = df.copy()
+                    if df_use.empty:
+                        df_use = df_use.reindex(columns=["—"])
+                    df_use.to_excel(xw, index=False, sheet_name=name[:31])
+            bio.seek(0)
+            return bio.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "analyse4_anchor_query_intelligence.xlsx"
+        except Exception:
+            pass
+        zbio = io.BytesIO()
+        with zipfile.ZipFile(zbio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name, df in dfs.items():
+                csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+                zf.writestr(f"{name}.csv", csv_bytes)
+        zbio.seek(0)
+        return zbio.getvalue(), "application/zip", "analyse4_anchor_query_intelligence.zip"
+
+    export_tabs = {
+        "over_anchor_200+": over_anchor_df,
+        "gsc_top_queries_missing_anchor": gsc_issues_df,
+        "leader_conflicts": leader_conflicts_df,
+        "target_keywords_missing": kw_missing_df,
+    }
+    data_bytes, mime, fname = export_excel_or_zip(export_tabs)
+    st.download_button("Download Analyse 4 (XLSX/ZIP)", data=data_bytes, file_name=fname, mime=mime)
+
+    # Ende Analyse 4
