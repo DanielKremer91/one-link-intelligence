@@ -495,56 +495,147 @@ div.stDownloadButton > button:hover, div.stDownloadButton > a:hover {
 st.markdown(CSS_ACTION_BUTTONS, unsafe_allow_html=True)
 st.markdown("<style>div[data-testid='stContainer'] > div:has(> .stSlider) { padding-bottom: .25rem; }</style>", unsafe_allow_html=True)
 
-# ===============================
-# Data ingestion
-# ===============================
-st.markdown("---")
-st.subheader("Daten laden")
+# =====================================================================
+# NEU: Analyse-Auswahl im Hauptbereich + Zentrales Upload-Center
+# =====================================================================
+A1_NAME = "Interne Verlinkungsmöglichkeiten finden"
+A2_NAME = "Unpassende interne Links entfernen"
+A3_NAME = "SEO-Potenziallinks finden"
+A4_NAME = "Ankertexte analysieren"
 
-mode = st.radio(
-    "Eingabemodus",
-    ["URLs + Embeddings", "Related URLs"],
-    horizontal=True,
-    help="Entweder Embeddings hochladen (App berechnet 'Related URLs') oder bereits vorliegende 'Related URLs' nutzen.",
+st.markdown("---")
+st.header("Welche Analysen möchtest du durchführen?")
+selected_analyses = st.multiselect(
+    "Mehrfachauswahl möglich",
+    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME],
+    default=[],
 )
 
-related_df = inlinks_df = metrics_df = backlinks_df = None
-emb_df = None
+# Benötigte Inputs je Analyse
+needs_embeddings_or_related = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
+needs_inlinks               = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A4_NAME])
+needs_metrics               = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
+needs_backlinks             = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
+needs_gsc                   = any(a in selected_analyses for a in [A3_NAME])  # optional
 
-if mode == "URLs + Embeddings":
-    st.write("Lade **URL + Embedding** sowie **All Inlinks**, **Linkmetriken**, **Backlinks**.")
-    up_emb = st.file_uploader("URLs + Embeddings (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="embs")
-    col1, col2 = st.columns(2)
-    with col1:
-        inlinks_up = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="inl2")
-        metrics_up = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="met2")
-    with col2:
-        backlinks_up = st.file_uploader("Backlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="bl2")
-    emb_df       = read_any_file_cached(getattr(up_emb,       "name", ""), up_emb.getvalue())         if up_emb       else None
-    inlinks_df   = read_any_file_cached(getattr(inlinks_up,   "name", ""), inlinks_up.getvalue())     if inlinks_up   else None
-    metrics_df   = read_any_file_cached(getattr(metrics_up,   "name", ""), metrics_up.getvalue())     if metrics_up   else None
-    backlinks_df = read_any_file_cached(getattr(backlinks_up, "name", ""), backlinks_up.getvalue())   if backlinks_up else None
+# Eingabemodus nur zeigen, wenn 1/2/3 aktiv
+mode = "Related URLs"
+if needs_embeddings_or_related:
+    st.subheader("Eingabemodus (für Analysen 1–3)")
+    mode = st.radio(
+        "Bitte wählen:",
+        ["URLs + Embeddings", "Related URLs"],
+        horizontal=True,
+        help="Bei Embeddings berechnet das Tool die 'Related URLs' selbst. Oder fertige 'Related URLs' hochladen.",
+    )
 
-elif mode == "Related URLs":
-    st.write("Lade **Related URLs**, **All Inlinks**, **Linkmetriken**, **Backlinks**.")
-    col1, col2 = st.columns(2)
-    with col1:
-        related_up = st.file_uploader("Related URLs (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="rel")
-        metrics_up = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="met")
-    with col2:
-        inlinks_up = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="inl")
-        backlinks_up = st.file_uploader("Backlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="bl")
-    related_df   = read_any_file_cached(getattr(related_up,  "name", ""), related_up.getvalue())    if related_up  else None
-    inlinks_df   = read_any_file_cached(getattr(inlinks_up,  "name", ""), inlinks_up.getvalue())    if inlinks_up  else None
-    metrics_df   = read_any_file_cached(getattr(metrics_up,  "name", ""), metrics_up.getvalue())    if metrics_up  else None
-    backlinks_df = read_any_file_cached(getattr(backlinks_up,"name", ""), backlinks_up.getvalue())  if backlinks_up else None
+# Zentrales Upload-Center
+st.markdown("---")
+st.subheader("Benötigte Dateien hochladen")
 
-# Let's Go
-run_clicked = st.button("Let's Go", type="secondary")
-if not run_clicked and not st.session_state.ready:
-    st.info("Bitte Dateien hochladen und auf **Let's Go** klicken, um die Analysen zu starten.")
-    st.stop()
+emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
+gsc_df_loaded = None
 
+def _read_up(label: str, uploader, required: bool):
+    df = None
+    if uploader is not None:
+        try:
+            df = read_any_file_cached(getattr(uploader, "name", ""), uploader.getvalue())
+        except Exception as e:
+            st.error(f"Fehler beim Lesen von {getattr(uploader, 'name', 'Datei')}: {e}")
+    if required and df is None:
+        st.info(f"Bitte lade die Datei für **{label}**.")
+    return df
+
+col_left, col_right = st.columns(2)
+
+# A) Embeddings oder Related
+if needs_embeddings_or_related:
+    if mode == "URLs + Embeddings":
+        up_emb = st.file_uploader(
+            "URLs + Embeddings (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_emb_global",
+            help="Mindestens: URL + Embedding-Spalte (JSON-Array ODER Zahlen, getrennt durch Komma/Whitespace/; / |).",
+        )
+        emb_df = _read_up("URLs + Embeddings", up_emb, required=True)
+    else:
+        up_related = st.file_uploader(
+            "Related URLs (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_related_global",
+            help="Genau 3 Spalten: Ziel-URL, Quell-URL, Similarity (0–1).",
+        )
+        related_df = _read_up("Related URLs", up_related, required=True)
+
+# B) All Inlinks
+if needs_inlinks:
+    with col_left:
+        up_inlinks = st.file_uploader(
+            "All Inlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_inlinks_global",
+            help="Screaming Frog → Massenexport → Links → Alle Inlinks. (Optional: Anchor Text-Spalte)",
+        )
+        inlinks_df = _read_up("All Inlinks", up_inlinks, required=True)
+
+# C) Linkmetriken
+if needs_metrics:
+    with col_right:
+        up_metrics = st.file_uploader(
+            "Linkmetriken (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_metrics_global",
+            help="Erste 4 Spalten: URL, Score (Interner Link Score), Inlinks, Outlinks.",
+        )
+        metrics_df = _read_up("Linkmetriken", up_metrics, required=True)
+
+# D) Backlinks
+if needs_backlinks:
+    with col_left:
+        up_backlinks = st.file_uploader(
+            "Backlinks (CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_backlinks_global",
+            help="Erste 3 Spalten: URL, Backlinks, Referring Domains.",
+        )
+        backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
+
+# E) Search Console (optional für A3)
+if needs_gsc:
+    with col_right:
+        up_gsc = st.file_uploader(
+            "Search Console Daten (optional, CSV/Excel)",
+            type=["csv", "xlsx", "xlsm", "xls"],
+            key="up_gsc_global",
+            help="Mindestens: URL, Impressions · Optional: Clicks, Position.",
+        )
+        if up_gsc is not None:
+            gsc_df_loaded = _read_up("Search Console", up_gsc, required=False)
+
+# Getrennte Start-Buttons für A1 & A2
+st.markdown("---")
+start_cols = st.columns(3)
+run_clicked_a1 = run_clicked_a2 = False
+
+if A1_NAME in selected_analyses:
+    with start_cols[0]:
+        run_clicked_a1 = st.button("Let's Go (Analyse 1)", type="secondary", key="btn_a1")
+
+if A2_NAME in selected_analyses:
+    with start_cols[1]:
+        run_clicked_a2 = st.button("Let's Go (Analyse 2)", type="secondary", key="btn_a2")
+
+# Kompatibilität: gemeinsame Vorverarbeitung triggern, wenn einer der beiden startet
+run_clicked = bool(run_clicked_a1 or run_clicked_a2)
+
+# Merker für Sichtbarkeit
+if run_clicked_a1:
+    st.session_state["__show_a1__"] = True
+if run_clicked_a2:
+    st.session_state["__show_a2__"] = True
+
+# Spinner beim Start von A1/A2
 if run_clicked:
     placeholder = st.empty()
     with placeholder.container():
@@ -553,9 +644,18 @@ if run_clicked:
             st.image("https://media0.giphy.com/media/v1.Y2lkPTc5MGI3NjExNDJweGExcHhhOWZneTZwcnAxZ211OWJienY5cWQ1YmpwaHR0MzlydiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/dBRaPog8yxFWU/giphy.gif", width=280)
             st.caption("Die Berechnungen laufen – Zeit für eine kleine Stärkung …")
 
-# Validierung & ggf. Related aus Embeddings
-if run_clicked or st.session_state.ready:
-    if mode == "URLs + Embeddings":
+# Gate nur anwenden, wenn A1 oder A2 überhaupt gewählt wurden
+if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (not run_clicked) and (not st.session_state.get("ready", False)):
+    st.info("Bitte Dateien für die gewählten Analysen hochladen und auf **Let's Go** klicken.")
+    st.stop()
+
+# =====================================================================
+# Vorverarbeitung & Validierung NUR für A1/A2 (und ggf. Embeddings/Related)
+# =====================================================================
+if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_clicked or st.session_state.ready):
+
+    # Validierung & ggf. Related aus Embeddings bauen
+    if needs_embeddings_or_related and mode == "URLs + Embeddings":
         if emb_df is None or any(df is None for df in [inlinks_df, metrics_df, backlinks_df]):
             st.error("Bitte alle benötigten Dateien hochladen (Embeddings, All Inlinks, Linkmetriken, Backlinks).")
             st.stop()
@@ -633,367 +733,369 @@ if run_clicked or st.session_state.ready:
             except Exception:
                 pass
 
-# Prüfen, ob alles da ist
-have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
-if not have_all:
-    st.error("Bitte alle benötigten Tabellen bereitstellen.")
-    st.stop()
-
-# ===============================
-# Normalization maps / data prep
-# ===============================
-# Linkmetriken
-metrics_df = metrics_df.copy()
-metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
-m_header = [str(c).strip() for c in metrics_df.columns]
-m_url_idx   = find_column_index(m_header, ["url","urls","page","seite","address","adresse"])
-m_score_idx = find_column_index(m_header, ["score","interner link score","internal link score","ils","link score","linkscore"])
-m_in_idx    = find_column_index(m_header, ["inlinks","in links","interne inlinks","eingehende links","einzigartige inlinks","unique inlinks","inbound internal links"])
-m_out_idx   = find_column_index(m_header, ["outlinks","out links","ausgehende links","interne outlinks","unique outlinks","einzigartige outlinks","outbound links"])
-if -1 in (m_url_idx, m_score_idx, m_in_idx, m_out_idx):
-    if metrics_df.shape[1] >= 4:
-        if m_url_idx   == -1: m_url_idx   = 0
-        if m_score_idx == -1: m_score_idx = 1
-        if m_in_idx    == -1: m_in_idx    = 2
-        if m_out_idx   == -1: m_out_idx   = 3
-        st.warning("Linkmetriken: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–4).")
-    else:
-        st.error("'Linkmetriken' braucht mindestens 4 Spalten (URL, Score, Inlinks, Outlinks).")
+    # Prüfen, ob alles da ist (nur A1/A2 relevant)
+    have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
+    if not have_all:
+        st.error("Bitte alle benötigten Tabellen bereitstellen.")
         st.stop()
-metrics_df.iloc[:, m_url_idx] = metrics_df.iloc[:, m_url_idx].astype(str)
-metrics_map: Dict[str, Dict[str, float]] = {}
-for _, r in metrics_df.iterrows():
-    u = remember_original(r.iloc[m_url_idx])
-    if not u:
-        continue
-    score    = _num(r.iloc[m_score_idx])
-    inlinks  = _num(r.iloc[m_in_idx])
-    outlinks = _num(r.iloc[m_out_idx])
-    prdiff   = inlinks - outlinks
-    metrics_map[u] = {"score": score, "prDiff": prdiff}
-
-# Backlinks
-backlinks_df = backlinks_df.copy()
-backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
-b_header = [str(c).strip() for c in backlinks_df.columns]
-b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
-b_bl_idx  = find_column_index(b_header, ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"])
-b_rd_idx  = find_column_index(b_header, ["referring domains","ref domains","verweisende domains","anzahl referring domains","anzahl verweisende domains","domains","rd"])
-if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
-    if backlinks_df.shape[1] >= 3:
-        if b_url_idx == -1: b_url_idx = 0
-        if b_bl_idx  == -1: b_bl_idx  = 1
-        if b_rd_idx  == -1: b_rd_idx  = 2
-        st.warning("Backlinks: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
-    else:
-        st.error("'Backlinks' braucht mindestens 3 Spalten (URL, Backlinks, Referring Domains).")
-        st.stop()
-backlink_map: Dict[str, Dict[str, float]] = {}
-for _, r in backlinks_df.iterrows():
-    u = remember_original(r.iloc[b_url_idx])
-    if not u:
-        continue
-    bl = _num(r.iloc[b_bl_idx])
-    rd = _num(r.iloc[b_rd_idx])
-    backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
-
-# Ranges
-ils_vals = [m["score"] for m in metrics_map.values()]
-prd_vals = [m["prDiff"] for m in metrics_map.values()]
-bl_vals  = [b["backlinks"] for b in backlink_map.values()]
-rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
-min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
-min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
-min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
-min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
-bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
-rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
-lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
-lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
-
-# Inlinks lesen (Quelle/Ziel/Position)
-inlinks_df = inlinks_df.copy()
-header = [str(c).strip() for c in inlinks_df.columns]
-src_idx = find_column_index(header, POSSIBLE_SOURCE)
-dst_idx = find_column_index(header, POSSIBLE_TARGET)
-pos_idx = find_column_index(header, POSSIBLE_POSITION)
-if src_idx == -1 or dst_idx == -1:
-    st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
-    st.stop()
-
-# Anchor/ALT Spalten (für Analyse 4)
-anchor_idx = find_column_index(header, POSSIBLE_ANCHOR)
-alt_idx    = find_column_index(header, POSSIBLE_ALT)
-
-all_links: set[Tuple[str, str]] = set()
-content_links: set[Tuple[str, str]] = set()
-for row in inlinks_df.itertuples(index=False, name=None):
-    source = remember_original(row[src_idx])
-    target = remember_original(row[dst_idx])
-    if not source or not target:
-        continue
-    key = (source, target)
-    all_links.add(key)
-    if pos_idx != -1 and is_content_position(row[pos_idx]):
-        content_links.add(key)
-st.session_state["_all_links"] = all_links
-st.session_state["_content_links"] = content_links
-
-# Related map (beidseitig, thresholded)
-related_df = related_df.copy()
-if related_df.shape[1] < 3:
-    st.error("'Related URLs' braucht mindestens 3 Spalten.")
-    st.stop()
-rel_header = [str(c).strip() for c in related_df.columns]
-rel_dst_idx = find_column_index(rel_header, POSSIBLE_TARGET)
-rel_src_idx = find_column_index(rel_header, POSSIBLE_SOURCE)
-rel_sim_idx = find_column_index(rel_header, ["similarity","similarität","ähnlichkeit","cosine","cosine similarity","semantische ähnlichkeit","sim"])
-if -1 in (rel_dst_idx, rel_src_idx, rel_sim_idx):
-    if related_df.shape[1] >= 3:
-        if rel_dst_idx == -1: rel_dst_idx = 0
-        if rel_src_idx == -1: rel_src_idx = 1
-        if rel_sim_idx == -1: rel_sim_idx = 2
-        st.warning("Related URLs: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
-    else:
-        st.error("'Related URLs' braucht mindestens 3 Spalten (Ziel, Quelle, Similarity).")
-        st.stop()
-
-related_map: Dict[str, List[Tuple[str, float]]] = {}
-processed_pairs = set()
-for _, r in related_df.iterrows():
-    urlA = remember_original(r.iloc[rel_dst_idx])   # Ziel
-    urlB = remember_original(r.iloc[rel_src_idx])   # Quelle
-    try:
-        sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
-    except Exception:
-        sim = np.nan
-    if not urlA or not urlB or np.isnan(sim):
-        continue
-    if sim < sim_threshold:
-        continue
-    pair_key = "↔".join(sorted([urlA, urlB]))
-    if pair_key in processed_pairs:
-        continue
-    related_map.setdefault(urlA, []).append((urlB, sim))
-    related_map.setdefault(urlB, []).append((urlA, sim))
-    processed_pairs.add(pair_key)
-
-# Linkpotenzial (Quelle)
-source_potential_map: Dict[str, float] = {}
-for u, m in metrics_map.items():
-    ils_raw = _num(m.get("score"))
-    pr_raw  = _num(m.get("prDiff"))
-    bl      = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-    bl_raw  = _num(bl.get("backlinks"))
-    rd_raw  = _num(bl.get("referringDomains"))
-    norm_ils = robust_norm(ils_raw, min_ils, max_ils)
-    norm_pr  = robust_norm(pr_raw,  min_prd, max_prd)
-    norm_bl  = robust_norm(bl_raw,  min_bl,  max_bl)
-    norm_rd  = robust_norm(rd_raw,  min_rd,  max_rd)
-    final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
-    source_potential_map[u] = round(final_score, 4)
-
-st.session_state["_source_potential_map"] = source_potential_map
-st.session_state["_metrics_map"] = metrics_map
-st.session_state["_backlink_map"] = backlink_map
-st.session_state["_norm_ranges"] = {
-    "ils": (min_ils, max_ils),
-    "prd": (min_prd, max_prd),
-    "bl":  (min_bl,  max_bl),
-    "rd":  (min_rd,  max_rd),
-    "bl_log": (lo_bl_log, hi_bl_log),
-    "rd_log": (lo_rd_log, hi_rd_log),
-}
-
-# ===============================
-# Analyse 1
-# ===============================
-st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
-st.caption("Diese Analyse schlägt thematisch passende interne Verlinkungen vor, zeigt bestehende (Content-)Links und bewertet das Linkpotenzial der Linkgeber.")
-if not st.session_state.get("__gems_loading__", False):
-    cols = ["Ziel-URL"]
-    for i in range(1, int(max_related) + 1):
-        cols += [
-            f"Related URL {i}",
-            f"Ähnlichkeit {i}",
-            f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
-            f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
-            f"Linkpotenzial Related URL {i}",
-        ]
-    rows_norm, rows_view = [], []
-    for target, related_list in sorted(related_map.items()):
-        related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
-        row_norm = [target]
-        row_view = [disp(target)]
-        for source, sim in related_sorted:
-            anywhere = "ja" if (source, target) in all_links else "nein"
-            from_content = "ja" if (source, target) in content_links else "nein"
-            final_score = source_potential_map.get(source, 0.0)
-            row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
-            row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
-        while len(row_norm) < len(cols):
-            row_norm.append(np.nan)
-        while len(row_view) < len(cols):
-            row_view.append(np.nan)
-        rows_norm.append(row_norm)
-        rows_view.append(row_view)
-    res1_df = pd.DataFrame(rows_norm, columns=cols)
-    st.session_state.res1_df = res1_df
-
-    long_rows = []
-    max_i = int(max_related)
-    for _, r in res1_df.iterrows():
-        ziel = r["Ziel-URL"]
-        for i in range(1, max_i + 1):
-            col_src = f"Related URL {i}"
-            col_sim = f"Ähnlichkeit {i}"
-            col_any = f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?"
-            col_con = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
-            col_pot = f"Linkpotenzial Related URL {i}"
-            if col_src not in res1_df.columns:
-                break
-            src = r.get(col_src, "")
-            if not isinstance(src, str) or not src:
-                continue
-            sim = r.get(col_sim, np.nan)
-            anywhere = r.get(col_any, "nein")
-            from_content = r.get(col_con, "nein")
-            pot = r.get(col_pot, 0.0)
-            long_rows.append([
-                disp(ziel),
-                disp(src),
-                round(float(sim), 3) if pd.notna(sim) else np.nan,
-                anywhere,
-                from_content,
-                float(pot),
-            ])
-    res1_view_long = pd.DataFrame(long_rows, columns=[
-        "Ziel-URL","Related URL","Ähnlichkeit (Cosinus Ähnlichkeit)",
-        "Link von Related URL auf Ziel-URL vorhanden?","Link von Related URL auf Ziel-URL aus Inhalt heraus vorhanden?","Linkpotenzial",
-    ])
-    if not res1_view_long.empty:
-        res1_view_long = res1_view_long.sort_values(
-            by=["Ziel-URL", "Ähnlichkeit (Cosinus Ähnlichkeit)"],
-            ascending=[True, False],
-            kind="mergesort"
-        ).reset_index(drop=True)
-    st.dataframe(res1_view_long, use_container_width=True, hide_index=True)
-    csv1 = res1_view_long.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Download 'Interne Verlinkungsmöglichkeiten (Long-Format)' (CSV)",
-        data=csv1, file_name="interne_verlinkungsmoeglichkeiten_long.csv", mime="text/csv", key="dl_interne_verlinkung_long",
-    )
 
     # ===============================
-    # Analyse 2
+    # Normalization maps / data prep
     # ===============================
-    st.markdown("## Analyse 2: Potenziell zu entfernende Links")
-    st.caption("Diese Analyse legt bestehende Links zwischen semantisch nicht stark verwandten URLs offen.")
-    # Similarity-Map
-    sim_map: Dict[Tuple[str, str], float] = {}
-    processed_pairs2 = set()
+    # Linkmetriken
+    metrics_df = metrics_df.copy()
+    metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
+    m_header = [str(c).strip() for c in metrics_df.columns]
+    m_url_idx   = find_column_index(m_header, ["url","urls","page","seite","address","adresse"])
+    m_score_idx = find_column_index(m_header, ["score","interner link score","internal link score","ils","link score","linkscore"])
+    m_in_idx    = find_column_index(m_header, ["inlinks","in links","interne inlinks","eingehende links","einzigartige inlinks","unique inlinks","inbound internal links"])
+    m_out_idx   = find_column_index(m_header, ["outlinks","out links","ausgehende links","interne outlinks","unique outlinks","einzigartige outlinks","outbound links"])
+    if -1 in (m_url_idx, m_score_idx, m_in_idx, m_out_idx):
+        if metrics_df.shape[1] >= 4:
+            if m_url_idx   == -1: m_url_idx   = 0
+            if m_score_idx == -1: m_score_idx = 1
+            if m_in_idx    == -1: m_in_idx    = 2
+            if m_out_idx   == -1: m_out_idx   = 3
+            st.warning("Linkmetriken: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–4).")
+        else:
+            st.error("'Linkmetriken' braucht mindestens 4 Spalten (URL, Score, Inlinks, Outlinks).")
+            st.stop()
+    metrics_df.iloc[:, m_url_idx] = metrics_df.iloc[:, m_url_idx].astype(str)
+    metrics_map: Dict[str, Dict[str, float]] = {}
+    for _, r in metrics_df.iterrows():
+        u = remember_original(r.iloc[m_url_idx])
+        if not u:
+            continue
+        score    = _num(r.iloc[m_score_idx])
+        inlinks  = _num(r.iloc[m_in_idx])
+        outlinks = _num(r.iloc[m_out_idx])
+        prdiff   = inlinks - outlinks
+        metrics_map[u] = {"score": score, "prDiff": prdiff}
+
+    # Backlinks
+    backlinks_df = backlinks_df.copy()
+    backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
+    b_header = [str(c).strip() for c in backlinks_df.columns]
+    b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
+    b_bl_idx  = find_column_index(b_header, ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"])
+    b_rd_idx  = find_column_index(b_header, ["referring domains","ref domains","verweisende domains","anzahl referring domains","anzahl verweisende domains","domains","rd"])
+    if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
+        if backlinks_df.shape[1] >= 3:
+            if b_url_idx == -1: b_url_idx = 0
+            if b_bl_idx  == -1: b_bl_idx  = 1
+            if b_rd_idx  == -1: b_rd_idx  = 2
+            st.warning("Backlinks: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
+        else:
+            st.error("'Backlinks' braucht mindestens 3 Spalten (URL, Backlinks, Referring Domains).")
+            st.stop()
+    backlink_map: Dict[str, Dict[str, float]] = {}
+    for _, r in backlinks_df.iterrows():
+        u = remember_original(r.iloc[b_url_idx])
+        if not u:
+            continue
+        bl = _num(r.iloc[b_bl_idx])
+        rd = _num(r.iloc[b_rd_idx])
+        backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
+
+    # Ranges
+    ils_vals = [m["score"] for m in metrics_map.values()]
+    prd_vals = [m["prDiff"] for m in metrics_map.values()]
+    bl_vals  = [b["backlinks"] for b in backlink_map.values()]
+    rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
+    min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
+    min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
+    min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
+    min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
+    bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
+    rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
+    lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
+    lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
+
+    # Inlinks lesen (Quelle/Ziel/Position)
+    inlinks_df = inlinks_df.copy()
+    header = [str(c).strip() for c in inlinks_df.columns]
+    src_idx = find_column_index(header, POSSIBLE_SOURCE)
+    dst_idx = find_column_index(header, POSSIBLE_TARGET)
+    pos_idx = find_column_index(header, POSSIBLE_POSITION)
+    if src_idx == -1 or dst_idx == -1:
+        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
+        st.stop()
+
+    # Anchor/ALT Spalten (für Analyse 4 – werden unten erneut verwendet)
+    anchor_idx = find_column_index(header, POSSIBLE_ANCHOR)
+    alt_idx    = find_column_index(header, POSSIBLE_ALT)
+
+    all_links: set[Tuple[str, str]] = set()
+    content_links: set[Tuple[str, str]] = set()
+    for row in inlinks_df.itertuples(index=False, name=None):
+        source = remember_original(row[src_idx])
+        target = remember_original(row[dst_idx])
+        if not source or not target:
+            continue
+        key = (source, target)
+        all_links.add(key)
+        if pos_idx != -1 and is_content_position(row[pos_idx]):
+            content_links.add(key)
+    st.session_state["_all_links"] = all_links
+    st.session_state["_content_links"] = content_links
+
+    # Related map (beidseitig, thresholded)
+    related_df = related_df.copy()
+    if related_df.shape[1] < 3:
+        st.error("'Related URLs' braucht mindestens 3 Spalten.")
+        st.stop()
+    rel_header = [str(c).strip() for c in related_df.columns]
+    rel_dst_idx = find_column_index(rel_header, POSSIBLE_TARGET)
+    rel_src_idx = find_column_index(rel_header, POSSIBLE_SOURCE)
+    rel_sim_idx = find_column_index(rel_header, ["similarity","similarität","ähnlichkeit","cosine","cosine similarity","semantische ähnlichkeit","sim"])
+    if -1 in (rel_dst_idx, rel_src_idx, rel_sim_idx):
+        if related_df.shape[1] >= 3:
+            if rel_dst_idx == -1: rel_dst_idx = 0
+            if rel_src_idx == -1: rel_src_idx = 1
+            if rel_sim_idx == -1: rel_sim_idx = 2
+            st.warning("Related URLs: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
+        else:
+            st.error("'Related URLs' braucht mindestens 3 Spalten (Ziel, Quelle, Similarity).")
+            st.stop()
+
+    related_map: Dict[str, List[Tuple[str, float]]] = {}
+    processed_pairs = set()
     for _, r in related_df.iterrows():
-        a = remember_original(r.iloc[rel_src_idx])
-        b = remember_original(r.iloc[rel_dst_idx])
+        urlA = remember_original(r.iloc[rel_dst_idx])   # Ziel
+        urlB = remember_original(r.iloc[rel_src_idx])   # Quelle
         try:
             sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
         except Exception:
+            sim = np.nan
+        if not urlA or not urlB or np.isnan(sim):
             continue
-        if not a or not b:
+        if sim < sim_threshold:
             continue
-        pair_key = "↔".join(sorted([a, b]))
-        if pair_key in processed_pairs2:
+        pair_key = "↔".join(sorted([urlA, urlB]))
+        if pair_key in processed_pairs:
             continue
-        sim_map[(a, b)] = sim
-        sim_map[(b, a)] = sim
-        processed_pairs2.add(pair_key)
+        related_map.setdefault(urlA, []).append((urlB, sim))
+        related_map.setdefault(urlB, []).append((urlA, sim))
+        processed_pairs.add(pair_key)
 
-    # fehlende Similarities aus Embeddings
-    _idx_map = st.session_state.get("_emb_index_by_url")
-    _Vmat    = st.session_state.get("_emb_matrix")
-    _has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
+    # Linkpotenzial (Quelle)
+    source_potential_map: Dict[str, float] = {}
+    for u, m in metrics_map.items():
+        ils_raw = _num(m.get("score"))
+        pr_raw  = _num(m.get("prDiff"))
+        bl      = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+        bl_raw  = _num(bl.get("backlinks"))
+        rd_raw  = _num(bl.get("referringDomains"))
+        norm_ils = robust_norm(ils_raw, min_ils, max_ils)
+        norm_pr  = robust_norm(pr_raw,  min_prd, max_prd)
+        norm_bl  = robust_norm(bl_raw,  min_bl,  max_bl)
+        norm_rd  = robust_norm(rd_raw,  min_rd,  max_rd)
+        final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
+        source_potential_map[u] = round(final_score, 4)
 
-    if _has_emb:
-        missing = [
-            (src, dst) for (src, dst) in all_links
-            if (src, dst) not in sim_map and (dst, src) not in sim_map
-            and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
-        ]
-        if missing:
-            I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
-            J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
-            Vf = _Vmat
-            sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)
-            for (src, dst), s in zip(missing, sims):
-                val = float(s)
-                sim_map[(src, dst)] = val
-                sim_map[(dst, src)] = val
+    st.session_state["_source_potential_map"] = source_potential_map
+    st.session_state["_metrics_map"] = metrics_map
+    st.session_state["_backlink_map"] = backlink_map
+    st.session_state["_norm_ranges"] = {
+        "ils": (min_ils, max_ils),
+        "prd": (min_prd, max_prd),
+        "bl":  (min_bl,  max_bl),
+        "rd":  (min_rd,  max_rd),
+        "bl_log": (lo_bl_log, hi_bl_log),
+        "rd_log": (lo_rd_log, hi_rd_log),
+    }
 
-    # Waster
-    raw_score_map: Dict[str, float] = {}
-    for _, r in metrics_df.iterrows():
-        u   = remember_original(r.iloc[m_url_idx])
-        inl = _num(r.iloc[m_in_idx])
-        outl= _num(r.iloc[m_out_idx])
-        raw_score_map[u] = outl - inl
+    # ===============================
+    # Analyse 1 – nur rendern, wenn Button gedrückt
+    # ===============================
+    if st.session_state.get("__show_a1__", False):
+        st.markdown("## Analyse 1: Interne Verlinkungsmöglichkeiten")
+        st.caption("Diese Analyse schlägt thematisch passende interne Verlinkungen vor, zeigt bestehende (Content-)Links und bewertet das Linkpotenzial der Linkgeber.")
+        if not st.session_state.get("__gems_loading__", False):
+            cols = ["Ziel-URL"]
+            for i in range(1, int(max_related) + 1):
+                cols += [
+                    f"Related URL {i}",
+                    f"Ähnlichkeit {i}",
+                    f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?",
+                    f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?",
+                    f"Linkpotenzial Related URL {i}",
+                ]
+            rows_norm, rows_view = [], []
+            for target, related_list in sorted(related_map.items()):
+                related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(max_related)]
+                row_norm = [target]
+                row_view = [disp(target)]
+                for source, sim in related_sorted:
+                    anywhere = "ja" if (source, target) in st.session_state["_all_links"] else "nein"
+                    from_content = "ja" if (source, target) in st.session_state["_content_links"] else "nein"
+                    final_score = source_potential_map.get(source, 0.0)
+                    row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
+                    row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
+                while len(row_norm) < len(cols):
+                    row_norm.append(np.nan)
+                while len(row_view) < len(cols):
+                    row_view.append(np.nan)
+                rows_norm.append(row_norm)
+                rows_view.append(row_view)
+            res1_df = pd.DataFrame(rows_norm, columns=cols)
+            st.session_state.res1_df = res1_df
 
-    adjusted_score_map: Dict[str, float] = {}
-    for u, raw in raw_score_map.items():
-        bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
-        impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
-        factor = 2.0 if backlink_weight_2x else 1.0
-        malus = 5.0 * factor if impact == 0 else 0.0
-        adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
+            long_rows = []
+            max_i = int(max_related)
+            for _, r in res1_df.iterrows():
+                ziel = r["Ziel-URL"]
+                for i in range(1, max_i + 1):
+                    col_src = f"Related URL {i}"
+                    col_sim = f"Ähnlichkeit {i}"
+                    col_any = f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?"
+                    col_con = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
+                    col_pot = f"Linkpotenzial Related URL {i}"
+                    if col_src not in res1_df.columns:
+                        break
+                    src = r.get(col_src, "")
+                    if not isinstance(src, str) or not src:
+                        continue
+                    sim = r.get(col_sim, np.nan)
+                    anywhere = r.get(col_any, "nein")
+                    from_content = r.get(col_con, "nein")
+                    pot = r.get(col_pot, 0.0)
+                    long_rows.append([
+                        disp(ziel),
+                        disp(src),
+                        round(float(sim), 3) if pd.notna(sim) else np.nan,
+                        anywhere,
+                        from_content,
+                        float(pot),
+                    ])
+            res1_view_long = pd.DataFrame(long_rows, columns=[
+                "Ziel-URL","Related URL","Ähnlichkeit (Cosinus Ähnlichkeit)",
+                "Link von Related URL auf Ziel-URL vorhanden?","Link von Related URL auf Ziel-URL aus Inhalt heraus vorhanden?","Linkpotenzial",
+            ])
+            if not res1_view_long.empty:
+                res1_view_long = res1_view_long.sort_values(
+                    by=["Ziel-URL", "Ähnlichkeit (Cosinus Ähnlichkeit)"],
+                    ascending=[True, False],
+                    kind="mergesort"
+                ).reset_index(drop=True)
+            st.dataframe(res1_view_long, use_container_width=True, hide_index=True)
+            csv1 = res1_view_long.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "Download 'Interne Verlinkungsmöglichkeiten (Long-Format)' (CSV)",
+                data=csv1, file_name="interne_verlinkungsmoeglichkeiten_long.csv", mime="text/csv", key="dl_interne_verlinkung_long",
+            )
 
-    w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
-    if w_vals.size == 0:
-        q70 = q90 = 0.0
-    else:
-        q70 = float(np.quantile(w_vals, 0.70))
-        q90 = float(np.quantile(w_vals, 0.90))
-
-    def waster_class_for(u: str) -> Tuple[str, float]:
-        score = float(adjusted_score_map.get(u, 0.0))
-        if score >= q90:
-            return "hoch", score
-        elif score >= q70:
-            return "mittel", score
-        else:
-            return "niedrig", score
-
-    out_rows = []
-    rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
-    out_header = [
-        "Quelle","Ziel","Waster-Klasse (Quelle)","Waster-Score (Quelle)","Semantische Ähnlichkeit",*rest_cols,
-    ]
-    for row in inlinks_df.itertuples(index=False, name=None):
-        quelle = remember_original(row[src_idx])
-        ziel   = remember_original(row[dst_idx])
-        if not quelle or not ziel:
-            continue
-        w_class, w_score = waster_class_for(normalize_url(quelle))
-        sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
-        if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
-            i = _idx_map.get(normalize_url(quelle)); j = _idx_map.get(normalize_url(ziel))
-            if i is not None and j is not None:
-                sim = float(np.dot(_Vmat[i], _Vmat[j]))
-        if isinstance(sim, (int, float)) and np.isfinite(sim):
-            sim_display = round(float(sim), 3)
-            if float(sim) > float(not_similar_threshold):
+    # ===============================
+    # Analyse 2 – nur rendern, wenn Button gedrückt
+    # ===============================
+    if st.session_state.get("__show_a2__", False):
+        st.markdown("## Analyse 2: Potenziell zu entfernende Links")
+        st.caption("Diese Analyse legt bestehende Links zwischen semantisch nicht stark verwandten URLs offen.")
+        # Similarity-Map
+        sim_map: Dict[Tuple[str, str], float] = {}
+        processed_pairs2 = set()
+        for _, r in related_df.iterrows():
+            a = remember_original(r.iloc[rel_src_idx])
+            b = remember_original(r.iloc[rel_dst_idx])
+            try:
+                sim = float(str(r.iloc[rel_sim_idx]).replace(",", "."))
+            except Exception:
                 continue
-        else:
-            sim_display = "Cosine Similarity nicht erfasst"
-        rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
-        out_rows.append([disp(quelle), disp(ziel), w_class, round(float(w_score), 3), sim_display, *rest])
+            if not a or not b:
+                continue
+            pair_key = "↔".join(sorted([a, b]))
+            if pair_key in processed_pairs2:
+                continue
+            sim_map[(a, b)] = sim
+            sim_map[(b, a)] = sim
+            processed_pairs2.add(pair_key)
 
-    out_df = pd.DataFrame(out_rows, columns=out_header)
-    st.session_state.out_df = out_df
-    st.dataframe(out_df, use_container_width=True, hide_index=True)
-    csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
-    st.download_button(
-        "Download 'Potenziell zu entfernende Links' (CSV)",
-        data=csv2, file_name="potenziell_zu_entfernende_links.csv", mime="text/csv", key="dl_remove_candidates",
-    )
+        # fehlende Similarities aus Embeddings
+        _idx_map = st.session_state.get("_emb_index_by_url")
+        _Vmat    = st.session_state.get("_emb_matrix")
+        _has_emb = isinstance(_idx_map, dict) and isinstance(_Vmat, np.ndarray)
+
+        if _has_emb:
+            missing = [
+                (src, dst) for (src, dst) in st.session_state["_all_links"]
+                if (src, dst) not in sim_map and (dst, src) not in sim_map
+                and (_idx_map.get(src) is not None) and (_idx_map.get(dst) is not None)
+            ]
+            if missing:
+                I = np.fromiter((_idx_map[src] for src, _ in missing), dtype=np.int32)
+                J = np.fromiter((_idx_map[dst] for _, dst in missing), dtype=np.int32)
+                Vf = _Vmat
+                sims = np.einsum('ij,ij->i', Vf[I], Vf[J]).astype(float)
+                for (src, dst), s in zip(missing, sims):
+                    val = float(s)
+                    sim_map[(src, dst)] = val
+                    sim_map[(dst, src)] = val
+
+        # Waster
+        raw_score_map: Dict[str, float] = {}
+        for _, r in metrics_df.iterrows():
+            u   = remember_original(r.iloc[m_url_idx])
+            inl = _num(r.iloc[m_in_idx])
+            outl= _num(r.iloc[m_out_idx])
+            raw_score_map[u] = outl - inl
+
+        adjusted_score_map: Dict[str, float] = {}
+        for u, raw in raw_score_map.items():
+            bl = backlink_map.get(u, {"backlinks": 0.0, "referringDomains": 0.0})
+            impact = 0.5 * _num(bl.get("backlinks")) + 0.5 * _num(bl.get("referringDomains"))
+            factor = 2.0 if backlink_weight_2x else 1.0
+            malus = 5.0 * factor if impact == 0 else 0.0
+            adjusted_score_map[u] = (raw or 0.0) - (factor * impact) + malus
+
+        w_vals = np.asarray([v for v in adjusted_score_map.values() if np.isfinite(v)], dtype=float)
+        if w_vals.size == 0:
+            q70 = q90 = 0.0
+        else:
+            q70 = float(np.quantile(w_vals, 0.70))
+            q90 = float(np.quantile(w_vals, 0.90))
+
+        def waster_class_for(u: str) -> Tuple[str, float]:
+            score = float(adjusted_score_map.get(u, 0.0))
+            if score >= q90:
+                return "hoch", score
+            elif score >= q70:
+                return "mittel", score
+            else:
+                return "niedrig", score
+
+        out_rows = []
+        rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
+        out_header = [
+            "Quelle","Ziel","Waster-Klasse (Quelle)","Waster-Score (Quelle)","Semantische Ähnlichkeit",*rest_cols,
+        ]
+        for row in inlinks_df.itertuples(index=False, name=None):
+            quelle = remember_original(row[src_idx])
+            ziel   = remember_original(row[dst_idx])
+            if not quelle or not ziel:
+                continue
+            w_class, w_score = waster_class_for(normalize_url(quelle))
+            sim = sim_map.get((quelle, ziel), sim_map.get((ziel, quelle), np.nan))
+            if not (isinstance(sim, (int, float)) and np.isfinite(sim)) and _has_emb:
+                i = _idx_map.get(normalize_url(quelle)); j = _idx_map.get(normalize_url(ziel))
+                if i is not None and j is not None:
+                    sim = float(np.dot(_Vmat[i], _Vmat[j]))
+            if isinstance(sim, (int, float)) and np.isfinite(sim):
+                sim_display = round(float(sim), 3)
+                if float(sim) > float(not_similar_threshold):
+                    continue
+            else:
+                sim_display = "Cosine Similarity nicht erfasst"
+            rest = [row[i] for i in range(len(header)) if i not in (src_idx, dst_idx)]
+            out_rows.append([disp(quelle), disp(ziel), w_class, round(float(w_score), 3), sim_display, *rest])
+
+        out_df = pd.DataFrame(out_rows, columns=out_header)
+        st.session_state.out_df = out_df
+        st.dataframe(out_df, use_container_width=True, hide_index=True)
+        csv2 = out_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "Download 'Potenziell zu entfernende Links' (CSV)",
+            data=csv2, file_name="potenziell_zu_entfernende_links.csv", mime="text/csv", key="dl_remove_candidates",
+        )
 
     if run_clicked:
         try:
@@ -1002,6 +1104,7 @@ if not st.session_state.get("__gems_loading__", False):
             pass
         st.success("✅ Berechnung abgeschlossen!")
         st.session_state.ready = True
+
 
 # =========================================================
 # Analyse 3 (unverändert inhaltlich, lediglich hier belassen)
@@ -1453,7 +1556,6 @@ def is_brand_query(q: str) -> bool:
     s = (q or "").lower().strip()
     if not s:
         return False
-    # Wortgrenzen grob
     tokens = [re.escape(t.lower()) for t in brand_all_terms]
     if not tokens:
         return False
@@ -1465,7 +1567,6 @@ def is_navigational(anchor: str) -> bool:
 
 # ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
 def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
-    # Ziel, Anchor, Count
     rows = []
     hdr = [str(c).strip() for c in df.columns]
     a_idx = find_column_index(hdr, POSSIBLE_ANCHOR)
@@ -1489,12 +1590,26 @@ def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
     agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
     return agg
 
+# --- Indizes aus bereits geladenen A1/A2-Inputs übernehmen ---
+# Falls A1/A2 nicht liefen, brauchen wir die Spaltenindizes für All Inlinks neu:
+if "header" in locals():
+    pass  # bereits gesetzt
+else:
+    if 'inlinks_df' not in locals() or inlinks_df is None:
+        st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
+        st.stop()
+    header = [str(c).strip() for c in inlinks_df.columns]
+    src_idx = find_column_index(header, POSSIBLE_SOURCE)
+    dst_idx = find_column_index(header, POSSIBLE_TARGET)
+    if src_idx == -1 or dst_idx == -1:
+        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
+        st.stop()
+
 anchor_inv = extract_anchor_inventory(inlinks_df)
 
-# ---- Over-Anchor ≥ 200 (alle Anchors ≥ Schwelle; TopAnchorShare optional)
+# ---- Over-Anchor ≥ Schwellen (absolut / share) ----
 over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
 if not anchor_inv.empty:
-    # Anteil je Ziel berechnen
     totals = anchor_inv.groupby("target")["count"].sum().rename("total")
     tmp = anchor_inv.merge(totals, on="target", how="left")
     tmp["share"] = (100.0 * tmp["count"] / tmp["total"]).round(2)
@@ -1502,14 +1617,13 @@ if not anchor_inv.empty:
     over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
     over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
 
-# ---- GSC laden & Top-20% je URL bestimmen (Non-Brand/Brand-Modus + Mindestschwellen + Top-N)
+# ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
 gsc_df = None
 if "gsc_df_cache_for_a4" not in st.session_state:
     st.session_state["gsc_df_cache_for_a4"] = None
 if gsc_up_a4 is not None:
     gsc_df = read_any_file_cached(getattr(gsc_up_a4, "name", ""), gsc_up_a4.getvalue())
 else:
-    # Wenn bereits für Analyse 3 geladen, verwenden
     gsc_df = st.session_state.get("__gsc_df_raw__", None)
 
 gsc_issues_df = pd.DataFrame(columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
@@ -1540,7 +1654,7 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         if im_i is not None:
             df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
 
-        # Brand-Filter anwenden
+        # Brand-Filter
         def brand_filter(row) -> bool:
             q = str(row.iloc[q_i])
             is_brand = is_brand_query(q)
@@ -1558,18 +1672,17 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         if im_i is not None:
             df = df[df.iloc[:, im_i] >= int(min_impr)] if metric_choice == "Impressions" else df
 
-        # Pro URL sortieren & Top 20% (mind. 1), zusätzlich max Top-N
+        # Top-20% je URL (mind. 1) und Top-N-Grenze
         metric_col = c_i if metric_choice == "Clicks" else im_i
         df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
         top_rows = []
         for u, grp in df.groupby(df.columns[url_i], sort=False):
             n = max(1, int(math.ceil(0.2 * len(grp))))
-            n = max(1, min(n, int(topN_default)))  # zusätzliche Top-N-Grenze
+            n = max(1, min(n, int(topN_default)))
             top_rows.append(grp.head(n))
         df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
 
-        # ---- Matching gegen Anchor-Inventar (Exact/Embeddings) ----
-        # Anchor-Multiset: target -> {anchor: count}
+        # Anchor-Inventar als Multiset: target -> {anchor: count}
         inv_map: Dict[str, Dict[str, int]] = {}
         for _, r in anchor_inv.iterrows():
             inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
@@ -1588,7 +1701,6 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
                 check_embed = False
 
         def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-            # L2-Normalisierung + dot
             A = A.astype(np.float32, copy=False)
             B = B.astype(np.float32, copy=False)
             A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
@@ -1598,7 +1710,6 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         # Cache Anchor-Embeddings je target
         anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
         if check_embed and model is not None:
-            # alle (target, anchor) bündeln je target
             for target, sub in anchor_inv.groupby("target"):
                 anchors = sub["anchor"].astype(str).tolist()
                 if anchors:
@@ -1610,14 +1721,16 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
                 else:
                     anchor_emb_cache[target] = ([], None)
 
-        # 1) Coverage der Top-Queries als Anchors (pro Ziel-URL)
+        # 1) Coverage der Top-Queries als Anchors
         issues_rows = []
         for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
             inv = inv_map.get(u, {})
-            anchors_list = list(inv.keys())
-            anchors_lower = [a.lower() for a in anchors_list]
-            # Embedding vorbereiten
-            a_names, a_emb = anchor_emb_cache.get(u, ([], None))
+            a_names = list(inv.keys())
+            a_names_lower = [a.lower() for a in a_names]
+            a_emb = None
+            if check_embed and model is not None and (u in anchor_emb_cache):
+                a_names, a_emb = anchor_emb_cache.get(u, (a_names, None))
+
             for _, rr in grp.iterrows():
                 q = str(rr.iloc[q_i]).strip()
                 if not q:
@@ -1627,10 +1740,7 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
                 match_type = []
                 # Exact
                 if check_exact:
-                    cnt = 0
-                    for a, c in inv.items():
-                        if a.lower() == q.lower():
-                            cnt += int(c)
+                    cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
                     if cnt > 0:
                         found = True
                         found_cnt = max(found_cnt, cnt)
@@ -1640,11 +1750,9 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
                     try:
                         q_emb = model.encode([q], show_progress_bar=False)
                         S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
-                        # alle Anchor >= threshold zählen
                         idxs = np.where(S >= float(embed_thresh))[0]
                         if idxs.size > 0:
                             found = True
-                            # Summe der Counts ähnlicher Anchors
                             cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
                             found_cnt = max(found_cnt, cnt)
                             match_type.append("Embedding")
@@ -1655,80 +1763,69 @@ if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         if issues_rows:
             gsc_issues_df = pd.DataFrame(issues_rows, columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
 
-        # 2) Leader-Konflikte (Query verlinkt via Anchor auf andere URL als Leader)
-        # Leader bestimmen
-        leader_rows = []
-        # Aggregation: pro Query -> Leader-URL
-        if metric_choice == "Clicks":
-            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, c_i].idxmax(), df.columns[url_i]] if c_i is not None else None)
-            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, c_i].max()) if c_i is not None else 0.0)
+        # 2) Leader-Konflikte
+        if metric_choice == "Clicks" and c_i is not None:
+            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, c_i].idxmax(), df.columns[url_i]])
+            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, c_i].max()))
         else:
-            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, im_i].idxmax(), df.columns[url_i]] if im_i is not None else None)
-            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, im_i].max()) if im_i is not None else 0.0)
+            lead_ser = df.groupby(df.columns[q_i]).apply(lambda x: x.loc[x.iloc[:, im_i].idxmax(), df.columns[url_i]])
+            lead_val = df.groupby(df.columns[q_i]).apply(lambda x: float(x.iloc[:, im_i].max()))
         leader_map = {q: normalize_url(u) for q, u in lead_ser.to_dict().items() if isinstance(u, str)}
         leader_val_map = {q: float(v) for q, v in lead_val.to_dict().items()}
-        # Für jeden Link prüfen: Anchor ~ Query, Ziel != Leader
-        # Wir nutzen Anchor-Inventar (zielbezogen). Wir brauchen aber „links“, also Quelle→Ziel + Anchor. Wir haben counts je Ziel+Anchor.
-        # Näherungsweise: Wenn irgendein Anchor (zu einer Ziel-URL) die Query matcht und Ziel != Leader → Konflikt.
-        # Optional: navigative Anchors ausschließen.
-        # Exact:
+
+        leader_rows = []
         if check_exact or check_embed:
+            # Precompute Query-Embeddings einmal
+            q_emb_cache: Dict[str, np.ndarray] = {}
+            if check_embed and model is not None:
+                try:
+                    all_qs = list(leader_map.keys())
+                    if all_qs:
+                        E = model.encode(all_qs, batch_size=64, show_progress_bar=False)
+                        for q, e in zip(all_qs, E):
+                            q_emb_cache[q] = np.asarray(e)
+                except Exception:
+                    pass
+
             for q, lead_u in leader_map.items():
-                # alle Ziele, die einen passenden Anchor zu q haben
-                # Exact
+                # Kandidaten-Ziele mit passenden Anchors
                 exact_targets = set()
                 if check_exact:
                     sub = anchor_inv[anchor_inv["anchor"].str.lower() == q.lower()]
                     exact_targets.update(normalize_url(t) for t in sub["target"].tolist())
-                # Embedding
+
                 embed_targets = set()
-                if check_embed and model is not None:
-                    # precompute q embedding
-                    try:
-                        q_emb = model.encode([q], show_progress_bar=False)
-                        for tgt, (a_names, a_emb) in anchor_emb_cache.items():
-                            if a_emb is None or len(a_names) == 0:
-                                continue
-                            S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
-                            if (S >= float(embed_thresh)).any():
-                                embed_targets.add(tgt)
-                    except Exception:
-                        pass
-                cand_targets = exact_targets.union(embed_targets)
-                for tgt in cand_targets:
-                    if not lead_u or not tgt:
+                if check_embed and model is not None and q in q_emb_cache:
+                    qv = q_emb_cache[q][None, :]
+                    for tgt, (a_names, a_emb) in anchor_emb_cache.items():
+                        if a_emb is None or len(a_names) == 0:
+                            continue
+                        S = cosine_sim_matrix(qv, a_emb)[0]
+                        if (S >= float(embed_thresh)).any():
+                            embed_targets.add(tgt)
+
+                for tgt in exact_targets.union(embed_targets):
+                    if not lead_u or not tgt or tgt == lead_u:
                         continue
-                    if tgt != lead_u:
-                        # navigative?
-                        nav_flag = False
-                        # prüfen, ob alle passenden Anchors navigativ sind; wenn ja -> "navigativ ausgeschlossen"
-                        # (vereinfachend: wenn irgendein passender Anchor NICHT navigativ ist -> Konflikt)
-                        nav_only = True
-                        anchors_for_tgt = anchor_inv[anchor_inv["target"] == tgt]["anchor"].astype(str).tolist()
-                        # simple heuristic: wenn Query exakt/näherungsweise vorkommt, prüfe Navigational-Liste
-                        for a in anchors_for_tgt:
-                            is_match = (check_exact and a.lower() == q.lower())
-                            if not is_match and check_embed and model is not None:
-                                try:
-                                    a_emb = model.encode([a], show_progress_bar=False)
-                                    s = float(cosine_sim_matrix(np.asarray(q_emb), np.asarray(a_emb))[0,0])
-                                    is_match = (s >= float(embed_thresh))
-                                except Exception:
-                                    is_match = False
-                            if is_match:
-                                if not is_navigational(a):
+                    # navigative-only Ausschluss
+                    anchors_for_tgt = anchor_inv[anchor_inv["target"] == tgt]["anchor"].astype(str).tolist()
+                    nav_only = True
+                    if check_exact and (q.lower() in [a.lower() for a in anchors_for_tgt]):
+                        if not all(is_navigational(a) for a in anchors_for_tgt if a.lower() == q.lower()):
+                            nav_only = False
+                    if check_embed and model is not None and q in q_emb_cache:
+                        try:
+                            for a in anchors_for_tgt:
+                                a_emb = model.encode([a], show_progress_bar=False)
+                                s = float(cosine_sim_matrix(q_emb_cache[q][None, :], np.asarray(a_emb))[0,0])
+                                if s >= float(embed_thresh) and not is_navigational(a):
                                     nav_only = False
                                     break
-                        nav_flag = nav_only
-                        if not nav_flag:
-                            leader_rows.append([
-                                q, disp(tgt), disp(lead_u),
-                                int(leader_val_map.get(q, 0)),
-                                "Anchor navigativ? (ausgeschlossen): nein"
-                            ])
-                        else:
-                            # Falls ausschließlich navigative Anchors matchen, aus Konflikt-Report ausschließen
+                        except Exception:
                             pass
+                    if not nav_only:
+                        leader_rows.append([q, disp(tgt), disp(lead_u), int(leader_val_map.get(q, 0)), "Anchor navigativ? (ausgeschlossen): nein"])
+
         if leader_rows:
             leader_conflicts_df = pd.DataFrame(leader_rows, columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
 
@@ -1739,27 +1836,17 @@ if kwmap_up is not None:
     if isinstance(kw_df, pd.DataFrame) and not kw_df.empty:
         dff = kw_df.copy()
         dff.columns = [str(c).strip() for c in dff.columns]
-        hdr = [_norm_header(c) for c in dff.columns]
-        url_idx_map = None
         url_i = find_column_index(dff.columns.tolist(), ["url","urls","page","seite","address","adresse","ziel url","ziel-url"])
         if url_i == -1:
-            # Fallback: erste Spalte
             url_i = 0
-        # Keywords = alle Spalten, deren Name Regex enthält
-        kw_cols = []
-        for i, col in enumerate(dff.columns):
-            if i == url_i:
-                continue
-            h = _norm_header(col)
-            if re.search(r"(keyword|suchanfrage|suchbegriff|query)", h):
-                kw_cols.append(col)
+        kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i and re.search(r"(keyword|suchanfrage|suchbegriff|query)", _norm_header(c))]
         if not kw_cols:
-            # Wenn nichts erkannt: alle Nicht-URL-Spalten als Keywords
             kw_cols = [c for i, c in enumerate(dff.columns) if i != url_i]
-        # Embedding-Cache für Keywords global
+
         model_kw = None
         if check_embed:
             model_kw = st.session_state.get("_A4_EMB_MODEL", None)
+
         for _, r in dff.iterrows():
             url = remember_original(r.iloc[url_i])
             if not url:
@@ -1794,17 +1881,21 @@ if kwmap_up is not None:
                     kw_missing_df.loc[len(kw_missing_df)] = [disp(url), kw, "Ziel-Keyword nicht als Anchor verlinkt", "+".join(match_t) if match_t else "—"]
 
 # ---- Treemap-Visualisierung (optional) ----
+try:
+    import plotly.express as px  # falls oben fehlte
+    _HAS_PLOTLY = True
+except Exception:
+    pass
+
 if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
     st.markdown("### Treemap: Ankerverteilung pro Ziel-URL")
     targets_sorted = sorted(anchor_inv["target"].unique())
     sel = st.selectbox("Ziel-URL wählen", [disp(t) for t in targets_sorted], index=0)
     t_norm = None
-    # map back to normalized key
     for k, v in st.session_state["_ORIG_MAP"].items():
         if v == sel:
             t_norm = k; break
     if t_norm is None:
-        # fallback
         t_norm = normalize_url(sel)
     sub = anchor_inv[anchor_inv["target"] == t_norm].sort_values("count", ascending=False)
     if not sub.empty:
@@ -1847,22 +1938,18 @@ else:
 
 # Download als XLSX (mit ZIP-Fallback)
 def export_excel_or_zip(dfs: Dict[str, pd.DataFrame]) -> Tuple[bytes, str, str]:
-    # Versuch XLSX
     try:
         bio = io.BytesIO()
         with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
             for name, df in dfs.items():
-                # nur Problemfälle exportieren
                 df_use = df.copy()
                 if df_use.empty:
-                    # leeres Blatt trotzdem anlegen (mit Header)
                     df_use = df_use.reindex(columns=["—"])
                 df_use.to_excel(xw, index=False, sheet_name=name[:31])
         bio.seek(0)
         return bio.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "analyse4_anchor_query_intelligence.xlsx"
     except Exception:
         pass
-    # ZIP (CSVs)
     zbio = io.BytesIO()
     with zipfile.ZipFile(zbio, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, df in dfs.items():
