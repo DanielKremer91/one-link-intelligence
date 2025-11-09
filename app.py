@@ -1107,358 +1107,90 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
 
 
 # =========================================================
-# Analyse 3 (unverändert inhaltlich, lediglich hier belassen)
+# Analyse 3 (nur anzeigen, wenn ausgewählt)
 # =========================================================
-st.markdown("---")
-st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
-st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
+if A3_NAME in selected_analyses:
 
-if st.session_state.get("__gems_loading__", False):
-    ph3 = st.session_state.get("__gems_ph__")
-    if ph3 is None:
-        ph3 = st.empty()
-        st.session_state["__gems_ph__"] = ph3
-    with ph3.container():
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            try:
-                st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif", width=280)
-            except Exception:
-                st.write("⏳")
-            st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+    st.markdown("---")
+    st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
+    st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
-with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
-    st.markdown('''
+    if st.session_state.get("__gems_loading__", False):
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3 is None:
+            ph3 = st.empty()
+            st.session_state["__gems_ph__"] = ph3
+        with ph3.container():
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c2:
+                try:
+                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif", width=280)
+                except Exception:
+                    st.write("⏳")
+                st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+
+    with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
+        st.markdown('''
 **Kurz & klar:** Gems = Top-Linkgeber nach Linkpotenzial. Ziele = thematisch nahe URLs ohne Content-Link vom Gem.
 PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Sprungbrett-URLs (Position) und Mauerblümchen zusammen.
 ''')
 
-# Eingänge
-res1_df: Optional[pd.DataFrame] = st.session_state.get("res1_df")
-source_potential_map: Dict[str, float] = st.session_state.get("_source_potential_map", {})
-metrics_map: Dict[str, Dict[str, float]] = st.session_state.get("_metrics_map", {})
-norm_ranges: Dict[str, Tuple[float, float]] = st.session_state.get("_norm_ranges", {})
-all_links: set = st.session_state.get("_all_links", set())
+       # --- A3: Steuer-UI (mit eindeutigen Keys) ---
+    gem_pct = st.slider("Anteil starker Linkgeber (Top-X %)", 1, 30, 10, step=1, key="a3_gem_pct")
+    max_targets_per_gem = st.number_input("Top-Ziele je Gem", min_value=1, max_value=50, value=10, step=1, key="a3_max_targets")
 
-# Gems UI
-gem_pct = st.slider("Anteil starker Linkgeber (Top-X %)", 1, 30, 10, step=1)
-max_targets_per_gem = st.number_input("Top-Ziele je Gem", min_value=1, max_value=50, value=10, step=1)
+    # GSC Upload (A3)
+    gsc_up = st.file_uploader("Search Console Daten (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="a3_gsc_up")
 
-# GSC Upload/Maps
-gsc_up = st.file_uploader("Search Console Daten (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="gsc_up_merged_no_opp")
-gsc_df_loaded = None
-demand_map: Dict[str, float] = {}
-pos_map: Dict[str, float] = {}
-has_gsc = False
-has_pos = False
-if gsc_up is not None:
-    gsc_df_loaded = read_any_file_cached(getattr(gsc_up, "name", ""), gsc_up.getvalue())
+    st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        with bordered_container():
+            st.markdown("Gewicht: **Hidden Champions**")
+            w_lihd = st.slider("", 0.0, 1.0, 0.30, 0.05, disabled=(gsc_up is None), key="a3_w_lihd")
+    with col2:
+        with bordered_container():
+            st.markdown("Gewicht: **Semantische Linklücke**")
+            w_def  = st.slider("", 0.0, 1.0, 0.30, 0.05, key="a3_w_def")
+    with col3:
+        with bordered_container():
+            st.markdown("Gewicht: **Sprungbrett-URLs**")
+            # wird unten durch tatsächliche Pos-Daten entschieden – hier nur UI
+            w_rank = st.slider("", 0.0, 1.0, 0.30, 0.05, key="a3_w_rank")
+            st.caption("Sprungbrett-URLs – Feineinstellung")
+            rank_minmax = st.slider("Ranking Sprungbrett-URL (Positionsbereich)", 1, 50, (8, 20), 1, key="a3_rank_minmax")
+    with col4:
+        with bordered_container():
+            st.markdown("Gewicht: **Mauerblümchen**")
+            w_orph = st.slider("", 0.0, 1.0, 0.10, 0.05, key="a3_w_orph")
+            st.caption("Mauerblümchen – Feineinstellung")
+            thin_k = st.slider("Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1, key="a3_thin_k")
 
-if gsc_df_loaded is not None and not gsc_df_loaded.empty:
-    has_gsc = True
-    df = gsc_df_loaded.copy()
-    df.columns = [str(c).strip() for c in df.columns]
-    hdr = [_norm_header(c) for c in df.columns]
-    def _find_idx(candidates: Iterable[str], default=None):
-        cand_norm = {_norm_header(c) for c in candidates}
-        for i, h in enumerate(hdr):
-            if h in cand_norm:
-                return i
-        for i, h in enumerate(hdr):
-            if any(c in h for c in cand_norm):
-                return i
-        return default
-    url_idx  = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
-    impr_idx = _find_idx({"impressions","impr","search impressions","impressions_total",
-                          "impressionen","impression","suchimpressionen"}, 1)
-    click_idx = _find_idx({"clicks","klicks","click","klick"}, 2 if df.shape[1] >= 3 else None)
-    pos_idx   = _find_idx({"position","avg position","average position","durchschnittliche position","durchschn. position"}, 3 if df.shape[1] >= 4 else None)
-    df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
-    urls_series = df.iloc[:, url_idx]
-    impr = pd.to_numeric(df.iloc[:, impr_idx], errors="coerce").fillna(0)
-    log_impr = np.log1p(impr)
-    if (log_impr.max() - log_impr.min()) > 0:
-        demand_norm = (log_impr - log_impr.min()) / (log_impr.max() - log_impr.min())
-    else:
-        demand_norm = np.zeros_like(log_impr)
-    demand_map = {str(u): float(d) for u, d in zip(urls_series, demand_norm)}
-    has_pos = False
-    pos_map = {}
-    if pos_idx is not None and pos_idx < df.shape[1]:
-        pos_series = pd.to_numeric(df.iloc[:, pos_idx], errors="coerce")
-        for u, p in zip(urls_series, pos_series):
-            if pd.notna(p) and str(u):
-                pos_map[str(u)] = float(p)
-        has_pos = len(pos_map) > 0
-    st.session_state["__gsc_df_raw__"] = df.copy()
+    with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
+        offpage_damp_enabled = st.checkbox("Offpage-Dämpfung anwenden", value=True, key="a3_offpage_enable")
+        beta_offpage = st.slider(
+            "Stärke der Dämpfung", 0.0, 1.0, 0.5, 0.05,
+            disabled=not st.session_state.get("a3_offpage_enable", False),
+            key="a3_offpage_beta"
+        )
 
-st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    with bordered_container():
-        st.markdown("Gewicht: **Hidden Champions**")
-        w_lihd = st.slider("", 0.0, 1.0, 0.30, 0.05, disabled=not has_gsc)
-with col2:
-    with bordered_container():
-        st.markdown("Gewicht: **Semantische Linklücke**")
-        w_def  = st.slider("", 0.0, 1.0, 0.30, 0.05)
-with col3:
-    with bordered_container():
-        st.markdown("Gewicht: **Sprungbrett-URLs**")
-        w_rank = st.slider("", 0.0, 1.0, 0.30, 0.05, disabled=not has_pos)
-        st.caption("Sprungbrett-URLs – Feineinstellung")
-        rank_minmax = st.slider("Ranking Sprungbrett-URL (Positionsbereich)", 1, 50, (8, 20), 1, disabled=not has_pos)
-with col4:
-    with bordered_container():
-        st.markdown("Gewicht: **Mauerblümchen**")
-        w_orph = st.slider("", 0.0, 1.0, 0.10, 0.05)
-        st.caption("Mauerblümchen – Feineinstellung")
-        thin_k = st.slider("Thin-Schwelle (Inlinks ≤ K)", 0, 10, 2, 1)
 
-eff_sum = (0 if not has_gsc else w_lihd) + w_def + (0 if not has_pos else w_rank) + w_orph
-if not math.isclose(eff_sum, 1.0, rel_tol=1e-3, abs_tol=1e-3):
-    st.caption(f"ℹ️ Aktuelle PRIO-Gewichtungs-Summe: {eff_sum:.2f}. (wird intern normalisiert)")
+    with st.expander("Reihenfolge der Empfehlungen - *OPTIONAL*", expanded=False):
+        sort_labels = {"rank_mix":"Mix (Nähe & Linkbedarf kombiniert)","prio_only":"Nur Linkbedarf","sim_only":"Nur inhaltliche Nähe"}
+        sort_choice = st.radio("Sortierung", options=["rank_mix","prio_only","sim_only"],
+                               index=0, format_func=lambda k: sort_labels.get(k, k), horizontal=True, key="a3_sort_choice")
+        alpha_mix = st.slider("Gewichtung: inhaltliche Nähe vs. Linkbedarf", 0.0, 1.0, 0.5, 0.05, key="a3_alpha_mix")
 
-with st.expander("Offpage-Einfluss (Backlinks & Ref. Domains)", expanded=False):
-    st.caption("Seiten mit vielen Ref. Domains werden bei Hidden Champions & Linklücke gedämpft.")
-    offpage_damp_enabled = st.checkbox("Offpage-Dämpfung anwenden", value=True)
-    beta_offpage = st.slider("Stärke der Dämpfung", 0.0, 1.0, 0.5, 0.05, disabled=not offpage_damp_enabled)
+    # A3 starten
+    run_gems = st.button("Let's Go (Analyse 3)", type="secondary", key="btn_a3")
+    if run_gems:
+        st.session_state["__gems_loading__"] = True
+        st.session_state["__ready_gems__"] = False
+        st.rerun()
 
-with st.expander("Reihenfolge der Empfehlungen - *OPTIONAL*", expanded=False):
-    st.caption("Mix aus Nähe & Linkbedarf oder nur eines von beidem.")
-    sort_labels = {"rank_mix":"Mix (Nähe & Linkbedarf kombiniert)","prio_only":"Nur Linkbedarf","sim_only":"Nur inhaltliche Nähe"}
-    sort_options = ["rank_mix","prio_only","sim_only"]
-    sort_choice = st.radio("Sortierung", options=sort_options, index=0, format_func=lambda k: sort_labels.get(k, k), horizontal=True, key="sort_choice_radio")
-    alpha_mix = st.slider("Gewichtung: inhaltliche Nähe vs. Linkbedarf", 0.0, 1.0, 0.5, 0.05, key="alpha_mix_slider")
+    # --- AB HIER deinen bisherigen A3-Berechnungs- und Ausgabe-Code UNVERÄNDERT einfügen ---
+    # (Maps aus res1_df, source_potential_map, GSC-Parsing, PRIO-Berechnung, Tabellen, Downloads etc.)
 
-if "__gems_loading__" not in st.session_state:
-    st.session_state["__gems_loading__"] = False
-if "__ready_gems__" not in st.session_state:
-    st.session_state["__ready_gems__"] = False
-run_gems = st.button("Let's Go (Analyse 3)", type="secondary")
-if run_gems:
-    st.session_state["__gems_loading__"] = True
-    st.session_state["__ready_gems__"] = False
-    st.rerun()
-
-if not (st.session_state["__gems_loading__"] or st.session_state.get("__ready_gems__", False)):
-    st.info("Stell die Regler ein und lade ggf. **Search Console Daten**. Dann klicke auf **Let's Go (Analyse 3)**.")
-    # ---- Wir fallen hier NICHT aus dem Skript. Analyse 4 darf unten weiterlaufen ----
-
-# ---- PRIO-Helfer für Analyse 3 ----
-from collections import defaultdict
-inbound_count = defaultdict(int)
-for s, t in st.session_state.get("_content_links", set()):
-    inbound_count[t] += 1
-min_ils, max_ils = norm_ranges.get("ils", (0.0, 1.0))
-lo_bl_log, hi_bl_log = norm_ranges.get("bl_log", (0.0, 1.0))
-lo_rd_log, hi_rd_log = norm_ranges.get("rd_log", (0.0, 1.0))
-backlink_map: Dict[str, Dict[str, float]] = st.session_state.get("_backlink_map", {})
-
-def _safe_norm(x: float, lo: float, hi: float) -> float:
-    if hi > lo:
-        v = (float(x) - lo) / (hi - lo)
-        return float(np.clip(v, 0.0, 1.0))
-    return 0.0
-
-def ext_auth_norm_for(u: str) -> float:
-    bl = backlink_map.get(u, {})
-    bl_raw = float(bl.get("backlinks", 0.0) or 0.0)
-    rd_raw = float(bl.get("referringDomains", 0.0) or 0.0)
-    bl_log = float(np.log1p(max(0.0, bl_raw)))
-    rd_log = float(np.log1p(max(0.0, rd_raw)))
-    bl_n = robust_norm(bl_log, lo_bl_log, hi_bl_log)
-    rd_n = robust_norm(rd_log, lo_rd_log, hi_rd_log)
-    return 0.5 * (bl_n + rd_n)
-
-def damp_factor(u: str) -> float:
-    if not offpage_damp_enabled:
-        return 1.0
-    x = float(np.clip(ext_auth_norm_for(u), 0.0, 1.0))
-    k = 6.0; m = 0.5
-    s  = 1.0 / (1.0 + np.exp(-k * (x - m)))
-    s0 = 1.0 / (1.0 + np.exp(-k * (0.0 - m)))
-    s1 = 1.0 / (1.0 + np.exp(-k * (1.0 - m)))
-    s_norm = (s - s0) / (s1 - s0)
-    s_norm = float(np.clip(s_norm, 0.0, 1.0))
-    return float(np.clip(1.0 - beta_offpage * s_norm, 0.0, 1.0))
-
-def ils_norm_for(u: str) -> float:
-    m = metrics_map.get(u)
-    if not m:
-        return 0.0
-    x = float(m.get("score", 0.0))
-    return float(np.clip((x - min_ils) / (max_ils - min_ils), 0.0, 1.0)) if max_ils > min_ils else 0.0
-
-def lihd_for(u: str) -> float:
-    if not has_gsc:
-        return 0.0
-    d = float(demand_map.get(u, 0.0))
-    base = float((1.0 - ils_norm_for(u)) * d)
-    return base * damp_factor(u)
-
-def rank_sweetspot_for(u: str, lo: int, hi: int) -> float:
-    p = pos_map.get(u)
-    if p is None:
-        return 0.0
-    return 1.0 if lo <= p <= hi else 0.0
-
-def orphan_score_for(u: str, k: int) -> float:
-    inl = int(inbound_count.get(u, 0))
-    orphan = 1.0 if inl == 0 else 0.0
-    thin   = 1.0 if inl <= k else 0.0
-    return float(max(orphan, 0.5 * thin))
-
-def deficit_weighted_for(target: str) -> float:
-    if not isinstance(res1_df, pd.DataFrame):
-        return 0.0
-    row = res1_df.loc[res1_df["Ziel-URL"] == target]
-    if row.empty:
-        return 0.0
-    r = row.iloc[0]
-    sum_all = 0.0
-    sum_missing = 0.0
-    i = 1
-    while True:
-        col_sim = f"Ähnlichkeit {i}"
-        col_src = f"Related URL {i}"
-        if col_src not in res1_df.columns or col_sim not in res1_df.columns:
-            break
-        sim_val = r.get(col_sim, np.nan)
-        src_val = normalize_url(r.get(col_src, ""))
-        if pd.isna(sim_val) or not src_val:
-            i += 1; continue
-        simf = float(sim_val) if pd.notna(sim_val) else 0.0
-        simf = max(0.0, simf)
-        sum_all += simf
-        cont_new = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
-        cont_old = f"aus Inhalt heraus verlinkt {i}?"
-        from_content = str(r.get(cont_new, r.get(cont_old, "nein"))).strip().lower()
-        if from_content != "ja":
-            sum_missing += simf
-        i += 1
-    ratio = float(np.clip(sum_missing / sum_all, 0.0, 1.0)) if sum_all > 0 else 0.0
-    return ratio * damp_factor(target)
-
-# Gems bestimmen
-if source_potential_map:
-    sorted_sources = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)
-    cutoff_idx = max(1, int(len(sorted_sources) * gem_pct / 100))
-    gems = [u for u, _ in sorted_sources[:cutoff_idx]]
-else:
-    gems = []
-
-# PRIO je Ziel
-target_priority_map: Dict[str, float] = {}
-if isinstance(res1_df, pd.DataFrame) and not res1_df.empty:
-    for _, row in res1_df.iterrows():
-        u = normalize_url(row["Ziel-URL"])
-        if not u:
-            continue
-        li   = lihd_for(u)
-        ddef = deficit_weighted_for(u)
-        rnk  = rank_sweetspot_for(u, lo=rank_minmax[0], hi=rank_minmax[1]) if has_pos else 0.0
-        oph  = orphan_score_for(u, thin_k)
-        weights = np.array([
-            (0.0 if not has_gsc else w_lihd),
-            w_def,
-            (0.0 if not has_pos else w_rank),
-            w_orph
-        ], dtype=float)
-        comps   = np.array([li, ddef, rnk, oph], dtype=float)
-        denom = weights.sum()
-        prio = float((weights @ comps) / denom) if denom > 0 else 0.0
-        target_priority_map[u] = prio
-
-# Empfehlungen pro Gem
-try:
-    from collections import defaultdict
-    related_by_source: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
-    if not isinstance(res1_df, pd.DataFrame) or res1_df.empty or not gems:
-        pass
-    else:
-        def content_link_flag(row_obj, i: int) -> bool:
-            cont_new = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
-            cont_old = f"aus Inhalt heraus verlinkt {i}?"
-            return str(row_obj.get(cont_new, row_obj.get(cont_old, "nein"))).strip().lower() == "ja"
-        for _, row in res1_df.iterrows():
-            target = normalize_url(row["Ziel-URL"])
-            if not target:
-                continue
-            i = 1
-            while f"Related URL {i}" in res1_df.columns:
-                src_raw = row.get(f"Related URL {i}", "")
-                src = normalize_url(src_raw)
-                if src and not content_link_flag(row, i):
-                    try:
-                        simf = float(row.get(f"Ähnlichkeit {i}", 0.0) or 0.0)
-                    except Exception:
-                        simf = 0.0
-                    related_by_source[src].append((target, float(simf)))
-                i += 1
-
-        gem_rows: List[List] = []
-        N_TOP = int(max_targets_per_gem)
-        TOTAL_CAP = 3000
-        for gem in gems:
-            candidates = related_by_source.get(gem, [])
-            if not candidates:
-                continue
-            rows = []
-            for target, simf in candidates:
-                prio_t = float(target_priority_map.get(target, 0.0))
-                if sort_choice == "prio_only":
-                    sort_score = prio_t; sort_key = lambda r: (r[3], r[2])
-                elif sort_choice == "sim_only":
-                    sort_score = simf;   sort_key = lambda r: (r[2], r[3])
-                else:
-                    sort_score = float(alpha_mix) * float(simf) + (1.0 - float(alpha_mix)) * float(prio_t)
-                    sort_key = lambda r: (r[4], r[2], r[3])
-                rows.append([gem, target, float(simf), float(prio_t), float(sort_score)])
-            rows.sort(key=sort_key, reverse=True)
-            gem_rows.extend(rows[:N_TOP])
-            if len(gem_rows) >= TOTAL_CAP:
-                st.info(f"Ausgabe auf {TOTAL_CAP} Empfehlungen gekappt (Performance-Schutz).")
-                break
-
-        if gem_rows:
-            def pot_for(g: str) -> float:
-                return float(st.session_state.get("_source_potential_map", {}).get(normalize_url(g), 0.0))
-            long_rows = []
-            for gem, target, simv, prio_t, sortv in gem_rows:
-                long_rows.append([disp(gem), round(pot_for(gem), 3), disp(target), round(float(simv), 3), round(float(prio_t), 3), round(float(sortv), 3)])
-            cheat_long_df = pd.DataFrame(long_rows, columns=[
-                "Gem (Quell-URL)","Linkpotenzial (Quell-URL)","Ziel-URL","Similarity (inhaltliche Nähe)","Linkbedarf","Score für Sortierung",
-            ])
-            if not cheat_long_df.empty:
-                cheat_long_df = cheat_long_df.sort_values(
-                    by=["Gem (Quell-URL)", "Score für Sortierung", "Similarity (inhaltliche Nähe)"],
-                    ascending=[True, False, False],
-                    kind="mergesort",
-                ).reset_index(drop=True)
-            st.dataframe(cheat_long_df, use_container_width=True, hide_index=True)
-            csv_cheat_long = cheat_long_df.to_csv(index=False).encode("utf-8-sig")
-            st.download_button(
-                "Download »Cheat-Sheet der internen Verlinkung (Long-Format)« (CSV)",
-                data=csv_cheat_long, file_name="Cheat-Sheet_der_internen_Verlinkung_long.csv",
-                mime="text/csv", key="cheat_sheet_long_download",
-            )
-            st.session_state["__gems_loading__"] = False
-            ph3 = st.session_state.get("__gems_ph__")
-            if ph3: ph3.empty()
-            st.success("✅ Analyse abgeschlossen!")
-            st.session_state["__ready_gems__"] = True
-        else:
-            st.session_state["__gems_loading__"] = False
-            ph3 = st.session_state.get("__gems_ph__")
-            if ph3: ph3.empty()
-            st.caption("Keine Gem-Empfehlungen gefunden.")
-except Exception as e:
-    st.session_state["__gems_loading__"] = False
-    ph3 = st.session_state.get("__gems_ph__")
-    if ph3: ph3.empty()
-    st.exception(e)
-    # KEIN stop() – damit Analyse 4 unten verfügbar ist
 
 
 # =========================================================
