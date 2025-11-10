@@ -49,6 +49,14 @@ if "__ready_gems__" not in st.session_state:
 if "__gems_ph__" not in st.session_state:
     st.session_state["__gems_ph__"] = st.empty()
 
+# Analyse-4 Loader Flags
+if "__a4_loading__" not in st.session_state:
+    st.session_state["__a4_loading__"] = False
+if "__ready_a4__" not in st.session_state:
+    st.session_state["__ready_a4__"] = False
+if "__a4_ph__" not in st.session_state:
+    st.session_state["__a4_ph__"] = None
+
 # Logo
 try:
     st.image(
@@ -487,39 +495,65 @@ with st.sidebar:
             sim_threshold = st.slider("Ähnlichkeitsschwelle", 0.0, 1.0, 0.80, 0.01)
             max_related   = st.number_input("Anzahl Related URLs", min_value=1, max_value=50, value=10, step=1)
 
-            st.subheader("Entfernung von Links")
-            not_similar_threshold = st.slider("Unähnlichkeitsschwelle (schwache Links)", 0.0, 1.0, 0.60, 0.01)
-            backlink_weight_2x = st.checkbox("Backlinks/Ref. Domains doppelt gewichten", value=False)
+            # WICHTIG: "Entfernung von Links" NUR WENN A2 gewählt
+            if A2_NAME in selected_analyses:
+                st.subheader("Entfernung von Links (nur für Analyse 2)")
+                not_similar_threshold = st.slider("Unähnlichkeitsschwelle (schwache Links)", 0.0, 1.0, 0.60, 0.01, key="a2_not_sim")
+                backlink_weight_2x = st.checkbox("Backlinks/Ref. Domains doppelt gewichten", value=False, key="a2_weight2x")
+            else:
+                # Defaults ablegen, falls A2 nicht aktiv ist (werden unten bei A2 gelesen)
+                st.session_state.setdefault("a2_not_sim", 0.60)
+                st.session_state.setdefault("a2_weight2x", False)
 
-        # Falls du irgendwann A4-spezifische Sidebar-Optionen willst:
-        # if A4_NAME in selected_analyses:
-        #     st.subheader("Analyse 4 – Optionen")
-        #     ... (hier A4-spezifische Sidebar-Controls)
+        # A4-Settings in die Sidebar verschoben
+        if A4_NAME in selected_analyses:
+            st.subheader("Analyse 4 – Einstellungen")
+            st.caption("Brand-/Matching-Optionen, Schwellen & Visualisierung")
+
+            brand_text = st.text_area("Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text")
+            brand_file = st.file_uploader("Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file")
+            auto_variants = st.checkbox("Automatisch Varianten erzeugen (z. B. „bora kochfeld“, „bora-kochfeld“)", value=True, key="a4_auto_variants")
+            head_nouns_text = st.text_input("Head-Nomen (kommagetrennt, editierbar)", value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns")
+            brand_mode = st.radio("Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"], index=0, horizontal=True, key="a4_brand_mode")
+
+            st.markdown("**Matching**")
+            metric_choice = st.radio("GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice")
+            check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
+            check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+
+            embed_model_name = st.selectbox(
+                "Embedding-Modell",
+                ["sentence-transformers/all-MiniLM-L6-v2",
+                 "sentence-transformers/all-MiniLM-L12-v2",
+                 "sentence-transformers/all-mpnet-base-v2"],
+                index=0,
+                help="Standard: all-MiniLM-L6-v2",
+                key="a4_embed_model",
+            )
+            embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh")
+
+            st.markdown("**Schwellen & Filter**")
+            col_s1, col_s2, col_s3 = st.columns(3)
+            with col_s1:
+                min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks")
+            with col_s2:
+                min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr")
+            with col_s3:
+                topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1, key="a4_topN")
+
+            col_o1, col_o2 = st.columns(2)
+            with col_o1:
+                top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10, key="a4_top_anchor_abs")
+            with col_o2:
+                top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1, key="a4_top_anchor_share")
+
+            st.markdown("**Visualisierung**")
+            show_treemap = st.checkbox("Treemap-Visualisierung aktivieren", value=True, key="a4_show_treemap")
+            treemap_topK = st.number_input("Treemap: Top-K Anchors anzeigen", min_value=3, max_value=50, value=12, step=1, key="a4_treemap_topk")
+
     else:
         # Optional: ganz leere Sidebar oder ein kleiner Hinweis
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
-
-
-# Styling
-CSS_ACTION_BUTTONS = """
-<style>
-:root { --one-red: #e02424; --one-red-hover: #c81e1e; }
-div.stButton > button[kind="secondary"] {
-  background-color: var(--one-red) !important; color: #fff !important; border: 1px solid var(--one-red) !important; border-radius: 6px !important;
-}
-div.stButton > button[kind="secondary"]:hover {
-  background-color: var(--one-red-hover) !important; border-color: var(--one-red-hover) !important;
-}
-div.stDownloadButton > button, div.stDownloadButton > a {
-  background-color: var(--one-red) !important; color: #fff !important; border: 1px solid var(--one-red) !important; border-radius: 6px !important; text-decoration: none !important;
-}
-div.stDownloadButton > button:hover, div.stDownloadButton > a:hover {
-  background-color: var(--one-red-hover) !important; border-color: var(--one-red-hover) !important; color: #fff !important;
-}
-</style>
-"""
-st.markdown(CSS_ACTION_BUTTONS, unsafe_allow_html=True)
-st.markdown("<style>div[data-testid='stContainer'] > div:has(> .stSlider) { padding-bottom: .25rem; }</style>", unsafe_allow_html=True)
 
 # Benötigte Inputs je Analyse
 needs_embeddings_or_related = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
@@ -625,7 +659,7 @@ if needs_gsc:
 
 # Getrennte Start-Buttons für A1 & A2
 st.markdown("---")
-start_cols = st.columns(3)
+start_cols = st.columns(4)
 run_clicked_a1 = run_clicked_a2 = False
 
 if A1_NAME in selected_analyses:
@@ -635,6 +669,9 @@ if A1_NAME in selected_analyses:
 if A2_NAME in selected_analyses:
     with start_cols[1]:
         run_clicked_a2 = st.button("Let's Go (Analyse 2)", type="secondary", key="btn_a2")
+
+# A3 eigener Button kommt später im A3-Block
+# A4 eigener Button kommt im A4-Block
 
 # Kompatibilität: gemeinsame Vorverarbeitung triggern, wenn einer der beiden startet
 run_clicked = bool(run_clicked_a1 or run_clicked_a2)
@@ -888,6 +925,9 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
         related_map.setdefault(urlB, []).append((urlA, sim))
         processed_pairs.add(pair_key)
 
+    # PERSIST RELATED MAP für A3
+    st.session_state["_related_map"] = related_map
+
     # Linkpotenzial (Quelle)
     source_potential_map: Dict[str, float] = {}
     for u, m in metrics_map.items():
@@ -903,6 +943,7 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
         final_score = (w_ils * norm_ils) + (w_pr * norm_pr) + (w_bl * norm_bl) + (w_rd * norm_rd)
         source_potential_map[u] = round(final_score, 4)
 
+    # Persistente Maps für A3/A4
     st.session_state["_source_potential_map"] = source_potential_map
     st.session_state["_metrics_map"] = metrics_map
     st.session_state["_backlink_map"] = backlink_map
@@ -913,6 +954,11 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
         "rd":  (min_rd,  max_rd),
         "bl_log": (lo_bl_log, hi_bl_log),
         "rd_log": (lo_rd_log, hi_rd_log),
+    }
+    # Inlink-Counts je URL (für Mauerblümchen in A3)
+    st.session_state["_inlink_count_map"] = {
+        remember_original(r.iloc[m_url_idx]): _num(r.iloc[m_in_idx])
+        for _, r in metrics_df.iterrows()
     }
 
     # ===============================
@@ -1001,6 +1047,11 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
     if st.session_state.get("__show_a2__", False):
         st.markdown("## Analyse 2: Potenziell zu entfernende Links")
         st.caption("Diese Analyse legt bestehende Links zwischen semantisch nicht stark verwandten URLs offen.")
+
+        # A2-Settings aus Sidebar-State lesen (da nur dort gerendert)
+        not_similar_threshold = float(st.session_state.get("a2_not_sim", 0.60))
+        backlink_weight_2x = bool(st.session_state.get("a2_weight2x", False))
+
         # Similarity-Map
         sim_map: Dict[Tuple[str, str], float] = {}
         processed_pairs2 = set()
@@ -1125,31 +1176,11 @@ if A3_NAME in selected_analyses:
     st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
     st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
-    if st.session_state.get("__gems_loading__", False):
-        ph3 = st.session_state.get("__gems_ph__")
-        if ph3 is None:
-            ph3 = st.empty()
-            st.session_state["__gems_ph__"] = ph3
-        with ph3.container():
-            c1, c2, c3 = st.columns([1, 2, 1])
-            with c2:
-                try:
-                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif", width=280)
-                except Exception:
-                    st.write("⏳")
-                st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
-
-    with st.expander("Erklärung: Wie werden Gems & Zielseiten bestimmt?", expanded=False):
-        st.markdown('''
-**Kurz & klar:** Gems = Top-Linkgeber nach Linkpotenzial. Ziele = thematisch nahe URLs ohne Content-Link vom Gem.
-PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Sprungbrett-URLs (Position) und Mauerblümchen zusammen.
-''')
-
-       # --- A3: Steuer-UI (mit eindeutigen Keys) ---
+    # --- Steuer-UI (im Hauptbereich) ---
     gem_pct = st.slider("Anteil starker Linkgeber (Top-X %)", 1, 30, 10, step=1, key="a3_gem_pct")
     max_targets_per_gem = st.number_input("Top-Ziele je Gem", min_value=1, max_value=50, value=10, step=1, key="a3_max_targets")
 
-    # GSC Upload (A3)
+    # GSC Upload (optional für A3)
     gsc_up = st.file_uploader("Search Console Daten (CSV/Excel)", type=["csv","xlsx","xlsm","xls"], key="a3_gsc_up")
 
     st.markdown("#### Linkbedarf-Gewichtung für Zielseiten")
@@ -1165,7 +1196,6 @@ PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Spru
     with col3:
         with bordered_container():
             st.markdown("Gewicht: **Sprungbrett-URLs**")
-            # wird unten durch tatsächliche Pos-Daten entschieden – hier nur UI
             w_rank = st.slider("", 0.0, 1.0, 0.30, 0.05, key="a3_w_rank")
             st.caption("Sprungbrett-URLs – Feineinstellung")
             rank_minmax = st.slider("Ranking Sprungbrett-URL (Positionsbereich)", 1, 50, (8, 20), 1, key="a3_rank_minmax")
@@ -1184,7 +1214,6 @@ PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Spru
             key="a3_offpage_beta"
         )
 
-
     with st.expander("Reihenfolge der Empfehlungen - *OPTIONAL*", expanded=False):
         sort_labels = {"rank_mix":"Mix (Nähe & Linkbedarf kombiniert)","prio_only":"Nur Linkbedarf","sim_only":"Nur inhaltliche Nähe"}
         sort_choice = st.radio("Sortierung", options=["rank_mix","prio_only","sim_only"],
@@ -1198,220 +1227,232 @@ PRIO setzt sich aus Hidden Champions (Impressions), Semantische Linklücke, Spru
         st.session_state["__ready_gems__"] = False
         st.rerun()
 
+    # Loader
+    if st.session_state.get("__gems_loading__", False):
+        ph3 = st.session_state.get("__gems_ph__")
+        if ph3 is None:
+            ph3 = st.empty()
+            st.session_state["__gems_ph__"] = ph3
+        with ph3.container():
+            c1, c2, c3 = st.columns([1, 2, 1])
+            with c2:
+                try:
+                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif", width=280)
+                except Exception:
+                    st.write("⏳")
+                st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+
     # ====== Analyse 3: Berechnung & Ausgabe ======
+    # Datenabhängigkeiten prüfen
+    source_potential_map = st.session_state.get("_source_potential_map")
+    related_map = st.session_state.get("_related_map")
+    content_links = st.session_state.get("_content_links")
+    all_links = st.session_state.get("_all_links")
 
-# Schutz: notwendige Datenstrukturen prüfen
-if not isinstance(st.session_state.get("_source_potential_map"), dict):
-    st.warning("Für Analyse 3 werden Daten aus Analyse 1/2 (Linkmetriken/Backlinks/Inlinks) benötigt. Bitte zunächst A1 oder A2 einmal ausführen.")
-else:
-    source_potential_map = st.session_state["_source_potential_map"]
-    content_links = st.session_state.get("_content_links", set())
-    all_links = st.session_state.get("_all_links", set())
+    if not (isinstance(source_potential_map, dict) and isinstance(related_map, dict) and isinstance(content_links, set) and isinstance(all_links, set)):
+        st.info("Für Analyse 3 werden die vorbereiteten Daten benötigt (Linkmetriken/Backlinks/Inlinks & Related). Bitte zuvor Analyse 1 oder 2 einmal laufen lassen.")
+    else:
+        # GSC (optional) laden und aggregieren
+        gsc_df_a3 = None
+        if gsc_up is not None:
+            gsc_df_a3 = read_any_file_cached(getattr(gsc_up, "name", ""), gsc_up.getvalue())
+            # Für A4 bereitstellen
+            st.session_state["__gsc_df_raw__"] = gsc_df_a3
 
-    # Gems bestimmen (Top-X % nach Linkpotenzial)
-    n_sources = len(source_potential_map)
-    n_gems = max(1, int(math.ceil(gem_pct / 100.0 * n_sources)))
-    gems = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)[:n_gems]
-    gem_set = {g for g, _ in gems}
+        def _norm_header_local(s: str) -> str:
+            return _norm_header(s)
 
-    # GSC (optional) laden und aggregieren: Impressions / Clicks / Position pro URL
-    gsc_df_a3 = None
-    url_idx = impr_idx = clicks_idx = pos_idx = None
-    if gsc_up is not None:
-        gsc_df_a3 = read_any_file_cached(getattr(gsc_up, "name", ""), gsc_up.getvalue())
-    if isinstance(gsc_df_a3, pd.DataFrame) and not gsc_df_a3.empty:
-        df = gsc_df_a3.copy()
-        df.columns = [str(c).strip() for c in df.columns]
-        hdr = [_norm_header(c) for c in df.columns]
-        def _fidx(names, default=None):
-            names = {_norm_header(x) for x in names}
-            for i, h in enumerate(hdr):
-                if h in names:
-                    return i
-            for i, h in enumerate(hdr):
-                if any(n in h for n in names):
-                    return i
-            return default
-        url_idx   = _fidx({"url","page","seite","landingpage"}, 0)
-        impr_idx  = _fidx({"impressions","impr","impressionen"}, None)
-        clicks_idx= _fidx({"clicks","klicks"}, None)
-        pos_idx   = _fidx({"position","avg position","durchschn. position"}, None)
-        if url_idx is not None:
-            df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
-            if impr_idx is not None:
-                df.iloc[:, impr_idx] = pd.to_numeric(df.iloc[:, impr_idx], errors="coerce").fillna(0)
-            if clicks_idx is not None:
-                df.iloc[:, clicks_idx] = pd.to_numeric(df.iloc[:, clicks_idx], errors="coerce").fillna(0)
-            if pos_idx is not None:
-                df.iloc[:, pos_idx] = pd.to_numeric(df.iloc[:, pos_idx], errors="coerce")
-            gsc_agg = df.groupby(df.columns[url_idx]).agg({
-                (df.columns[impr_idx] if impr_idx is not None else df.columns[url_idx]): ("sum" if impr_idx is not None else "size"),
-                **({df.columns[clicks_idx]: "sum"} if clicks_idx is not None else {}),
-                **({df.columns[pos_idx]: "mean"} if pos_idx is not None else {})
-            })
-            gsc_agg.columns = [("impressions" if impr_idx is not None else "count"),
-                               *([ "clicks"] if clicks_idx is not None else []),
-                               *([ "position"] if pos_idx is not None else [])]
-            gsc_agg = gsc_agg.reset_index(names="url")
+        if isinstance(gsc_df_a3, pd.DataFrame) and not gsc_df_a3.empty:
+            df = gsc_df_a3.copy()
+            df.columns = [str(c).strip() for c in df.columns]
+            hdr = [_norm_header_local(c) for c in df.columns]
+
+            def _fidx(names, default=None):
+                names = {_norm_header_local(x) for x in names}
+                for i, h in enumerate(hdr):
+                    if h in names: return i
+                for i, h in enumerate(hdr):
+                    if any(n in h for n in names): return i
+                return default
+
+            url_idx   = _fidx({"url","page","seite","landingpage"}, 0)
+            impr_idx  = _fidx({"impressions","impr","impressionen"}, None)
+            clicks_idx= _fidx({"clicks","klicks"}, None)
+            pos_idx   = _fidx({"position","avg position","durchschn. position"}, None)
+
+            if url_idx is not None:
+                df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
+                if impr_idx is not None:
+                    df.iloc[:, impr_idx] = pd.to_numeric(df.iloc[:, impr_idx], errors="coerce").fillna(0)
+                if clicks_idx is not None:
+                    df.iloc[:, clicks_idx] = pd.to_numeric(df.iloc[:, clicks_idx], errors="coerce").fillna(0)
+                if pos_idx is not None:
+                    df.iloc[:, pos_idx] = pd.to_numeric(df.iloc[:, pos_idx], errors="coerce")
+
+                gsc_agg = df.groupby(df.columns[url_idx]).agg({
+                    (df.columns[impr_idx] if impr_idx is not None else df.columns[url_idx]): ("sum" if impr_idx is not None else "size"),
+                    **({df.columns[clicks_idx]: "sum"} if clicks_idx is not None else {}),
+                    **({df.columns[pos_idx]: "mean"} if pos_idx is not None else {})
+                })
+                gsc_agg.columns = [("impressions" if impr_idx is not None else "count"),
+                                   *([ "clicks"] if clicks_idx is not None else []),
+                                   *([ "position"] if pos_idx is not None else [])]
+                gsc_agg = gsc_agg.reset_index(names="url")
+            else:
+                gsc_agg = pd.DataFrame(columns=["url","impressions","clicks","position"])
         else:
             gsc_agg = pd.DataFrame(columns=["url","impressions","clicks","position"])
-    else:
-        gsc_agg = pd.DataFrame(columns=["url","impressions","clicks","position"])
 
-    # Hilfs-Maps
-    gsc_impr_map = {r["url"]: float(r.get("impressions", 0.0)) for _, r in gsc_agg.iterrows()} if "impressions" in gsc_agg.columns else {}
-    gsc_pos_map  = {r["url"]: float(r.get("position", np.nan)) for _, r in gsc_agg.iterrows()} if "position" in gsc_agg.columns else {}
+        # Hilfs-Maps
+        gsc_impr_map = {r["url"]: float(r.get("impressions", 0.0)) for _, r in gsc_agg.iterrows()} if "impressions" in gsc_agg.columns else {}
+        gsc_pos_map  = {r["url"]: float(r.get("position", np.nan)) for _, r in gsc_agg.iterrows()} if "position" in gsc_agg.columns else {}
 
-    # Inlink-Counts je URL (für Mauerblümchen)
-    inlink_count_map: Dict[str, float] = {}
-    try:
-        # Wir haben m_in_idx/m_url_idx und metrics_df noch im Scope der Vorverarbeitung
-        for _, r in metrics_df.iterrows():
-            u = remember_original(r.iloc[m_url_idx])
-            in_c = _num(r.iloc[m_in_idx])
-            inlink_count_map[u] = in_c
-    except Exception:
-        pass
+        # Inlink-Counts je URL (für Mauerblümchen)
+        inlink_count_map = st.session_state.get("_inlink_count_map", {})
 
-    # Offpage-Infos (für Dämpfung)
-    backlink_map = st.session_state.get("_backlink_map", {})
-    bl_vals  = [d.get("backlinks", 0.0) for d in backlink_map.values()]
-    rd_vals  = [d.get("referringDomains", 0.0) for d in backlink_map.values()]
-    bl_log   = np.asarray([np.log1p(max(0.0, float(v))) for v in bl_vals], dtype=float)
-    rd_log   = np.asarray([np.log1p(max(0.0, float(v))) for v in rd_vals], dtype=float)
-    lo_bl, hi_bl = robust_range(bl_log, 0.05, 0.95) if bl_log.size else (0.0, 1.0)
-    lo_rd, hi_rd = robust_range(rd_log, 0.05, 0.95) if rd_log.size else (0.0, 1.0)
+        # Offpage-Infos (für Dämpfung)
+        backlink_map = st.session_state.get("_backlink_map", {})
+        bl_vals  = [d.get("backlinks", 0.0) for d in backlink_map.values()]
+        rd_vals  = [d.get("referringDomains", 0.0) for d in backlink_map.values()]
+        bl_log   = np.asarray([np.log1p(max(0.0, float(v))) for v in bl_vals], dtype=float)
+        rd_log   = np.asarray([np.log1p(max(0.0, float(v))) for v in rd_vals], dtype=float)
+        lo_bl, hi_bl = robust_range(bl_log, 0.05, 0.95) if bl_log.size else (0.0, 1.0)
+        lo_rd, hi_rd = robust_range(rd_log, 0.05, 0.95) if rd_log.size else (0.0, 1.0)
 
-    def _offpage_norm(u: str) -> float:
-        d = backlink_map.get(u, {"backlinks":0.0,"referringDomains":0.0})
-        bln = robust_norm(np.log1p(_num(d.get("backlinks",0.0))), lo_bl, hi_bl)
-        rdn = robust_norm(np.log1p(_num(d.get("referringDomains",0.0))), lo_rd, hi_rd)
-        return 0.5*bln + 0.5*rdn
+        def _offpage_norm(u: str) -> float:
+            d = backlink_map.get(u, {"backlinks":0.0,"referringDomains":0.0})
+            bln = robust_norm(np.log1p(_num(d.get("backlinks",0.0))), lo_bl, hi_bl)
+            rdn = robust_norm(np.log1p(_num(d.get("referringDomains",0.0))), lo_rd, hi_rd)
+            return 0.5*bln + 0.5*rdn
 
-    # Kandidaten erzeugen: Für jeden Gem alle semantisch nahen Ziele ohne bestehenden Content-Link
-    rows = []
-    for gem, gem_pot in gems:
-        cand = related_map.get(gem, [])
-        if not cand:
-            continue
-        # Normalisierung der Similarity auf Kandidatenebene
-        sim_vals = np.asarray([float(s) for _, s in cand], dtype=float)
-        s_lo, s_hi = robust_range(sim_vals, 0.05, 0.95) if sim_vals.size else (0.0, 1.0)
+        # Gems bestimmen (Top-X % nach Linkpotenzial)
+        n_sources = len(source_potential_map)
+        n_gems = max(1, int(math.ceil(gem_pct / 100.0 * n_sources)))
+        gems = sorted(source_potential_map.items(), key=lambda x: x[1], reverse=True)[:n_gems]
+        gem_set = {g for g, _ in gems}
 
-        for target, sim in cand:
-            # nur fehlende Content-Links (Empfehlungen = noch nicht gesetzte Content-Links)
-            if (gem, target) in content_links:
+        # Kandidaten erzeugen: Für jeden Gem alle semantisch nahen Ziele ohne bestehenden Content-Link
+        rows = []
+        for gem, gem_pot in gems:
+            cand = related_map.get(gem, [])
+            if not cand:
                 continue
+            # Normalisierung der Similarity auf Kandidatenebene
+            sim_vals = np.asarray([float(s) for _, s in cand], dtype=float)
+            s_lo, s_hi = robust_range(sim_vals, 0.05, 0.95) if sim_vals.size else (0.0, 1.0)
 
-            sim_norm = robust_norm(float(sim), s_lo, s_hi)
+            for target, sim in cand:
+                # nur fehlende Content-Links (Empfehlungen = noch nicht gesetzte Content-Links)
+                if (gem, target) in content_links:
+                    continue
 
-            # Hidden Champions (nur wenn GSC Impressions vorhanden)
-            hid_raw = gsc_impr_map.get(target, 0.0)
-            # globale Norm über alle URLs mit Impressions
-            if len(gsc_impr_map) > 0:
-                impr_arr = np.asarray(list(gsc_impr_map.values()), dtype=float)
-                i_lo, i_hi = robust_range(impr_arr, 0.05, 0.95)
-                hid_norm = robust_norm(hid_raw, i_lo, i_hi)
-            else:
-                hid_norm = 0.0
+                sim_norm = robust_norm(float(sim), s_lo, s_hi)
 
-            # Sprungbrett-URLs (nur wenn Position vorhanden), Score 1 wenn in Range, sonst sanfte Abnahme
-            if target in gsc_pos_map and not pd.isna(gsc_pos_map[target]):
-                pos = float(gsc_pos_map[target])
-                lo_pos, hi_pos = rank_minmax
-                if lo_pos <= pos <= hi_pos:
-                    rank_norm = 1.0
+                # Hidden Champions (nur wenn GSC Impressions vorhanden)
+                hid_raw = gsc_impr_map.get(target, 0.0)
+                if len(gsc_impr_map) > 0:
+                    impr_arr = np.asarray(list(gsc_impr_map.values()), dtype=float)
+                    i_lo, i_hi = robust_range(impr_arr, 0.05, 0.95)
+                    hid_norm = robust_norm(hid_raw, i_lo, i_hi)
                 else:
-                    # weiche Abwertung basierend auf Distanz zum Intervall
-                    if pos < lo_pos:
-                        dist = lo_pos - pos
+                    hid_norm = 0.0
+
+                # Sprungbrett-URLs (nur wenn Position vorhanden)
+                if target in gsc_pos_map and not pd.isna(gsc_pos_map[target]):
+                    pos = float(gsc_pos_map[target])
+                    lo_pos, hi_pos = rank_minmax
+                    if lo_pos <= pos <= hi_pos:
+                        rank_norm = 1.0
                     else:
-                        dist = pos - hi_pos
-                    rank_norm = max(0.0, 1.0 - (dist / max(1.0, hi_pos)))
-            else:
-                rank_norm = 0.0
+                        if pos < lo_pos:
+                            dist = lo_pos - pos
+                        else:
+                            dist = pos - hi_pos
+                        rank_norm = max(0.0, 1.0 - (dist / max(1.0, hi_pos)))
+                else:
+                    rank_norm = 0.0
 
-            # Mauerblümchen (Thin: wenige Inlinks)
-            in_c = inlink_count_map.get(target, 0.0)
-            orph_norm = 1.0 if in_c <= float(thin_k) else 0.0
+                # Mauerblümchen (Thin: wenige Inlinks)
+                in_c = inlink_count_map.get(target, 0.0)
+                orph_norm = 1.0 if in_c <= float(thin_k) else 0.0
 
-            # PRIO (Linkbedarf)
-            prio = (w_def * sim_norm) + (w_lihd * hid_norm) + (w_rank * rank_norm) + (w_orph * orph_norm)
+                # PRIO (Linkbedarf)
+                prio = (w_def * sim_norm) + (w_lihd * hid_norm) + (w_rank * rank_norm) + (w_orph * orph_norm)
 
-            # Offpage-Dämpfung
-            if offpage_damp_enabled:
-                off_n = _offpage_norm(target)
-                prio = prio * (1.0 - beta_offpage * off_n)
+                # Offpage-Dämpfung
+                if offpage_damp_enabled:
+                    off_n = _offpage_norm(target)
+                    prio = prio * (1.0 - beta_offpage * off_n)
 
-            # Sortier-Score
-            if sort_choice == "prio_only":
-                sort_score = prio
-            elif sort_choice == "sim_only":
-                sort_score = sim_norm
-            else:  # rank_mix
-                sort_score = alpha_mix * sim_norm + (1.0 - alpha_mix) * prio
+                # Sortier-Score
+                if sort_choice == "prio_only":
+                    sort_score = prio
+                elif sort_choice == "sim_only":
+                    sort_score = sim_norm
+                else:  # rank_mix
+                    sort_score = alpha_mix * sim_norm + (1.0 - alpha_mix) * prio
 
-            rows.append({
-                "Gem": disp(gem),
-                "Gem (normiert)": gem,
-                "Gem-Linkpotenzial": float(gem_pot),
-                "Ziel-URL": disp(target),
-                "Ziel (normiert)": target,
-                "Ähnlichkeit": float(sim),
-                "Ähnlichkeit (norm)": float(sim_norm),
-                "HiddenChamp (norm)": float(hid_norm),
-                "Sprungbrett (norm)": float(rank_norm),
-                "Mauerblümchen (norm)": float(orph_norm),
-                "PRIO (Linkbedarf)": float(prio),
-                "SortScore": float(sort_score),
-            })
+                rows.append({
+                    "Gem": disp(gem),
+                    "Gem (normiert)": gem,
+                    "Gem-Linkpotenzial": float(gem_pot),
+                    "Ziel-URL": disp(target),
+                    "Ziel (normiert)": target,
+                    "Ähnlichkeit": float(sim),
+                    "Ähnlichkeit (norm)": float(sim_norm),
+                    "HiddenChamp (norm)": float(hid_norm),
+                    "Sprungbrett (norm)": float(rank_norm),
+                    "Mauerblümchen (norm)": float(orph_norm),
+                    "PRIO (Linkbedarf)": float(prio),
+                    "SortScore": float(sort_score),
+                })
 
-    rec_df = pd.DataFrame(rows)
-    if rec_df.empty:
-        st.info("Keine Empfehlungen gefunden (ggf. sind für die Gems bereits Content-Links gesetzt oder es fehlen Related-URL-Daten).")
-    else:
-        # Top-Ziele je Gem begrenzen & sortieren
-        rec_df = rec_df.sort_values(["Gem (normiert)", "SortScore"], ascending=[True, False])
-        rec_df["Rang (Gem)"] = rec_df.groupby("Gem (normiert)")["SortScore"].rank(method="first", ascending=False).astype(int)
-        rec_df = rec_df[rec_df["Rang (Gem)"] <= int(max_targets_per_gem)]
+        rec_df = pd.DataFrame(rows)
+        if rec_df.empty:
+            st.info("Keine Empfehlungen gefunden (ggf. sind für die Gems bereits Content-Links gesetzt oder es fehlen Related-URL-Daten).")
+        else:
+            # Top-Ziele je Gem begrenzen & sortieren
+            rec_df = rec_df.sort_values(["Gem (normiert)", "SortScore"], ascending=[True, False])
+            rec_df["Rang (Gem)"] = rec_df.groupby("Gem (normiert)")["SortScore"].rank(method="first", ascending=False).astype(int)
+            rec_df = rec_df[rec_df["Rang (Gem)"] <= int(max_targets_per_gem)]
 
-        # Gesamt-Ansicht
-        view_cols = [
-            "Gem","Gem-Linkpotenzial","Ziel-URL","Ähnlichkeit","PRIO (Linkbedarf)",
-            "HiddenChamp (norm)","Sprungbrett (norm)","Mauerblümchen (norm)","Rang (Gem)"
-        ]
-        st.markdown("### Empfehlungen (gesamt)")
-        st.dataframe(rec_df[view_cols].sort_values(["Gem","Rang (Gem)"]), use_container_width=True, hide_index=True)
+            # Gesamt-Ansicht
+            view_cols = [
+                "Gem","Gem-Linkpotenzial","Ziel-URL","Ähnlichkeit","PRIO (Linkbedarf)",
+                "HiddenChamp (norm)","Sprungbrett (norm)","Mauerblümchen (norm)","Rang (Gem)"
+            ]
+            st.markdown("### Empfehlungen (gesamt)")
+            st.dataframe(rec_df[view_cols].sort_values(["Gem","Rang (Gem)"]), use_container_width=True, hide_index=True)
 
-        # Download (CSV + XLSX)
-        csv_bytes = rec_df[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_csv(index=False).encode("utf-8-sig")
-        st.download_button("Download Empfehlungen (CSV)", data=csv_bytes, file_name="analyse3_empfehlungen.csv", mime="text/csv", key="a3_dl_csv")
+            # Download (CSV + XLSX)
+            csv_bytes = rec_df[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_csv(index=False).encode("utf-8-sig")
+            st.download_button("Download Empfehlungen (CSV)", data=csv_bytes, file_name="analyse3_empfehlungen.csv", mime="text/csv", key="a3_dl_csv")
 
-        try:
-            bio = io.BytesIO()
-            with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
-                # Gesamt
-                rec_df[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_excel(xw, index=False, sheet_name="Gesamt")
-                # Pro Gem
-                for gem_name, grp in rec_df.groupby("Gem", sort=False):
-                    sheet = re.sub(r"[^A-Za-z0-9]+", "_", gem_name)[:31] or "Gem"
-                    grp[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_excel(xw, index=False, sheet_name=sheet)
-            bio.seek(0)
-            st.download_button("Download Empfehlungen (XLSX)", data=bio.getvalue(),
-                               file_name="analyse3_empfehlungen.xlsx",
-                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="a3_dl_xlsx")
-        except Exception:
-            pass
+            try:
+                bio = io.BytesIO()
+                with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
+                    # Gesamt
+                    rec_df[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_excel(xw, index=False, sheet_name="Gesamt")
+                    # Pro Gem
+                    for gem_name, grp in rec_df.groupby("Gem", sort=False):
+                        sheet = re.sub(r"[^A-Za-z0-9]+", "_", gem_name)[:31] or "Gem"
+                        grp[view_cols + ["Ähnlichkeit (norm)","SortScore"]].to_excel(xw, index=False, sheet_name=sheet)
+                bio.seek(0)
+                st.download_button("Download Empfehlungen (XLSX)", data=bio.getvalue(),
+                                   file_name="analyse3_empfehlungen.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                   key="a3_dl_xlsx")
+            except Exception:
+                pass
 
-        # Kompakte per-Gem Ansicht
-        st.markdown("### Schnellansicht je Gem")
-        for gem_name, grp in rec_df.groupby("Gem", sort=False):
-            with st.expander(f"Empfehlungen für: {gem_name}", expanded=False):
-                st.dataframe(
-                    grp[view_cols].sort_values("Rang (Gem)"),
-                    use_container_width=True, hide_index=True
-                )
+            # Kompakte per-Gem Ansicht
+            st.markdown("### Schnellansicht je Gem")
+            for gem_name, grp in rec_df.groupby("Gem", sort=False):
+                with st.expander(f"Empfehlungen für: {gem_name}", expanded=False):
+                    st.dataframe(
+                        grp[view_cols].sort_values("Rang (Gem)"),
+                        use_container_width=True, hide_index=True
+                    )
 
     # Status-Flags
     st.session_state["__gems_loading__"] = False
@@ -1423,9 +1464,6 @@ else:
     except Exception:
         pass
 
-
-
-
 # =========================================================
 # Analyse 4: Anchor & Query Intelligence (Embeddings)
 # =========================================================
@@ -1436,68 +1474,15 @@ if A4_NAME in selected_analyses:
     st.caption("Verknüpft Suchanfragen, Ankertexte und Zielseiten via Embeddings. Findet Over-Anchors, fehlende Query-Anchors, Leader-Konflikte und nicht verlinkte Ziel-Keywords.")
 
     # -----------------------------
-    # Uploads und Parameter (Hauptbereich)
+    # Uploads (Hauptbereich) – Settings kommen aus Sidebar
     # -----------------------------
     st.markdown("#### Uploads")
-    gsc_up_a4 = st.file_uploader("Search Console: URL | Query | Clicks | Impressions", type=["csv","xlsx","xlsm","xls"], key="a4_gsc_up")
+    gsc_up_a4 = st.file_uploader("Search Console: URL | Query | Clicks | Impressions", type=["csv","xlsx","xlsm","xls"], key="a4_gsc_up_main")
     kwmap_up  = st.file_uploader("Keyword-Zielvorgaben: URL + Keyword-Spalten", type=["csv","xlsx","xlsm","xls"], key="a4_kwmap_up")
-
-    st.markdown("#### Brand-Handling")
-    col_b1, col_b2 = st.columns([2,1])
-    with col_b1:
-        brand_text = st.text_area("Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="")
-    with col_b2:
-        brand_file = st.file_uploader("Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file")
-    auto_variants = st.checkbox("Automatisch Varianten erzeugen (z. B. „bora kochfeld“, „bora-kochfeld“)", value=True)
-    head_nouns_text = st.text_input("Head-Nomen (kommagetrennt, editierbar)", value="kochfeld, kochfeldabzug, system, kochfelder")
-    brand_mode = st.radio("Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"], index=0, horizontal=True)
-
-    st.markdown("#### Matching")
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        metric_choice = st.radio("GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True)
-    with col_m2:
-        check_exact = st.checkbox("Exact Match prüfen", value=True)
-    with col_m3:
-        check_embed = st.checkbox("Embedding Match prüfen", value=True)
-
-    col_e1, col_e2 = st.columns(2)
-    with col_e1:
-        embed_model_name = st.selectbox(
-            "Embedding-Modell",
-            ["sentence-transformers/all-MiniLM-L6-v2",
-             "sentence-transformers/all-MiniLM-L12-v2",
-             "sentence-transformers/all-mpnet-base-v2"],
-            index=0,
-            help="Standard: all-MiniLM-L6-v2"
-        )
-    with col_e2:
-        embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01)
-
-    st.markdown("#### Schwellen & Filter")
-    col_s1, col_s2, col_s3 = st.columns(3)
-    with col_s1:
-        min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10)
-    with col_s2:
-        min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50)
-    with col_s3:
-        topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1)
-
-    col_o1, col_o2 = st.columns(2)
-    with col_o1:
-        top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10)
-    with col_o2:
-        top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1)
-
-    st.markdown("#### Visualisierung")
-    show_treemap = st.checkbox("Treemap-Visualisierung aktivieren", value=True)
-    treemap_topK = st.number_input("Treemap: Top-K Anchors anzeigen", min_value=3, max_value=50, value=12, step=1)
 
     st.divider()
 
-    # ----------------------------------------
     # Start-Button (manuelle Berechnung starten)
-    # ----------------------------------------
     run_a4 = st.button("Let's Go (Analyse 4)", type="secondary", key="btn_a4")
     if run_a4:
         st.session_state["__a4_loading__"] = True
@@ -1520,8 +1505,30 @@ if A4_NAME in selected_analyses:
                 st.caption("Analyse 4 läuft … gleich geht’s los!")
 
     # -------------------------------------------------
-    # Ab hier: komplette A4-Auswertung (ohne Sidebar)
+    # Ab hier: komplette A4-Auswertung
     # -------------------------------------------------
+
+    # Sidebar-Settings holen
+    brand_text = st.session_state.get("a4_brand_text", "")
+    brand_file = st.session_state.get("a4_brand_file", None)
+    auto_variants = st.session_state.get("a4_auto_variants", True)
+    head_nouns_text = st.session_state.get("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
+    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+
+    metric_choice = st.session_state.get("a4_metric_choice", "Impressions")
+    check_exact = bool(st.session_state.get("a4_check_exact", True))
+    check_embed = bool(st.session_state.get("a4_check_embed", True))
+    embed_model_name = st.session_state.get("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+    embed_thresh = float(st.session_state.get("a4_embed_thresh", 0.75))
+
+    min_clicks = int(st.session_state.get("a4_min_clicks", 50))
+    min_impr = int(st.session_state.get("a4_min_impr", 500))
+    topN_default = int(st.session_state.get("a4_topN", 10))
+    top_anchor_abs = int(st.session_state.get("a4_top_anchor_abs", 200))
+    top_anchor_share = int(st.session_state.get("a4_top_anchor_share", 60))
+
+    show_treemap = bool(st.session_state.get("a4_show_treemap", True))
+    treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
 
     # ---- Helper: Brand-Liste bauen ----
     def split_list_text(s: str) -> List[str]:
@@ -1535,10 +1542,13 @@ if A4_NAME in selected_analyses:
                     arr.append(v)
         return arr
 
-    def read_single_col_file(up) -> List[str]:
-        if up is None:
+    def read_single_col_file_obj(up_obj) -> List[str]:
+        if up_obj is None:
             return []
-        df = read_any_file_cached(getattr(up, "name", ""), up.getvalue())
+        try:
+            df = read_any_file_cached(getattr(up_obj, "name", ""), up_obj.getvalue())
+        except Exception:
+            return []
         if df is None or df.empty:
             return []
         col = df.columns[0]
@@ -1565,7 +1575,7 @@ if A4_NAME in selected_analyses:
         return sorted(base)
 
     brand_list = split_list_text(brand_text)
-    brand_list += read_single_col_file(brand_file)
+    brand_list += read_single_col_file_obj(brand_file)
     brand_list = sorted({b.strip() for b in brand_list if b.strip()})
     head_nouns = [x.strip() for x in head_nouns_text.split(",") if x.strip()]
     brand_all_terms = make_brand_variants(brand_list, head_nouns, auto_variants)
@@ -1585,6 +1595,17 @@ if A4_NAME in selected_analyses:
         return (anchor or "").strip().lower() in NAVIGATIONAL_ANCHORS
 
     # ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
+    if 'inlinks_df' not in locals() or inlinks_df is None:
+        st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
+        st.stop()
+
+    header = [str(c).strip() for c in inlinks_df.columns]
+    src_idx = find_column_index(header, POSSIBLE_SOURCE)
+    dst_idx = find_column_index(header, POSSIBLE_TARGET)
+    if src_idx == -1 or dst_idx == -1:
+        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
+        st.stop()
+
     def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
         rows = []
         hdr = [str(c).strip() for c in df.columns]
@@ -1609,21 +1630,6 @@ if A4_NAME in selected_analyses:
         agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
         return agg
 
-    # --- Indizes aus bereits geladenen A1/A2-Inputs übernehmen ---
-    # Falls A1/A2 nicht liefen, brauchen wir die Spaltenindizes für All Inlinks neu:
-    if "header" in locals():
-        pass  # bereits gesetzt
-    else:
-        if 'inlinks_df' not in locals() or inlinks_df is None:
-            st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
-            st.stop()
-        header = [str(c).strip() for c in inlinks_df.columns]
-        src_idx = find_column_index(header, POSSIBLE_SOURCE)
-        dst_idx = find_column_index(header, POSSIBLE_TARGET)
-        if src_idx == -1 or dst_idx == -1:
-            st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
-            st.stop()
-
     anchor_inv = extract_anchor_inventory(inlinks_df)
 
     # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
@@ -1637,11 +1643,9 @@ if A4_NAME in selected_analyses:
         over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
 
     # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
-    gsc_df = None
-    if "gsc_df_cache_for_a4" not in st.session_state:
-        st.session_state["gsc_df_cache_for_a4"] = None
     if gsc_up_a4 is not None:
         gsc_df = read_any_file_cached(getattr(gsc_up_a4, "name", ""), gsc_up_a4.getvalue())
+        st.session_state["__gsc_df_raw__"] = gsc_df
     else:
         gsc_df = st.session_state.get("__gsc_df_raw__", None)
 
@@ -1652,6 +1656,7 @@ if A4_NAME in selected_analyses:
         df = gsc_df.copy()
         df.columns = [str(c).strip() for c in df.columns]
         hdr = [_norm_header(c) for c in df.columns]
+
         def _find_idx(candidates: Iterable[str], default=None):
             cand_norm = {_norm_header(c) for c in candidates}
             for i, h in enumerate(hdr):
@@ -1659,10 +1664,12 @@ if A4_NAME in selected_analyses:
             for i, h in enumerate(hdr):
                 if any(c in h for c in cand_norm): return i
             return default
+
         url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
         q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
         c_i   = _find_idx({"clicks","klicks"}, None)
         im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
+
         if url_i is None or q_i is None or (c_i is None and im_i is None):
             st.warning("GSC-Datei: Spalten URL + Query + (Clicks/Impressions) wurden nicht vollständig erkannt.")
         else:
@@ -1676,11 +1683,11 @@ if A4_NAME in selected_analyses:
             # Brand-Filter
             def brand_filter(row) -> bool:
                 q = str(row.iloc[q_i])
-                is_brand = is_brand_query(q)
+                is_b = is_brand_query(q)
                 if brand_mode == "Nur Non-Brand":
-                    return (not is_brand)
+                    return (not is_b)
                 elif brand_mode == "Nur Brand":
-                    return is_brand
+                    return is_b
                 else:
                     return True
 
@@ -1909,7 +1916,7 @@ if A4_NAME in selected_analyses:
     if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
         st.markdown("### Treemap: Ankerverteilung pro Ziel-URL")
         targets_sorted = sorted(anchor_inv["target"].unique())
-        sel = st.selectbox("Ziel-URL wählen", [disp(t) for t in targets_sorted], index=0)
+        sel = st.selectbox("Ziel-URL wählen", [disp(t) for t in targets_sorted], index=0, key="a4_treemap_sel")
         t_norm = None
         for k, v in st.session_state["_ORIG_MAP"].items():
             if v == sel:
@@ -1994,3 +2001,4 @@ if A4_NAME in selected_analyses:
             ph4.empty()
     except Exception:
         pass
+
