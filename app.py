@@ -656,22 +656,34 @@ with st.sidebar:
                     help="Filtert Search Console Queries nach Brand/Non-Brand bevor die Auswertung startet."
                 )
 
-                # Danach Brand-Schreibweisen
-                brand_text = st.text_area(
-                    "Damit wir Brand-Schreibweisen zuverlässig erkennen können, gib uns hier bitte alle Brand-Schreibweisen mit (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
-                    help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
-                )
-                brand_file = st.file_uploader(
-                    "Optional: Du kannst auch alle Schreibweisen deiner Brand als Liste hochladen (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
-                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-                )
-                auto_variants = st.checkbox(
-                    "Soll das Tool basierend auf deinen Brand-Schreibweisen automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
-                    value=True, key="a4_auto_variants",
-                    help=("Wenn aktiviert, gilt jede Suchanfrage, die die Marke irgendwo enthält (auch mit Bindestrich), "
-                          "als Brand-Query. Wenn deaktiviert, nur exakte Marken-Queries (nur die Marke allein).")
+                # Danach Brand-Schreibweisen – nur zeigen, wenn Brand berücksichtigt wird
+                if brand_mode in ("Nur Brand", "Beides"):
+                    brand_text = st.text_area(
+                        "Damit wir Brand-Schreibweisen zuverlässig erkennen können, gib uns hier bitte alle Brand-Schreibweisen mit (eine pro Zeile oder komma-getrennt)",
+                        value="",
+                        key="a4_brand_text",
+                        help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+                    )
+                    brand_file = st.file_uploader(
+                        "Optional: Du kannst auch alle Schreibweisen deiner Brand als Liste hochladen (1 Spalte)",
+                        type=["csv","xlsx","xlsm","xls"],
+                        key="a4_brand_file",
+                        help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
+                    )
+                    auto_variants = st.checkbox(
+                        "Soll das Tool basierend auf deinen Brand-Schreibweisen automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
+                        value=True,
+                        key="a4_auto_variants",
+                        help=("Wenn aktiviert, gilt jede Suchanfrage, die die Marke irgendwo enthält (auch mit Bindestrich), "
+                              "als Brand-Query. Wenn deaktiviert, nur exakte Marken-Queries (nur die Marke allein).")
+                    )
+                else:
+                    # Defaults setzen, damit die spätere Verarbeitung nicht ins Leere greift
+                    st.session_state["a4_brand_text"] = ""
+                    st.session_state["a4_brand_file"] = None
+                    st.session_state["a4_auto_variants"] = True
+                    st.info("Brand-Schreibweisen sind ausgeblendet, da **Nur Non-Brand** ausgewählt ist.")
 
-                )
                 
                 st.markdown("**Matching**")
                 metric_choice = st.radio(
