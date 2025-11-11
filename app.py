@@ -666,10 +666,12 @@ with st.sidebar:
                     help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
                 )
                 auto_variants = st.checkbox(
-                    "Automatisch Varianten erzeugen (z. B. „marke produkt" / „marke-produkt")",
-                    value=True, key="a4_auto_variants",
+                    'Automatisch Varianten erzeugen (z. B. "marke produkt" / "marke-produkt")',
+                    value=True,
+                    key="a4_auto_variants",
                     help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
                 )
+
                 head_nouns_text = st.text_input(
                     "Head-Nomen (kommagetrennt, editierbar)",
                     value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
