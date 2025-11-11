@@ -619,12 +619,12 @@ with st.sidebar:
                 "Over-Anchor-Check aktivieren", 
                 value=True, 
                 key="a4_enable_over_anchor",
-                help="Analysiert URLs mit zu vielen identischen Ankertexten."
+                help="Im Google Leak gibt es Hinweise darauf, dass ein  und derselbe Ankertext pro URL nur 200 mal gezählt wird. Ab dem 201ten Link mit diesem Ankertext wird der Ankertext ignoriert. Hier analysieren wir, welche Ankertexte mehr als 200 mal für die gleiche URL vorkommen."
             )
             
             if enable_over_anchor:
                 st.markdown("**Over-Anchor-Check**")
-                st.caption("Identifiziert URLs, die zu häufig mit demselben Ankertext verlinkt werden. Dies kann ein Signal für unnatürliche Verlinkung sein.")
+                st.caption("Identifiziert URLs, die mehr als 200 mal mit demselben Ankertext verlinkt werden.")
                 
                 col_o1, col_o2 = st.columns(2)
                 with col_o1:
@@ -639,43 +639,40 @@ with st.sidebar:
             
             # Switch für GSC-Query-Coverage
             enable_gsc_coverage = st.checkbox(
-                "GSC-Query-Coverage bei Ankertexten aktivieren",
+                "Search Console Query Coverage bei Ankertexten aktivieren",
                 value=True,
                 key="a4_enable_gsc_coverage",
-                help="Prüft, ob Top-Queries aus Google Search Console als Ankertexte vorhanden sind."
+                help="Prüft, ob je URL die Top-Queries aus Google Search Console (nach Impressionen oder Klicks) als Ankertexte vorhanden sind."
             )
             
             if enable_gsc_coverage:
-                st.markdown("**GSC-Query-Coverage bei Ankertexten**")
-                st.caption("Vergleicht Top-Queries aus Google Search Console mit vorhandenen Ankertexten und identifiziert fehlende oder falsch verlinkte Queries.")
+                st.markdown("**Search Console Query Coverage bei Ankertexten**")
+                st.caption("Vergleicht Top-Queries aus der Search Console mit vorhandenen Ankertexten und identifiziert fehlende oder falsch verlinkte Queries.")
                 
                 # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
                 brand_mode = st.radio(
-                    "Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"],
+                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?", ["Nur Non-Brand", "Nur Brand", "Beides"],
                     index=0, horizontal=True, key="a4_brand_mode",
-                    help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
+                    help="Filtert Search Console Queries nach Brand/Non-Brand bevor die Auswertung startet."
                 )
 
                 # Danach Brand-Schreibweisen
                 brand_text = st.text_area(
-                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
+                    "Damit wir Brand-Schreibweisen zuverlässig erkennen können, gib uns hier bitte alle Brand-Schreibweisen mit (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
                     help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
                 )
                 brand_file = st.file_uploader(
-                    "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
+                    "Optional: Du kannst auch alle Schreibweisen deiner Brand als Liste hochladen (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
                     help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
                 )
                 auto_variants = st.checkbox(
-                    "Automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
+                    "Soll das Tool basierend auf deinen Brand-Schreibweisen automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
                     value=True, key="a4_auto_variants",
-                    help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
-                )
-                head_nouns_text = st.text_input(
-                    "Head-Nomen (kommagetrennt, editierbar)",
-                    value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
-                    help="Nur relevant, wenn Varianten automatisch erzeugt werden."
-                )
+                    help=("Wenn aktiviert, gilt jede Suchanfrage, die die Marke irgendwo enthält (auch mit Bindestrich), "
+                          "als Brand-Query. Wenn deaktiviert, nur exakte Marken-Queries (nur die Marke allein).")
 
+                )
+                
                 st.markdown("**Matching**")
                 metric_choice = st.radio(
                     "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
@@ -712,7 +709,6 @@ with st.sidebar:
                 st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
                 st.session_state.setdefault("a4_brand_text", "")
                 st.session_state.setdefault("a4_auto_variants", True)
-                st.session_state.setdefault("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
                 st.session_state.setdefault("a4_metric_choice", "Impressions")
                 st.session_state.setdefault("a4_check_exact", True)
                 st.session_state.setdefault("a4_check_embed", True)
@@ -1772,7 +1768,6 @@ if A4_NAME in selected_analyses:
     brand_text = st.session_state.get("a4_brand_text", "")
     brand_file = st.session_state.get("a4_brand_file", None)
     auto_variants = st.session_state.get("a4_auto_variants", True)
-    head_nouns_text = st.session_state.get("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
     brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
 
     metric_choice = st.session_state.get("a4_metric_choice", "Impressions")
@@ -1815,39 +1810,32 @@ if A4_NAME in selected_analyses:
         vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
         return vals
 
-    def make_brand_variants(brands: List[str], nouns: List[str], auto: bool) -> List[str]:
-        base = set()
-        for b in brands:
-            b = b.strip()
-            if not b:
-                continue
-            base.add(b)
-        if auto:
-            out = set(base)
-            for b in base:
-                for n in nouns:
-                    n = n.strip()
-                    if n:
-                        out.add(f"{b} {n}")
-                        out.add(f"{b}-{n}")
-            return sorted(out)
-        return sorted(base)
-
+    # 1) Brand-Liste aus Text + Datei zusammenführen (alles lowercase, ohne Duplikate)
     brand_list = split_list_text(brand_text)
     brand_list += read_single_col_file_obj(brand_file)
-    brand_list = sorted({b.strip() for b in brand_list if b.strip()})
-    head_nouns = [x.strip() for x in head_nouns_text.split(",") if x.strip()]
-    brand_all_terms = make_brand_variants(brand_list, head_nouns, auto_variants)
-
+    brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
+    
+    # 2) Brand-Erkennung abhängig von der Checkbox:
+    #    - auto_variants = True  → Marke irgendwo im String reicht (inkl. Bindestrich-Fälle)
+    #    - auto_variants = False → Nur exakt die Marke allein als Query
     def is_brand_query(q: str) -> bool:
         s = (q or "").lower().strip()
-        if not s:
+        if not s or not brand_list:
             return False
-        tokens = [re.escape(t.lower()) for t in brand_all_terms]
-        if not tokens:
-            return False
-        pat = r"(?:^|[^a-z0-9äöüß])(" + "|".join(tokens) + r")(?:$|[^a-z0-9äöüß])"
+    
+        tokens = [re.escape(t) for t in brand_list]
+    
+        if st.session_state.get("a4_auto_variants", True):
+            # Weite Erkennung: Marke darf irgendwo stehen (Wortgrenzen/Delimiter berücksichtigen)
+            # Beispiele: "fressnapf hundefutter", "bla bla fressnapf", "fressnapf-hundefutter"
+            pat = r"(?:^|[^a-z0-9äöüß])(" + "|".join(tokens) + r")(?:$|[^a-z0-9äöüß])"
+        else:
+            # Enge Erkennung: Nur die Marke alleine
+            # Beispiel: "fressnapf" → ja; "fressnapf hundefutter" → nein
+            pat = r"^\s*(?:" + "|".join(tokens) + r")\s*$"
+    
         return re.search(pat, s, flags=re.IGNORECASE) is not None
+
 
     # Navigative/generische Anchors ausschließen (für Konflikte)
     def is_navigational(anchor: str) -> bool:
