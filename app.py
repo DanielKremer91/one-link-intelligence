@@ -509,6 +509,8 @@ with st.sidebar:
         # A2 – eigene Sektion
         # ----------------
         if A2_NAME in selected_analyses:
+            if len(selected_analyses) > 1:
+                st.markdown("---")
             st.subheader("Einstellungen – A2")
             st.caption("Schwellen & Filter für potenziell unpassende Links")
             not_similar_threshold = st.slider(
@@ -533,6 +535,8 @@ with st.sidebar:
         # A3 – komplette Steuerung in die Sidebar verlegt
         # ----------------
         if A3_NAME in selected_analyses:
+            if len(selected_analyses) > 1:
+                st.markdown("---")
             st.subheader("Einstellungen – A3")
             st.caption("Gems bestimmen, Linkbedarf gewichten, Sortierung steuern.")
 
@@ -603,79 +607,122 @@ with st.sidebar:
                 )
 
         # ----------------
-        # A4 – Sidebar (Reihenfolge angepasst)
+        # A4 – Sidebar (umstrukturiert mit Switches)
         # ----------------
         if A4_NAME in selected_analyses:
+            if len(selected_analyses) > 1:
+                st.markdown("---")
             st.subheader("Einstellungen – A4")
-            st.caption("Brand-/Matching-Optionen, Schwellen & Visualisierung")
-
-            # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
-            brand_mode = st.radio(
-                "Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"],
-                index=0, horizontal=True, key="a4_brand_mode",
-                help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
+            
+            # Switch für Over-Anchor-Check
+            enable_over_anchor = st.checkbox(
+                "Over-Anchor-Check aktivieren", 
+                value=True, 
+                key="a4_enable_over_anchor",
+                help="Analysiert URLs mit zu vielen identischen Ankertexten."
             )
-
-            # Danach Brand-Schreibweisen
-            brand_text = st.text_area(
-                "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
-                help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+            
+            if enable_over_anchor:
+                st.markdown("**Over-Anchor-Check**")
+                st.caption("Identifiziert URLs, die zu häufig mit demselben Ankertext verlinkt werden. Dies kann ein Signal für unnatürliche Verlinkung sein.")
+                
+                col_o1, col_o2 = st.columns(2)
+                with col_o1:
+                    top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10, key="a4_top_anchor_abs",
+                                                     help="Ab wie vielen identischen Ankern eine URL als Over-Anchor-Fall gilt.")
+                with col_o2:
+                    top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1, key="a4_top_anchor_share",
+                                                 help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat.")
+            else:
+                st.session_state.setdefault("a4_top_anchor_abs", 200)
+                st.session_state.setdefault("a4_top_anchor_share", 60)
+            
+            # Switch für GSC-Query-Coverage
+            enable_gsc_coverage = st.checkbox(
+                "GSC-Query-Coverage bei Ankertexten aktivieren",
+                value=True,
+                key="a4_enable_gsc_coverage",
+                help="Prüft, ob Top-Queries aus Google Search Console als Ankertexte vorhanden sind."
             )
-            brand_file = st.file_uploader(
-                "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
-                help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-            )
-            auto_variants = st.checkbox(
-                "Automatisch Varianten erzeugen (z. B. „marke produkt“ / „marke-produkt“)",
-                value=True, key="a4_auto_variants",
-                help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
-            )
-            head_nouns_text = st.text_input(
-                "Head-Nomen (kommagetrennt, editierbar)",
-                value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
-                help="Nur relevant, wenn Varianten automatisch erzeugt werden."
-            )
+            
+            if enable_gsc_coverage:
+                st.markdown("**GSC-Query-Coverage bei Ankertexten**")
+                st.caption("Vergleicht Top-Queries aus Google Search Console mit vorhandenen Ankertexten und identifiziert fehlende oder falsch verlinkte Queries.")
+                
+                # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
+                brand_mode = st.radio(
+                    "Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"],
+                    index=0, horizontal=True, key="a4_brand_mode",
+                    help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
+                )
 
-            st.markdown("**Matching**")
-            metric_choice = st.radio(
-                "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
-                help="Bestimmt, ob Klicks oder Impressionen die Relevanz pro Query bestimmen."
-            )
-            check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
-            check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+                # Danach Brand-Schreibweisen
+                brand_text = st.text_area(
+                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
+                    help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+                )
+                brand_file = st.file_uploader(
+                    "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
+                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
+                )
+                auto_variants = st.checkbox(
+                    "Automatisch Varianten erzeugen (z. B. „marke produkt" / „marke-produkt")",
+                    value=True, key="a4_auto_variants",
+                    help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
+                )
+                head_nouns_text = st.text_input(
+                    "Head-Nomen (kommagetrennt, editierbar)",
+                    value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
+                    help="Nur relevant, wenn Varianten automatisch erzeugt werden."
+                )
 
-            embed_model_name = st.selectbox(
-                "Embedding-Modell",
-                ["sentence-transformers/all-MiniLM-L6-v2",
-                 "sentence-transformers/all-MiniLM-L12-v2",
-                 "sentence-transformers/all-mpnet-base-v2"],
-                index=0,
-                help="Standard: all-MiniLM-L6-v2",
-                key="a4_embed_model",
-            )
-            embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh",
-                                     help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer.")
+                st.markdown("**Matching**")
+                metric_choice = st.radio(
+                    "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
+                    help="Bestimmt, ob Klicks oder Impressionen die Relevanz pro Query bestimmen."
+                )
+                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
+                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
 
-            st.markdown("**Schwellen & Filter**")
-            col_s1, col_s2, col_s3 = st.columns(3)
-            with col_s1:
-                min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks",
-                                             help="Queries mit weniger Klicks werden gefiltert (nur wenn 'Clicks' gewählt).")
-            with col_s2:
-                min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr",
-                                             help="Queries mit weniger Impressions werden gefiltert (nur wenn 'Impressions' gewählt).")
-            with col_s3:
-                topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1, key="a4_topN",
-                                               help="Begrenzt pro URL die Anzahl der Top-Queries, die geprüft werden.")
+                embed_model_name = st.selectbox(
+                    "Embedding-Modell",
+                    ["sentence-transformers/all-MiniLM-L6-v2",
+                     "sentence-transformers/all-MiniLM-L12-v2",
+                     "sentence-transformers/all-mpnet-base-v2"],
+                    index=0,
+                    help="Standard: all-MiniLM-L6-v2",
+                    key="a4_embed_model",
+                )
+                embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh",
+                                         help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer.")
 
-            col_o1, col_o2 = st.columns(2)
-            with col_o1:
-                top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10, key="a4_top_anchor_abs",
-                                                 help="Ab wie vielen identischen Ankern eine URL als Over-Anchor-Fall gilt.")
-            with col_o2:
-                top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1, key="a4_top_anchor_share",
-                                             help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat.")
-
+                st.markdown("**Schwellen & Filter**")
+                col_s1, col_s2, col_s3 = st.columns(3)
+                with col_s1:
+                    min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks",
+                                                 help="Queries mit weniger Klicks werden gefiltert (nur wenn 'Clicks' gewählt).")
+                with col_s2:
+                    min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr",
+                                                 help="Queries mit weniger Impressions werden gefiltert (nur wenn 'Impressions' gewählt).")
+                with col_s3:
+                    topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1, key="a4_topN",
+                                                   help="Begrenzt pro URL die Anzahl der Top-Queries, die geprüft werden.")
+            else:
+                # Setze Defaults wenn deaktiviert
+                st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
+                st.session_state.setdefault("a4_brand_text", "")
+                st.session_state.setdefault("a4_auto_variants", True)
+                st.session_state.setdefault("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
+                st.session_state.setdefault("a4_metric_choice", "Impressions")
+                st.session_state.setdefault("a4_check_exact", True)
+                st.session_state.setdefault("a4_check_embed", True)
+                st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+                st.session_state.setdefault("a4_embed_thresh", 0.75)
+                st.session_state.setdefault("a4_min_clicks", 50)
+                st.session_state.setdefault("a4_min_impr", 500)
+                st.session_state.setdefault("a4_topN", 10)
+            
+            # Visualisierung (immer verfügbar)
             st.markdown("**Visualisierung**")
             show_treemap = st.checkbox("Treemap-Visualisierung aktivieren", value=True, key="a4_show_treemap")
             treemap_topK = st.number_input("Treemap: Top-K Anchors anzeigen", min_value=3, max_value=50, value=12, step=1, key="a4_treemap_topk")
@@ -722,6 +769,7 @@ shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2
 
 emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
 gsc_df_loaded = None
+kwmap_df_loaded = None
 
 def _read_up(label: str, uploader, required: bool):
     df = None
@@ -827,7 +875,7 @@ if A1_NAME in selected_analyses:
         needs.append(("Linkmetriken (CSV/Excel)", "up_metrics_a1", HELP_MET))
     if needs_backlinks_a1 and "Backlinks" not in shared_uploads:
         needs.append(("Backlinks (CSV/Excel)", "up_backlinks_a1", HELP_BL))
-    for (label, df) in upload_for_analysis("Analyse 1 – erforderliche Dateien", needs):
+    for (label, df) in upload_for_analysis("Analyse 1 interne Verlinkungsmöglichkeiten finden – erforderliche Dateien", needs):
         if "Embeddings" in label: emb_df = df
         if "Related URLs" in label: related_df = df
         if "Inlinks" in label: inlinks_df = df
@@ -850,7 +898,7 @@ if A2_NAME in selected_analyses:
         needs.append(("Linkmetriken (CSV/Excel)", "up_metrics_a2", HELP_MET))
     if needs_backlinks_a2 and "Backlinks" not in shared_uploads:
         needs.append(("Backlinks (CSV/Excel)", "up_backlinks_a2", HELP_BL))
-    for (label, df) in upload_for_analysis("Analyse 2 – erforderliche Dateien", needs):
+    for (label, df) in upload_for_analysis("Analyse 2 unpassende interne Links entfernen – erforderliche Dateien", needs):
         if "Embeddings" in label: emb_df = df
         if "Related URLs" in label: related_df = df
         if "Inlinks" in label: inlinks_df = df
@@ -874,37 +922,52 @@ if A3_NAME in selected_analyses:
     # GSC optional: auch hier anbieten, wenn nicht shared
     if needs_gsc_a3 and "Search Console" not in shared_uploads:
         needs.append(("Search Console Daten (optional, CSV/Excel)", "up_gsc_a3", HELP_GSC))
-    for (label, df) in upload_for_analysis("Analyse 3 – erforderliche Dateien", needs):
+    for (label, df) in upload_for_analysis("Analyse 3 SEO-Potenziallinks finden – erforderliche Dateien", needs):
         if "Embeddings" in label: emb_df = df
         if "Related URLs" in label: related_df = df
         if "Linkmetriken" in label: metrics_df = df
         if "Backlinks" in label: backlinks_df = df
         if "Search Console" in label: gsc_df_loaded = df
 
-# A4 – separate Uploads (werden im A4-Block zusätzlich ergänzt)
-# Für A4 ist "All Inlinks" nötig; GSC/Keyword-Mapping werden unten im A4-Block hochgeladen.
-if A4_NAME in selected_analyses and "All Inlinks" not in shared_uploads:
-    needs = [("All Inlinks (CSV/Excel)", "up_inlinks_a4", HELP_INL)]
-    for (label, df) in upload_for_analysis("Analyse 4 – erforderliche Dateien", needs):
-        if "Inlinks" in label: inlinks_df = df
+# A4 – separate Uploads
+if A4_NAME in selected_analyses:
+    needs = []
+    if needs_inlinks_a4 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a4", HELP_INL))
+    # GSC Upload nur wenn GSC-Coverage aktiviert ist
+    if st.session_state.get("a4_enable_gsc_coverage", True):
+        needs.append(("Search Console (CSV/Excel)", "up_gsc_a4", HELP_GSC))
+    # Keyword-Zielvorgaben Upload
+    needs.append(("Keyword-Zielvorgaben (CSV/Excel)", "up_kwmap_a4", "Mindestens eine URL-Spalte und eine oder mehrere Keyword-Spalten. Spaltenerkennung automatisch; zusätzliche Spalten werden ignoriert."))
+    
+    if needs:
+        for (label, df) in upload_for_analysis("Analyse 4 Ankertexte analysieren – erforderliche Dateien", needs):
+            if "Inlinks" in label: inlinks_df = df
+            if "Search Console" in label: gsc_df_loaded = df
+            if "Keyword-Zielvorgaben" in label: kwmap_df_loaded = df
 
-# Separate Start-Buttons für A1 & A2
+# Separate Start-Buttons für jede Analyse (rot eingefärbt)
 st.markdown("---")
 start_cols = st.columns(4)
-run_clicked_a1 = run_clicked_a2 = False
+run_clicked_a1 = run_clicked_a2 = run_clicked_a3 = run_clicked_a4 = False
 
 if A1_NAME in selected_analyses:
     with start_cols[0]:
-        run_clicked_a1 = st.button("Let's Go (Analyse 1)", type="secondary", key="btn_a1")
+        run_clicked_a1 = st.button("Let's Go (Analyse 1)", type="primary", key="btn_a1", use_container_width=True)
 
 if A2_NAME in selected_analyses:
     with start_cols[1]:
-        run_clicked_a2 = st.button("Let's Go (Analyse 2)", type="secondary", key="btn_a2")
+        run_clicked_a2 = st.button("Let's Go (Analyse 2)", type="primary", key="btn_a2", use_container_width=True)
 
-# A3 eigener Button später im A3-Block
-# A4 eigener Button im A4-Block
+if A3_NAME in selected_analyses:
+    with start_cols[2]:
+        run_clicked_a3 = st.button("Let's Go (Analyse 3)", type="primary", key="btn_a3", use_container_width=True)
 
-run_clicked = bool(run_clicked_a1 or run_clicked_a2)
+if A4_NAME in selected_analyses:
+    with start_cols[3]:
+        run_clicked_a4 = st.button("Let's Go (Analyse 4)", type="primary", key="btn_a4", use_container_width=True)
+
+run_clicked = bool(run_clicked_a1 or run_clicked_a2 or run_clicked_a3 or run_clicked_a4)
 
 # Merker für Sichtbarkeit
 if run_clicked_a1:
@@ -1417,12 +1480,11 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
 if A3_NAME in selected_analyses:
 
     st.markdown("---")
-    st.subheader("Analyse 3: Was sind starke Linkgeber („Gems“) & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
+    st.subheader("Analyse 3: Was sind starke Linkgeber („Gems") & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
     st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
-    # A3 starten
-    run_gems = st.button("Let's Go (Analyse 3)", type="secondary", key="btn_a3")
-    if run_gems:
+    # A3 wird über Button oben gestartet
+    if run_clicked_a3:
         st.session_state["__gems_loading__"] = True
         st.session_state["__ready_gems__"] = False
         st.rerun()
@@ -1679,29 +1741,13 @@ if A4_NAME in selected_analyses:
     st.subheader("🔎 Analyse 4: Anchor & Query Intelligence (Embeddings)")
     st.caption("Verknüpft Suchanfragen, Ankertexte und Zielseiten via Embeddings. Findet Over-Anchors, fehlende Query-Anchors, Leader-Konflikte und nicht verlinkte Ziel-Keywords.")
 
-    # -----------------------------
-    # Uploads (Hauptbereich) – zusätzlich zu All Inlinks aus dem Upload-Center
-    # -----------------------------
-    st.markdown("#### Uploads")
-    gsc_up_a4 = st.file_uploader(
-        "Search Console: URL | Query | Clicks | Impressions",
-        type=["csv","xlsx","xlsm","xls"], key="a4_gsc_up_main",
-        help="Struktur: URL, Query, Clicks, Impressions (Position optional). Spaltenerkennung automatisch; zusätzliche Spalten werden ignoriert."
-    )
-    kwmap_up  = st.file_uploader(
-        "Keyword-Zielvorgaben: URL + Keyword-Spalten",
-        type=["csv","xlsx","xlsm","xls"], key="a4_kwmap_up",
-        help="Mindestens eine URL-Spalte und eine oder mehrere Keyword-Spalten. Spaltenerkennung automatisch; zusätzliche Spalten werden ignoriert."
-    )
-
-    st.divider()
-
-    # Start-Button (manuelle Berechnung starten)
-    run_a4 = st.button("Let's Go (Analyse 4)", type="secondary", key="btn_a4")
-    if run_a4:
+    # A4 wird über Button oben gestartet
+    if run_clicked_a4:
         st.session_state["__a4_loading__"] = True
         st.session_state["__ready_a4__"] = False
         st.rerun()
+    
+    # Uploads werden aus dem Upload-Center geladen (siehe oben)
 
     # Loader-Anzeige (wenn Analyse 4 läuft)
     if st.session_state.get("__a4_loading__", False):
@@ -1846,8 +1892,10 @@ if A4_NAME in selected_analyses:
     anchor_inv = extract_anchor_inventory(inlinks_df)
 
     # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
+    # Nur wenn Over-Anchor-Check aktiviert ist
+    enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
     over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
-    if not anchor_inv.empty:
+    if enable_over_anchor and not anchor_inv.empty:
         totals = anchor_inv.groupby("target")["count"].sum().rename("total")
         tmp = anchor_inv.merge(totals, on="target", how="left")
         tmp["share"] = (100.0 * tmp["count"] / tmp["total"]).round(2)
@@ -1856,16 +1904,19 @@ if A4_NAME in selected_analyses:
         over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
 
     # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
-    if gsc_up_a4 is not None:
-        gsc_df = read_any_file_cached(getattr(gsc_up_a4, "name", ""), gsc_up_a4.getvalue())
+    # GSC-Daten aus Upload-Center verwenden
+    if gsc_df_loaded is not None:
+        gsc_df = gsc_df_loaded.copy()
         st.session_state["__gsc_df_raw__"] = gsc_df
     else:
         gsc_df = st.session_state.get("__gsc_df_raw__", None)
 
+    # GSC-Coverage nur wenn aktiviert
+    enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
     gsc_issues_df = pd.DataFrame(columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
     leader_conflicts_df = pd.DataFrame(columns=["Query","Verlinkte URL (aktueller Link)","Leader-URL","Leader-Wert","Hinweis (navigativ ausgeschlossen?)"])
 
-    if isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
+    if enable_gsc_coverage and isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         df = gsc_df.copy()
         df.columns = [str(c).strip() for c in df.columns]
         hdr = [_norm_header(c) for c in df.columns]
@@ -2014,10 +2065,17 @@ if A4_NAME in selected_analyses:
 
             # ============================
             # Keyword-Zielvorgaben (Leader-URL je Keyword) einlesen
+            # Nur wenn GSC-Coverage aktiviert ist
             # ============================
             kwmap_df = None
-            if kwmap_up is not None:
-                kwmap_df = read_any_file_cached(getattr(kwmap_up, "name", ""), kwmap_up.getvalue())
+            if enable_gsc_coverage:
+                # Keyword-Zielvorgaben aus Upload-Center verwenden
+                if 'kwmap_df_loaded' in locals() and kwmap_df_loaded is not None:
+                    kwmap_df = kwmap_df_loaded.copy()
+                elif 'kwmap_df_loaded' in globals() and kwmap_df_loaded is not None:
+                    kwmap_df = kwmap_df_loaded.copy()
+                else:
+                    kwmap_df = None
 
             def _extract_kw_map(df: Optional[pd.DataFrame]) -> List[Tuple[str, str]]:
                 """Gibt Paare (leader_url, keyword) zurück. Mehrere Keyword-Spalten möglich; Zellen dürfen komma-/zeilengetrennt sein."""
@@ -2057,7 +2115,7 @@ if A4_NAME in selected_analyses:
                             pairs.append((u, kw))
                 return pairs
 
-            leader_pairs = _extract_kw_map(kwmap_df)
+            leader_pairs = _extract_kw_map(kwmap_df) if kwmap_df is not None else []
             # Schnelle Indexe für Checks
             # target -> {anchor:count}
             inv_map = {}
@@ -2074,6 +2132,7 @@ if A4_NAME in selected_analyses:
             # Leader-Konflikte:
             #   Ein Keyword hat eine definierte Leader-URL L,
             #   wird aber als Anchor (Exact/Embedding) auf andere URL U != L verwendet.
+            # Nur wenn GSC-Coverage aktiviert ist
             # ============================
             leader_conflicts_rows = []
             missing_keyword_rows = []  # Keywords, die auf ihrer Ziel-URL (noch) nicht als Anchor vorkommen
@@ -2145,62 +2204,71 @@ if A4_NAME in selected_analyses:
                                             out.append((tgt, str(row["anchor"]), int(row["count"]), sim))
                 return out
 
-            # 1) Leader-Konflikte + 2) fehlende Ziel-Keywords
-            for leader_url, kw in leader_pairs:
-                # a) Kommt Keyword als Anchor auf anderer Ziel-URL vor?
-                matches_elsewhere = [
-                    (tgt, anc, cnt, sim)
-                    for (tgt, anc, cnt, sim) in find_anchor_matches_for_keyword(kw, target_url=None)
-                    if tgt != leader_url and not is_navigational(anc)
-                ]
-                for tgt, anc, cnt, sim in matches_elsewhere:
-                    leader_conflicts_rows.append([
-                        kw,
-                        disp(tgt),            # Verlinkte URL (aktueller Link)
-                        disp(leader_url),     # Leader-URL
-                        cnt,                  # Leader-Wert: hier Count als einfache Heuristik
-                        "nein" if is_navigational(anc) else "—"
-                    ])
+            # 1) Leader-Konflikte + 2) fehlende Ziel-Keywords (nur wenn GSC-Coverage aktiviert)
+            if enable_gsc_coverage:
+                for leader_url, kw in leader_pairs:
+                    # a) Kommt Keyword als Anchor auf anderer Ziel-URL vor?
+                    matches_elsewhere = [
+                        (tgt, anc, cnt, sim)
+                        for (tgt, anc, cnt, sim) in find_anchor_matches_for_keyword(kw, target_url=None)
+                        if tgt != leader_url and not is_navigational(anc)
+                    ]
+                    for tgt, anc, cnt, sim in matches_elsewhere:
+                        leader_conflicts_rows.append([
+                            kw,
+                            disp(tgt),            # Verlinkte URL (aktueller Link)
+                            disp(leader_url),     # Leader-URL
+                            cnt,                  # Leader-Wert: hier Count als einfache Heuristik
+                            "nein" if is_navigational(anc) else "—"
+                        ])
 
-                # b) Fehlt Keyword auf der Leader-URL selbst (weder exact noch embedding)?
-                matches_on_leader = find_anchor_matches_for_keyword(kw, target_url=leader_url)
-                if not matches_on_leader:
-                    missing_keyword_rows.append([disp(leader_url), kw, "nein", 0, "Keyword ist auf Ziel-URL noch nicht als Anchor vorhanden"])
+                    # b) Fehlt Keyword auf der Leader-URL selbst (weder exact noch embedding)?
+                    matches_on_leader = find_anchor_matches_for_keyword(kw, target_url=leader_url)
+                    if not matches_on_leader:
+                        missing_keyword_rows.append([disp(leader_url), kw, "nein", 0, "Keyword ist auf Ziel-URL noch nicht als Anchor vorhanden"])
 
-            leader_conflicts_df = pd.DataFrame(
-                leader_conflicts_rows,
-                columns=["Query/Keyword","Verlinkte URL (aktueller Link)","Leader-URL","Fund-Count","Hinweis (navigativ ausgeschlossen?)"]
-            )
-            missing_kw_df = pd.DataFrame(
-                missing_keyword_rows,
-                columns=["Ziel-URL","Keyword","Anker vorhanden?","Fund-Count","Hinweis"]
-            )
+            if enable_gsc_coverage:
+                leader_conflicts_df = pd.DataFrame(
+                    leader_conflicts_rows,
+                    columns=["Query/Keyword","Verlinkte URL (aktueller Link)","Leader-URL","Fund-Count","Hinweis (navigativ ausgeschlossen?)"]
+                )
+                missing_kw_df = pd.DataFrame(
+                    missing_keyword_rows,
+                    columns=["Ziel-URL","Keyword","Anker vorhanden?","Fund-Count","Hinweis"]
+                )
+            else:
+                leader_conflicts_df = pd.DataFrame(columns=["Query/Keyword","Verlinkte URL (aktueller Link)","Leader-URL","Fund-Count","Hinweis (navigativ ausgeschlossen?)"])
+                missing_kw_df = pd.DataFrame(columns=["Ziel-URL","Keyword","Anker vorhanden?","Fund-Count","Hinweis"])
 
             # ============================
             # AUSGABEN A4
             # ============================
             st.markdown("### A4-Ergebnisse")
 
-            # Over-Anchor
-            st.markdown("#### 1) Over-Anchors (identische Anker ≥ Schwellwert)")
-            if over_anchor_df.empty:
-                st.info("Keine Over-Anchor-Fälle nach den gesetzten Schwellen gefunden.")
-            else:
-                st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
-                st.download_button(
-                    "Download Over-Anchors (CSV)",
-                    data=over_anchor_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="a4_over_anchors.csv",
-                    mime="text/csv",
-                    key="a4_dl_over"
-                )
+            # Over-Anchor nur anzeigen wenn aktiviert
+            enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
+            if enable_over_anchor:
+                st.markdown("#### 1) Over-Anchors (identische Anker ≥ Schwellwert)")
+                if over_anchor_df.empty:
+                    st.info("Keine Over-Anchor-Fälle nach den gesetzten Schwellen gefunden.")
+                else:
+                    st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
+                    st.download_button(
+                        "Download Over-Anchors (CSV)",
+                        data=over_anchor_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="a4_over_anchors.csv",
+                        mime="text/csv",
+                        key="a4_dl_over"
+                    )
 
-            # GSC-Coverage
-            st.markdown("#### 2) GSC-Query-Coverage (Top-20 % je URL, zusätzlich Top-N-Limit)")
-            if gsc_issues_df.empty:
-                st.info("Alle gefilterten Top-Queries sind als Anchor vorhanden (gemäß Exact/Embedding und Schwellen).")
-            else:
-                st.dataframe(gsc_issues_df, use_container_width=True, hide_index=True)
+            # GSC-Coverage nur anzeigen wenn aktiviert
+            enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
+            if enable_gsc_coverage:
+                st.markdown("#### 2) GSC-Query-Coverage (Top-20 % je URL, zusätzlich Top-N-Limit)")
+                if gsc_issues_df.empty:
+                    st.info("Alle gefilterten Top-Queries sind als Anchor vorhanden (gemäß Exact/Embedding und Schwellen).")
+                else:
+                    st.dataframe(gsc_issues_df, use_container_width=True, hide_index=True)
                 # CSV
                 st.download_button(
                     "Download GSC-Coverage (CSV)",
@@ -2225,34 +2293,35 @@ if A4_NAME in selected_analyses:
                 except Exception:
                     pass
 
-            # Leader-Konflikte
-            st.markdown("#### 3) Leader-Konflikte (Keyword → falsche Ziel-URL verlinkt)")
-            if leader_conflicts_df.empty:
-                st.info("Keine Leader-Konflikte auf Basis der Keyword-Zielvorgaben gefunden.")
-            else:
-                st.dataframe(leader_conflicts_df.sort_values(["Query/Keyword","Fund-Count"], ascending=[True, False]),
-                             use_container_width=True, hide_index=True)
-                st.download_button(
-                    "Download Leader-Konflikte (CSV)",
-                    data=leader_conflicts_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="a4_leader_konflikte.csv",
-                    mime="text/csv",
-                    key="a4_dl_leader"
-                )
+            # Leader-Konflikte (nur wenn GSC-Coverage aktiviert)
+            if enable_gsc_coverage:
+                st.markdown("#### 3) Leader-Konflikte (Keyword → falsche Ziel-URL verlinkt)")
+                if leader_conflicts_df.empty:
+                    st.info("Keine Leader-Konflikte auf Basis der Keyword-Zielvorgaben gefunden.")
+                else:
+                    st.dataframe(leader_conflicts_df.sort_values(["Query/Keyword","Fund-Count"], ascending=[True, False]),
+                                 use_container_width=True, hide_index=True)
+                    st.download_button(
+                        "Download Leader-Konflikte (CSV)",
+                        data=leader_conflicts_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="a4_leader_konflikte.csv",
+                        mime="text/csv",
+                        key="a4_dl_leader"
+                    )
 
-            # Nicht verlinkte Ziel-Keywords
-            st.markdown("#### 4) Nicht verlinkte Ziel-Keywords (pro Ziel-URL)")
-            if missing_kw_df.empty:
-                st.info("Alle Ziel-Keywords sind bereits als Anchors auf ihren Ziel-URLs vorhanden.")
-            else:
-                st.dataframe(missing_kw_df, use_container_width=True, hide_index=True)
-                st.download_button(
-                    "Download nicht verlinkte Ziel-Keywords (CSV)",
-                    data=missing_kw_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="a4_missing_keywords.csv",
-                    mime="text/csv",
-                    key="a4_dl_missing"
-                )
+                # Nicht verlinkte Ziel-Keywords (nur wenn GSC-Coverage aktiviert)
+                st.markdown("#### 4) Nicht verlinkte Ziel-Keywords (pro Ziel-URL)")
+                if missing_kw_df.empty:
+                    st.info("Alle Ziel-Keywords sind bereits als Anchors auf ihren Ziel-URLs vorhanden.")
+                else:
+                    st.dataframe(missing_kw_df, use_container_width=True, hide_index=True)
+                    st.download_button(
+                        "Download nicht verlinkte Ziel-Keywords (CSV)",
+                        data=missing_kw_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="a4_missing_keywords.csv",
+                        mime="text/csv",
+                        key="a4_dl_missing"
+                    )
 
             # ============================
             # Optional: Treemap-Visualisierung
