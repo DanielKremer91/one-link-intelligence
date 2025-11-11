@@ -666,12 +666,10 @@ with st.sidebar:
                     help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
                 )
                 auto_variants = st.checkbox(
-                    'Automatisch Varianten erzeugen (z. B. "marke produkt" / "marke-produkt")',
-                    value=True,
-                    key="a4_auto_variants",
+                    "Automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
+                    value=True, key="a4_auto_variants",
                     help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
                 )
-
                 head_nouns_text = st.text_input(
                     "Head-Nomen (kommagetrennt, editierbar)",
                     value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
@@ -1482,7 +1480,7 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
 if A3_NAME in selected_analyses:
 
     st.markdown("---")
-    st.subheader("Analyse 3: Was sind starke Linkgeber („Gems") & welche URLs diese verlinken sollten (⇒ SEO-Potenziallinks)")
+    st.subheader("Analyse 3: Was sind starke Linkgeber (\"Gems\") & welche URLs diese verlinken sollten (-> SEO-Potenziallinks)")
     st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
 
     # A3 wird über Button oben gestartet
