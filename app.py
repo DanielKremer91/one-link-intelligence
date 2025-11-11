@@ -686,36 +686,99 @@ with st.sidebar:
 
                 
                 st.markdown("**Matching**")
+                st.info(
+                    "Das Matching legt fest, wie streng die Queries aus der Google Search Console mit deinen Ankertexten abgeglichen werden.\n\n"
+                    "In dieser Analyse werden die Top 20 % deiner Suchanfragen (nach Klicks oder Impressionen) herangezogen, um zu prüfen, "
+                    "ob deine internen Links diese relevanten Suchbegriffe bereits abdecken.\n\n"
+                    "Je nach Einstellung erkennt das Tool nur exakte Übereinstimmungen zwischen Query und Ankertext "
+                    "oder berücksichtigt auch Teil- bzw. Wortkombinationen bzw. semantische Ähnlichkeit. "
+                    "Ziel ist es, Lücken in deiner internen Verlinkung sichtbar zu machen – also Queries, "
+                    "zu denen du gute Rankings hast, die aber in deinen Linktexten nicht vorkommen."
+                )
+                
                 metric_choice = st.radio(
-                    "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
+                    "Search Console Bewertung nach …",
+                    ["Impressions", "Clicks"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_metric_choice",
                     help="Bestimmt, ob Klicks oder Impressionen die Relevanz pro Query bestimmen."
                 )
+                
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+                
+                # Nur wenn Embedding Match aktiv ist, die zusätzlichen Einstellungen anzeigen
+                if check_embed:
+                    st.markdown("**Embedding-Einstellungen**")
+                    embed_model_name = st.selectbox(
+                        "Embedding-Modell",
+                        [
+                            "sentence-transformers/all-MiniLM-L6-v2",
+                            "sentence-transformers/all-MiniLM-L12-v2",
+                            "sentence-transformers/all-mpnet-base-v2"
+                        ],
+                        index=0,
+                        help="all-MiniLM-L12-v2 ist ein guter Kompromiss was Schnelligkeit vs. Genauigkeit anbelangt. all-mpnet-base-v2 arbeitet am genauesten, aber auch am langsamsten.",
+                        key="a4_embed_model",
+                    )
+                    embed_thresh = st.slider(
+                        "Cosine-Schwelle (Embedding)",
+                        0.50, 0.95, 0.75, 0.01,
+                        key="a4_embed_thresh",
+                        help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer."
+                    )
+                else:
+                    # Defaults setzen, damit Backend stabil bleibt
+                    st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+                    st.session_state.setdefault("a4_embed_thresh", 0.75)
 
-                embed_model_name = st.selectbox(
-                    "Embedding-Modell",
-                    ["sentence-transformers/all-MiniLM-L6-v2",
-                     "sentence-transformers/all-MiniLM-L12-v2",
-                     "sentence-transformers/all-mpnet-base-v2"],
-                    index=0,
-                    help="Standard: all-MiniLM-L6-v2",
-                    key="a4_embed_model",
+
+                st.markdown("**Schwellen & Filter für Search Console Matching**")
+                st.info(
+                    "Mit den **Schwellen & Filtern** reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
+                    "• **Mindest-Klicks/Query** – wird **nur angewendet**, wenn oben *Clicks* ausgewählt ist. "
+                    "Filtert Suchanfragen mit zu wenigen Klicks heraus.\n"
+                    "• **Mindest-Impressions/Query** – wird **nur angewendet**, wenn oben *Impressions* ausgewählt ist. "
+                    "Filtert Queries mit Impressionen unter dem gewählten Schwellenwert heraus.\n"
+                    "• **Top-N Queries pro URL** – zusätzlicher Deckel **nach** der Top-20-%-Auswahl. "
+                    "Pro URL werden maximal N der stärksten Queries (aus dem Topf der Top-20 %) geprüft (mindestens 1).\n\n"
+                    "**Hinweise:**\n"
+                    "– Die Auswahl *Impressions vs. Clicks* steuert, **welche Schwelle greift**.\n"
+                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, **dann** die Top-20-% berechnet, "
+                    "und **anschließend** per Top-N begrenzt.\n"
                 )
-                embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh",
-                                         help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer.")
 
-                st.markdown("**Schwellen & Filter**")
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
-                    min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks",
-                                                 help="Queries mit weniger Klicks werden gefiltert (nur wenn 'Clicks' gewählt).")
+                    if metric_choice == "Clicks":
+                        min_clicks = st.number_input(
+                            "Mindest-Klicks/Query",
+                            min_value=0, value=st.session_state.get("a4_min_clicks", 50), step=10,
+                            key="a4_min_clicks",
+                            help="Filtert Queries unterhalb dieser Klickzahl (gilt nur wenn oben 'Clicks' gewählt ist)."
+                        )
+                    else:
+                        st.markdown(" ")  # Platzhalter für sauberes Grid
+            
                 with col_s2:
-                    min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr",
-                                                 help="Queries mit weniger Impressions werden gefiltert (nur wenn 'Impressions' gewählt).")
+                    if metric_choice == "Impressions":
+                        min_impr = st.number_input(
+                            "Mindest-Impressions/Query",
+                            min_value=0, value=st.session_state.get("a4_min_impr", 500), step=50,
+                            key="a4_min_impr",
+                            help="Filtert Queries unterhalb dieser Impressionen (gilt nur wenn oben 'Impressions' gewählt ist)."
+                        )
+                    else:
+                        st.markdown(" ")  # Platzhalter
+                
                 with col_s3:
-                    topN_default = st.number_input("Top-N Queries pro URL (zusätzliche Bedingung)", min_value=1, value=10, step=1, key="a4_topN",
-                                                   help="Begrenzt pro URL die Anzahl der Top-Queries, die geprüft werden.")
+                    topN_default = st.number_input(
+                        "Top-N Queries pro URL (zusätzliche Bedingung)",
+                        min_value=1, value=st.session_state.get("a4_topN", 10), step=1, key="a4_topN",
+                        help="Begrenzt pro URL die Anzahl der geprüften Queries nach Anwendung der 20%-Regel."
+                    )
+                
             else:
                 # Setze Defaults wenn deaktiviert
                 st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
@@ -730,10 +793,143 @@ with st.sidebar:
                 st.session_state.setdefault("a4_min_impr", 500)
                 st.session_state.setdefault("a4_topN", 10)
             
-            # Visualisierung (immer verfügbar)
+            # --- Visualisierung (A4) ---
+            show_treemap = st.checkbox(
+                "Treemap-Visualisierung aktivieren",
+                value=True,
+                key="a4_show_treemap",
+                help=(
+                    "Schaltet die Treemap ein/aus. Die Treemap zeigt je Ziel-URL die häufigsten Ankertexte. "
+                    "Grundlage sind ausschließlich die Anker aus deiner All-Inlinks-Datei."
+                )
+            )
+            
             st.markdown("**Visualisierung**")
-            show_treemap = st.checkbox("Treemap-Visualisierung aktivieren", value=True, key="a4_show_treemap")
-            treemap_topK = st.number_input("Treemap: Top-K Anchors anzeigen", min_value=3, max_value=50, value=12, step=1, key="a4_treemap_topk")
+            st.info(
+                "Die Visualisierung basiert auf den **Ankertexten aus deiner _All Inlinks_-Datei**. "
+                "Für jede Ziel-URL wird ein **Anchor-Inventar** gebildet (Anchor + Häufigkeit). "
+                "So erkennst du schnell dominante Anker und Lücken in der Diversität."
+            )
+            
+            treemap_topK = st.number_input(
+                "Treemap: Top-K Anchors anzeigen",
+                min_value=3,
+                max_value=50,
+                value=12,
+                step=1,
+                key="a4_treemap_topk",
+                help=(
+                    "Begrenzt **nur die Treemap** auf die K häufigsten Anker pro Ziel-URL. "
+                    "Die nachfolgende Analyse/Exports enthalten **immer alle** Anker."
+                )
+            )
+            
+            with st.expander("Wie lese ich die Treemap?"):
+                st.markdown(
+                    "- **Jeder Kasten = ein Anchor** einer Ziel-URL.\n"
+                    "- **Flächengröße = Häufigkeit** (mehr interne Links ⇒ größere Fläche).\n"
+                    "- **Gruppierung**: Erst Ziel-URL, darunter zugehörige Anchors.\n"
+                    "- Mit **Top-K** reduzierst du Rauschen und fokussierst dominante Anchors."
+                )
+            
+            with st.expander("Wozu das Ganze?"):
+                st.markdown(
+                    "- **Over-Optimierung erkennen**: Einzelne Anchors dominieren stark.\n"
+                    "- **Diversität prüfen**: Gibt es genügend natürliche Varianten?\n"
+                    "- **GSC-Abdeckung**: Fehlen wichtige Queries in Anchor-Varianten?"
+                )
+            
+            with st.expander("Hinweise & Grenzen"):
+                st.markdown(
+                    "- Die Treemap spiegelt **nur vorhandene Inlinks** wider.\n"
+                    "- **ALT**-Texte werden als Fallback berücksichtigt, wenn keine Anchor-Spalte vorhanden ist.\n"
+                    "- Filter wie Brand/Mindestwerte wirken **nicht automatisch** auf die Treemap."
+                )
+            
+            # ---- Treemap zeichnen (optional) ----
+            if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
+                st.markdown("#### Treemap der häufigsten Anchors je Ziel-URL")
+                tre_rows = []
+                for tgt, grp in anchor_inv.groupby("target", sort=False):
+                    topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
+                    for _, rr in topk.iterrows():
+                        tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
+                tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count"])
+                if tre_df.empty:
+                    st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
+                else:
+                    try:
+                        fig = px.treemap(
+                            tre_df,
+                            path=["Ziel-URL","Anchor"],
+                            values="Count",
+                            title="Treemap: Top-Anchors je Ziel-URL"
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Treemap konnte nicht gerendert werden: {e}")
+            elif show_treemap and not _HAS_PLOTLY:
+                st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
+            
+            # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
+            st.markdown("#### Vollständiges Anchor-Inventar (Wide)")
+            if anchor_inv.empty:
+                st.info("Kein Anchor-Inventar vorhanden. Bitte 'All Inlinks' hochladen.")
+            else:
+                # Sortiert je Ziel-URL absteigend nach Count
+                inv_sorted = anchor_inv.sort_values(["target", "count"], ascending=[True, False]).copy()
+            
+                # max. Anzahl Anker je URL ermitteln, um Spalten dynamisch anzulegen
+                max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
+            
+                # Zielschema
+                cols = ["Ziel-URL"]
+                for i in range(1, max_n + 1):
+                    cols += [f"Ankertext {i}", f"Count Ankertext {i}"]
+            
+                # Zeilen aufbauen
+                rows = []
+                for tgt, grp in inv_sorted.groupby("target", sort=False):
+                    anchors = grp["anchor"].astype(str).tolist()
+                    counts  = grp["count"].astype(int).tolist()
+                    row = [disp(tgt)]
+                    for a, c in zip(anchors, counts):
+                        row += [a, c]
+                    # mit leeren Feldern auffüllen
+                    while len(row) < len(cols):
+                        row += ["", ""]
+                    rows.append(row)
+            
+                anchor_wide_df = pd.DataFrame(rows, columns=cols)
+            
+                st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
+            
+                # CSV Download
+                csv_all = anchor_wide_df.to_csv(index=False).encode("utf-8-sig")
+                st.download_button(
+                    "Download Anchor-Inventar (Wide) – CSV",
+                    data=csv_all,
+                    file_name="a4_anchor_inventar_wide.csv",
+                    mime="text/csv",
+                    key="a4_dl_anchor_wide_csv"
+                )
+            
+                # XLSX Download
+                try:
+                    bio = io.BytesIO()
+                    with pd.ExcelWriter(bio, engine="xlsxwriter") as xw:
+                        anchor_wide_df.to_excel(xw, index=False, sheet_name="Anchor-Inventar")
+                    bio.seek(0)
+                    st.download_button(
+                        "Download Anchor-Inventar (Wide) – XLSX",
+                        data=bio.getvalue(),
+                        file_name="a4_anchor_inventar_wide.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="a4_dl_anchor_wide_xlsx"
+                    )
+                except Exception:
+                    pass
+
 
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
