@@ -432,7 +432,7 @@ with st.expander("❓ Hilfe / Tool-Dokumentation", expanded=False):
 4) **Anchor & Query Intelligence (Analyse 4)** *(optional)*  
    - **Over-Anchor-Check:** Listet **alle Anchors ≥ 200** Vorkommen je Ziel-URL (inkl. Bild-Links via ALT).
    - **GSC-Query-Coverage (Top-20 % je URL):** Prüft, ob Top-Suchanfragen (nach Klicks/Impr) als Anker vorkommen — **Exact** und/oder **Embedding** (Cosine-Schwelle einstellbar).  
-     – **Brand-Handling:** Brand-Begriffe via Text/CSV; Modus „nur Non-Brand“, „nur Brand“ oder „beides“. Optional **Auto-Varianten** (z. B. „bora kochfeld“) über editierbare Nomenliste.  
+     – **Brand-Handling:** Brand-Begriffe via Text/CSV; Modus „nur Non-Brand“, „nur Brand“ oder „beides“. Optional **Auto-Varianten** (z. B. „fressnapf hundefutter“) über editierbare Nomenliste.  
    - **Keyword-Zielvorgaben:** Upload `URL + Keyword-Spalten` (Spaltenname enthält `keyword|suchanfrage|suchbegriff|query`). Prüft pro URL, ob ihre Ziel-Keywords als Anchor vorkommen (**Exact**/**Embedding**).  
    - **Leader-Konflikte:** Für jede Query die **Leader-URL** (höchste Klicks/Impr) ermitteln. Flag, wenn semantisch passende Anchors **auf eine andere URL** verlinken (nicht navigative Anchors werden bewertet).  
    - **UI & Export:** Oberfläche zeigt **nur Problemfälle**. **Ein Download** liefert alle Reports als **Excel mit Tabs** (bei großen Daten automatisch **ZIP mit CSVs**).
@@ -512,7 +512,7 @@ with st.sidebar:
 
             brand_text = st.text_area("Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text")
             brand_file = st.file_uploader("Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file")
-            auto_variants = st.checkbox("Automatisch Varianten erzeugen (z. B. „bora kochfeld“, „bora-kochfeld“)", value=True, key="a4_auto_variants")
+            auto_variants = st.checkbox("Automatisch Varianten erzeugen (z. B. „fressnapf hundefutter“, „fressnapf-hundefutter“)", value=True, key="a4_auto_variants")
             head_nouns_text = st.text_input("Head-Nomen (kommagetrennt, editierbar)", value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns")
             brand_mode = st.radio("Welche Queries berücksichtigen?", ["Nur Non-Brand", "Nur Brand", "Beides"], index=0, horizontal=True, key="a4_brand_mode")
 
