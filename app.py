@@ -1,5 +1,5 @@
 import math
-from typing import Dict, List, Tuple, Optional, Iterable
+from typing import List, Tuple, Dict, Optional, Iterable
 
 import numpy as np
 import pandas as pd
