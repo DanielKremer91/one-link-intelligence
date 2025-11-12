@@ -692,16 +692,14 @@ with st.sidebar:
                     st.session_state.setdefault("a4_auto_variants", True)
 
                 
-                st.markdown("**Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?**")
-                               
                 metric_choice = st.radio(
-                    "",  # kein Label über dem Radiobutton
+                    "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
                     ["Impressions", "Clicks"],
                     index=0,
                     horizontal=True,
                     key="a4_metric_choice"
                 )
-                
+
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
 
