@@ -704,14 +704,6 @@ with st.sidebar:
                 st.radio(
                     "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match oder auch "
                     "auf Basis semantischer Ähnlichkeit erfolgen?",
-                    options=[],
-                    index=None,
-                    horizontal=True,
-                    key="a4_match_dummy",
-                    help=(
-                        "Steuert, welche Matching-Arten aktiviert werden: "
-                        "Exact Match = exakte Textübereinstimmung, Embedding Match = semantischer Vergleich über Vektoren."
-                    ),
                 )
                 check_exact = st.checkbox(
                     "Exact Match prüfen",
