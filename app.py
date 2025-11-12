@@ -95,7 +95,7 @@ POSSIBLE_ALT = ["alt", "alt text", "alt-text", "alttext", "image alt", "alt attr
 
 # Navigative/generische Anchors ausschließen (für Konflikte)
 NAVIGATIONAL_ANCHORS = {
-    "hier", "zum artikel", "mehr", "mehr erfahren", "klicken sie hier", "click here",
+    "hier", "zum artikel", "mehr", "mehr erfahren", "mehr lesen", "klicken sie hier", "click here",
     "here", "read more", "weiterlesen", "zum beitrag", "zum blog", "zum shop"
 }
 
@@ -620,7 +620,7 @@ with st.sidebar:
                 "Over-Anchor-Check aktivieren", 
                 value=True, 
                 key="a4_enable_over_anchor",
-                help="Im Google Leak gibt es Hinweise darauf, dass ein  und derselbe Ankertext pro URL nur 200 mal gezählt wird. Ab dem 201ten Link mit diesem Ankertext wird der Ankertext ignoriert. Hier analysieren wir, welche Ankertexte mehr als 200 mal für die gleiche URL vorkommen."
+                help="Im Google Leak gibt es Hinweise darauf, dass ein und derselbe Ankertext pro URL nur 200-mal gezählt wird. Ab dem 201. Link mit diesem Ankertext wird der Ankertext ignoriert. Hier analysieren wir, welche Ankertexte mehr als 200-mal für die gleiche URL vorkommen."
             )
             
             if enable_over_anchor:
@@ -634,9 +634,18 @@ with st.sidebar:
                 with col_o2:
                     top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1, key="a4_top_anchor_share",
                                                  help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat.")
+                # ✅ NEU: Modus wählen
+                over_anchor_mode = st.radio(
+                    "Welche Schwelle soll gelten?",
+                    ["Absolut", "Anteil (%)", "Beides"],
+                    index=0, horizontal=True, key="a4_over_anchor_mode",
+                    help="Absolut: nur Count. Anteil: nur %-Anteil. Beides: Count UND Anteil müssen erreicht sein."
+                )
+    
             else:
                 st.session_state.setdefault("a4_top_anchor_abs", 200)
                 st.session_state.setdefault("a4_top_anchor_share", 60)
+                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
             
             # Switch für GSC-Query-Coverage
             enable_gsc_coverage = st.checkbox(
@@ -657,26 +666,28 @@ with st.sidebar:
                     help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
                 )
 
-                # Danach Brand-Schreibweisen
-                brand_text = st.text_area(
-                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
-                    help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
-                )
-                brand_file = st.file_uploader(
-                    "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
-                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-                )
-                auto_variants = st.checkbox(
-                    "Automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
-                    value=True, key="a4_auto_variants",
-                    help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
-                )
-                head_nouns_text = st.text_input(
-                    "Head-Nomen (kommagetrennt, editierbar)",
-                    value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
-                    help="Nur relevant, wenn Varianten automatisch erzeugt werden."
-                )
+                # Danach Brand-Schreibweisen NUR anzeigen, wenn nicht "Nur Non-Brand"
+                if brand_mode != "Nur Non-Brand":
+                    brand_text = st.text_area(
+                        "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
+                        help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+                    )
+                    brand_file = st.file_uploader(
+                        "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
+                        help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
+                    )
+                    auto_variants = st.checkbox(
+                        "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
+                        value=True, key="a4_auto_variants",
+                        help="Alle Keyword+Brand-Kombinationen werden als Brand-Queries erkannt."
+                    )
+                else:
+                    # Defaults setzen, wenn die Felder ausgeblendet sind
+                    st.session_state.setdefault("a4_brand_text", "")
+                    st.session_state.setdefault("a4_brand_file", None)
+                    st.session_state.setdefault("a4_auto_variants", True)
 
+                
                 st.markdown("**Matching**")
                 metric_choice = st.radio(
                     "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
@@ -706,31 +717,31 @@ with st.sidebar:
                     "– Die Auswahl Impressions vs. Clicks steuert, welche Schwelle greift.\n"
                     "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, dann die Top-20-% berechnet, und anschließend per Top-N begrenzt."
                 )
-                col_header, col_help = st.columns([1, 20])
-                with col_header:
-                    st.markdown("**Schwellen & Filter**")
-                with col_help:
-                    with st.expander("❓", expanded=False):
-                        st.markdown(help_text_schwellen)
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
-                    min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks",
-                                                 help="Queries mit weniger Klicks werden gefiltert (nur wenn 'Clicks' gewählt).")
+                    min_clicks = st.number_input(
+                        "Mindest-Klicks/Query",
+                        min_value=0, value=50, step=10, key="a4_min_clicks",
+                        help=help_text_schwellen  # ✅ langer Hilfe-Text on-hover hier
+                    )
                 with col_s2:
-                    min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr",
-                                                 help="Queries mit weniger Impressions werden gefiltert (nur wenn 'Impressions' gewählt).")
+                    min_impr = st.number_input(
+                        "Mindest-Impressions/Query",
+                        min_value=0, value=500, step=50, key="a4_min_impr",
+                        help=help_text_schwellen
+                    )
                 with col_s3:
                     topN_default = st.number_input(
                         "Top-N Queries pro URL (zusätzliche Bedingung)",
                         min_value=1, value=st.session_state.get("a4_topN", 10), step=1, key="a4_topN",
-                        help="Begrenzt pro URL die Anzahl der geprüften Queries nach Anwendung der 20%-Regel."
+                        help=help_text_schwellen
                     )
+
             else:
                 # Setze Defaults wenn deaktiviert
                 st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
                 st.session_state.setdefault("a4_brand_text", "")
                 st.session_state.setdefault("a4_auto_variants", True)
-                st.session_state.setdefault("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
                 st.session_state.setdefault("a4_metric_choice", "Impressions")
                 st.session_state.setdefault("a4_check_exact", True)
                 st.session_state.setdefault("a4_check_embed", True)
@@ -739,9 +750,14 @@ with st.sidebar:
                 st.session_state.setdefault("a4_min_clicks", 50)
                 st.session_state.setdefault("a4_min_impr", 500)
                 st.session_state.setdefault("a4_topN", 10)
-            
+                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+
             # --- Visualisierung (A4) ---
-            st.markdown("**Visualisierung**")
+            st.markdown("**Ankertext-Matrix & Visualisierung**")
+            st.caption(
+                "Lasse dir je URL die häufigsten Ankertexte visuell oder als csv ausgeben."
+            )
+            
             show_treemap = st.checkbox(
                 "Treemap-Visualisierung aktivieren",
                 value=True,
@@ -751,11 +767,7 @@ with st.sidebar:
                     "Grundlage sind ausschließlich die Anker aus deiner All-Inlinks-Datei."
                 )
             )
-            st.info(
-                "Die Visualisierung basiert auf den **Ankertexten aus deiner _All Inlinks_-Datei**. "
-                "Für jede Ziel-URL wird ein **Anchor-Inventar** gebildet (Anchor + Häufigkeit). "
-                "So erkennst du schnell dominante Anker und Lücken in der Diversität."
-            )
+
             
             treemap_topK = st.number_input(
                 "Treemap: Top-K Anchors anzeigen",
@@ -769,29 +781,7 @@ with st.sidebar:
                     "Die nachfolgende Analyse/Exports enthalten **immer alle** Anker."
                 )
             )
-            
-            with st.expander("Wie lese ich die Treemap?"):
-                st.markdown(
-                    "- **Jeder Kasten = ein Anchor** einer Ziel-URL.\n"
-                    "- **Flächengröße = Häufigkeit** (mehr interne Links ⇒ größere Fläche).\n"
-                    "- **Gruppierung**: Erst Ziel-URL, darunter zugehörige Anchors.\n"
-                    "- Mit **Top-K** reduzierst du Rauschen und fokussierst dominante Anchors."
-                )
-            
-            with st.expander("Wozu das Ganze?"):
-                st.markdown(
-                    "- **Over-Optimierung erkennen**: Einzelne Anchors dominieren stark.\n"
-                    "- **Diversität prüfen**: Gibt es genügend natürliche Varianten?\n"
-                    "- **GSC-Abdeckung**: Fehlen wichtige Queries in Anchor-Varianten?"
-                )
-            
-            with st.expander("Hinweise & Grenzen"):
-                st.markdown(
-                    "- Die Treemap spiegelt **nur vorhandene Inlinks** wider.\n"
-                    "- **ALT**-Texte werden als Fallback berücksichtigt, wenn keine Anchor-Spalte vorhanden ist.\n"
-                    "- Filter wie Brand/Mindestwerte wirken **nicht automatisch** auf die Treemap."
-                )
-            
+                        
             # ---- Treemap zeichnen (optional) ----
             # anchor_inv wird erst später definiert, wenn die Analyse läuft
             try:
@@ -823,7 +813,7 @@ with st.sidebar:
                 st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
             
             # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
-            st.markdown("#### Vollständiges Anchor-Inventar (Wide)")
+            st.markdown("#### Je URL: Anzahl der Ankertexte, mit denen sie verlinkt ist")
             try:
                 anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
             except NameError:
@@ -884,6 +874,112 @@ with st.sidebar:
                     )
                 except Exception:
                     pass
+
+                # ---- Shared Ankertexte (ein Anchor → viele Ziel-URLs) ----
+                st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
+
+                try:
+                    anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+                except NameError:
+                    anchor_inv_check = pd.DataFrame()
+
+                if anchor_inv_check.empty:
+                    st.info("Keine Ankerdaten vorhanden. Bitte 'All Inlinks' hochladen.")
+                else:
+                    col_sh1, col_sh2, col_sh3 = st.columns(3)
+                    with col_sh1:
+                        enable_shared = st.checkbox(
+                            "Shared-Ankertexte aktivieren",
+                            value=True,
+                            key="a4_shared_enable",
+                            help="Zeigt Ankertexte, die auf mehreren unterschiedlichen Ziel-URLs verwendet werden."
+                        )
+                    with col_sh2:
+                        min_urls_per_anchor = st.number_input(
+                            "Mindestens auf N verschiedenen URLs verwendet",
+                            min_value=2, value=2, step=1, key="a4_shared_min_urls",
+                            help="Nur Anker zeigen, die auf mindestens N Ziel-URLs vorkommen."
+                        )
+                    with col_sh3:
+                        ignore_nav = st.checkbox(
+                            "Navigative Anker ausschließen",
+                            value=True, key="a4_shared_ignore_nav",
+                            help="Blendet generische/navigative Anker wie 'hier', 'mehr' etc. aus."
+                        )
+
+                    if enable_shared:
+                        df_shared = anchor_inv_check.copy()
+                        df_shared["target"] = df_shared["target"].astype(str)
+                        df_shared["anchor"] = df_shared["anchor"].astype(str)
+
+                        # Navigative Anker ggf. ausschließen (setzt NAVIGATIONAL_ANCHORS voraus)
+                        if ignore_nav and 'NAVIGATIONAL_ANCHORS' in globals():
+                            df_shared = df_shared[~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)]
+
+                        # Pro Anchor alle unterschiedlichen Ziel-URLs sammeln
+                        grouped = (
+                            df_shared.groupby("anchor")["target"]
+                            .agg(lambda s: sorted({disp(t) for t in s}))
+                            .reset_index(name="urls")
+                        )
+
+                        # Nur Anker mit genug Ziel-URLs behalten
+                        grouped["url_count"] = grouped["urls"].apply(len)
+                        grouped = grouped[grouped["url_count"] >= int(min_urls_per_anchor)]
+
+                        if grouped.empty:
+                            st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
+                        else:
+                            # Wide-Format: Ankertext, URL 1, URL 2, ...
+                            max_len = int(grouped["url_count"].max())
+                            cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
+
+                            rows = []
+                            for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
+                                urls = list(r["urls"])
+                                row = [r["anchor"]] + urls + [""] * (max_len - len(urls))
+                                rows.append(row)
+
+                            shared_wide_df = pd.DataFrame(rows, columns=cols)
+
+                            # Preview-Tabelle anzeigen
+                            st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
+
+                            # CSV-Download
+                            csv_shared = shared_wide_df.to_csv(index=False).encode("utf-8-sig")
+                            st.download_button(
+                                "Download Shared-Ankertexte (CSV)",
+                                data=csv_shared,
+                                file_name="a4_shared_ankertexte.csv",
+                                mime="text/csv",
+                                key="a4_dl_shared_csv"
+                            )
+
+                            # XLSX-Download (Shared-Ankertexte)
+                            try:
+                                bio_shared = io.BytesIO()
+                                with pd.ExcelWriter(bio_shared, engine="xlsxwriter") as xw:
+                                    # Sheet schreiben
+                                    shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
+                                    # Optional: minimale Formatkosmetik (Autofit-ähnlich)
+                                    ws = xw.sheets["Shared-Ankertexte"]
+                                    for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
+                                        # Breite an Header + Daten grob anpassen
+                                        max_len = max(
+                                            len(str(col_name)),
+                                            *(len(str(v)) for v in shared_wide_df.iloc[:, col_idx-1].astype(str).values[:1000])  # cap
+                                        )
+                                        ws.set_column(col_idx-1, col_idx-1, min(max_len + 2, 60))  # max Breite 60
+                                bio_shared.seek(0)
+                                st.download_button(
+                                    "Download Shared-Ankertexte (XLSX)",
+                                    data=bio_shared.getvalue(),
+                                    file_name="a4_shared_ankertexte.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    key="a4_dl_shared_xlsx"
+                                )
+                            except Exception as e:
+                                st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
 
 
     else:
@@ -1983,21 +2079,33 @@ if A4_NAME in selected_analyses:
     #    - auto_variants = False → Nur exakt die Marke allein als Query
     def is_brand_query(q: str) -> bool:
         s = (q or "").lower().strip()
-        if not s or not brand_list:
+        if not s:
             return False
     
-        tokens = [re.escape(t) for t in brand_list]
+        auto_variants = bool(st.session_state.get("a4_auto_variants", True))
     
-        if st.session_state.get("a4_auto_variants", True):
-            # Weite Erkennung: Marke darf irgendwo stehen (Wortgrenzen/Delimiter berücksichtigen)
-            # Beispiele: "fressnapf hundefutter", "bla bla fressnapf", "fressnapf-hundefutter"
-            pat = r"(?:^|[^a-z0-9äöüß])(" + "|".join(tokens) + r")(?:$|[^a-z0-9äöüß])"
+        # brand_list wurde weiter oben bereits gebaut:
+        # brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
+        # Falls du sie NICHT mehr global hast, dann baue sie hier wie zuvor (split_list_text + read_single_col_file_obj).
+        if not brand_list:
+            return False
+    
+        # simple Tokenisierung (Leerzeichen + Bindestrich)
+        tokens = [t for t in re.split(r"[\s\-]+", s) if t]
+    
+        # enthält die Query überhaupt eine Brand?
+        has_brand_token = any(t in brand_list for t in tokens)
+        if not has_brand_token:
+            return False
+    
+        if auto_variants:
+            # ✅ Regel: Sobald eine Brand auftaucht, gilt die Query als Brand – auch in Kombinationen
+            # (z. B. "marke test", "test marke", "marke-test").
+            return True
         else:
-            # Enge Erkennung: Nur die Marke alleine
-            # Beispiel: "fressnapf" → ja; "fressnapf hundefutter" → nein
-            pat = r"^\s*(?:" + "|".join(tokens) + r")\s*$"
-    
-        return re.search(pat, s, flags=re.IGNORECASE) is not None
+            # Enge Erkennung: nur die reine Brand (ein Token, exakt in Brandliste)
+            return len(tokens) == 1 and tokens[0] in brand_list
+
 
 
     # Navigative/generische Anchors ausschließen (für Konflikte)
@@ -2049,8 +2157,16 @@ if A4_NAME in selected_analyses:
     if enable_over_anchor and not anchor_inv.empty:
         totals = anchor_inv.groupby("target")["count"].sum().rename("total")
         tmp = anchor_inv.merge(totals, on="target", how="left")
-        tmp["share"] = (100.0 * tmp["count"] / tmp["total"]).round(2)
-        filt = (tmp["count"] >= int(top_anchor_abs)) | (tmp["share"] >= float(top_anchor_share))
+        tmp["share"] = np.where(tmp["total"] > 0, (100.0 * tmp["count"] / tmp["total"]), 0.0).round(2)
+
+        mode = st.session_state.get("a4_over_anchor_mode", "Absolut")
+        if mode == "Absolut":
+            filt = (tmp["count"] >= int(top_anchor_abs))
+        elif mode == "Anteil (%)":
+            filt = (tmp["share"] >= float(top_anchor_share))
+        else:  # "Beides"
+            filt = (tmp["count"] >= int(top_anchor_abs)) & (tmp["share"] >= float(top_anchor_share))
+        
         over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
         over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
 
