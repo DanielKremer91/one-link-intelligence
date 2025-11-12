@@ -692,6 +692,7 @@ with st.sidebar:
                     st.session_state.setdefault("a4_auto_variants", True)
 
                 
+                # --- Relevanzgrundlage ---
                 metric_choice = st.radio(
                     "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
                     ["Impressions", "Clicks"],
@@ -699,22 +700,18 @@ with st.sidebar:
                     horizontal=True,
                     key="a4_metric_choice"
                 )
+                
+                # --- Matching-Variante (gleicher Stil, schwarzer Text) ---
+                st.markdown(
+                    "<p style='color:black; font-weight:600; margin-bottom:0.3rem;'>"
+                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match oder auf Basis semantischer Ähnlichkeit erfolgen?"
+                    "</p>",
+                    unsafe_allow_html=True
+                )
+                
+                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
+                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
 
-                # --- Matching-Variante ---
-                st.radio(
-                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match oder auch "
-                    "auf Basis semantischer Ähnlichkeit erfolgen?",
-                )
-                check_exact = st.checkbox(
-                    "Exact Match prüfen",
-                    value=True,
-                    key="a4_check_exact",
-                )
-                check_embed = st.checkbox(
-                    "Embedding Match prüfen",
-                    value=True,
-                    key="a4_check_embed",
-                )
 
 
                 embed_model_name = st.selectbox(
