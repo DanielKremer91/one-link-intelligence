@@ -653,137 +653,83 @@ with st.sidebar:
                 brand_mode = st.radio(
                     "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?", ["Nur Non-Brand", "Nur Brand", "Beides"],
                     index=0, horizontal=True, key="a4_brand_mode",
-                    help="Filtert Search Console Queries nach Brand/Non-Brand bevor die Auswertung startet."
+                    help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
                 )
 
-                # Danach Brand-Schreibweisen – nur zeigen, wenn Brand berücksichtigt wird
-                if brand_mode in ("Nur Brand", "Beides"):
-                    brand_text = st.text_area(
-                        "Damit wir Brand-Schreibweisen zuverlässig erkennen können, gib uns hier bitte alle Brand-Schreibweisen mit (eine pro Zeile oder komma-getrennt)",
-                        value="",
-                        key="a4_brand_text",
-                        help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
-                    )
-                    brand_file = st.file_uploader(
-                        "Optional: Du kannst auch alle Schreibweisen deiner Brand als Liste hochladen (1 Spalte)",
-                        type=["csv","xlsx","xlsm","xls"],
-                        key="a4_brand_file",
-                        help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-                    )
-                    auto_variants = st.checkbox(
-                        "Soll das Tool basierend auf deinen Brand-Schreibweisen automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
-                        value=True,
-                        key="a4_auto_variants",
-                        help=("Wenn aktiviert, gilt jede Suchanfrage, die die Marke irgendwo enthält (auch mit Bindestrich), "
-                              "als Brand-Query. Wenn deaktiviert, nur exakte Marken-Queries (nur die Marke allein).")
-                    )
-                else:
-                    # Defaults setzen, damit die spätere Verarbeitung nicht ins Leere greift
-                    st.session_state["a4_brand_text"] = ""
-                    st.session_state["a4_brand_file"] = None
-                    st.session_state["a4_auto_variants"] = True
-                    st.info("Brand-Schreibweisen sind ausgeblendet, da **Nur Non-Brand** ausgewählt ist.")
+                # Danach Brand-Schreibweisen
+                brand_text = st.text_area(
+                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
+                    help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+                )
+                brand_file = st.file_uploader(
+                    "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
+                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
+                )
+                auto_variants = st.checkbox(
+                    "Automatisch Varianten erzeugen (z. B. \"marke produkt\" / \"marke-produkt\")",
+                    value=True, key="a4_auto_variants",
+                    help="Erweitert die Brandliste automatisch um gängige Kombinations-Varianten."
+                )
+                head_nouns_text = st.text_input(
+                    "Head-Nomen (kommagetrennt, editierbar)",
+                    value="kochfeld, kochfeldabzug, system, kochfelder", key="a4_head_nouns",
+                    help="Nur relevant, wenn Varianten automatisch erzeugt werden."
+                )
 
-                
                 st.markdown("**Matching**")
-                st.info(
-                    "Das Matching legt fest, wie streng die Queries aus der Google Search Console mit deinen Ankertexten abgeglichen werden.\n\n"
-                    "In dieser Analyse werden die Top 20 % deiner Suchanfragen (nach Klicks oder Impressionen) herangezogen, um zu prüfen, "
-                    "ob deine internen Links diese relevanten Suchbegriffe bereits abdecken.\n\n"
-                    "Je nach Einstellung erkennt das Tool nur exakte Übereinstimmungen zwischen Query und Ankertext "
-                    "oder berücksichtigt auch Teil- bzw. Wortkombinationen bzw. semantische Ähnlichkeit. "
-                    "Ziel ist es, Lücken in deiner internen Verlinkung sichtbar zu machen – also Queries, "
-                    "zu denen du gute Rankings hast, die aber in deinen Linktexten nicht vorkommen."
-                )
-                
                 metric_choice = st.radio(
-                    "Search Console Bewertung nach …",
-                    ["Impressions", "Clicks"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_metric_choice",
+                    "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
                     help="Bestimmt, ob Klicks oder Impressionen die Relevanz pro Query bestimmen."
                 )
-                
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
-                
-                # Nur wenn Embedding Match aktiv ist, die zusätzlichen Einstellungen anzeigen
-                if check_embed:
-                    st.markdown("**Embedding-Einstellungen**")
-                    embed_model_name = st.selectbox(
-                        "Embedding-Modell",
-                        [
-                            "sentence-transformers/all-MiniLM-L6-v2",
-                            "sentence-transformers/all-MiniLM-L12-v2",
-                            "sentence-transformers/all-mpnet-base-v2"
-                        ],
-                        index=0,
-                        help="all-MiniLM-L12-v2 ist ein guter Kompromiss was Schnelligkeit vs. Genauigkeit anbelangt. all-mpnet-base-v2 arbeitet am genauesten, aber auch am langsamsten.",
-                        key="a4_embed_model",
-                    )
-                    embed_thresh = st.slider(
-                        "Cosine-Schwelle (Embedding)",
-                        0.50, 0.95, 0.75, 0.01,
-                        key="a4_embed_thresh",
-                        help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer."
-                    )
-                else:
-                    # Defaults setzen, damit Backend stabil bleibt
-                    st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
-                    st.session_state.setdefault("a4_embed_thresh", 0.75)
 
-
-                st.markdown("**Schwellen & Filter für Search Console Matching**")
-                st.info(
-                    "Mit den **Schwellen & Filtern** reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
-                    "• **Mindest-Klicks/Query** – wird **nur angewendet**, wenn oben *Clicks* ausgewählt ist. "
-                    "Filtert Suchanfragen mit zu wenigen Klicks heraus.\n"
-                    "• **Mindest-Impressions/Query** – wird **nur angewendet**, wenn oben *Impressions* ausgewählt ist. "
-                    "Filtert Queries mit Impressionen unter dem gewählten Schwellenwert heraus.\n"
-                    "• **Top-N Queries pro URL** – zusätzlicher Deckel **nach** der Top-20-%-Auswahl. "
-                    "Pro URL werden maximal N der stärksten Queries (aus dem Topf der Top-20 %) geprüft (mindestens 1).\n\n"
-                    "**Hinweise:**\n"
-                    "– Die Auswahl *Impressions vs. Clicks* steuert, **welche Schwelle greift**.\n"
-                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, **dann** die Top-20-% berechnet, "
-                    "und **anschließend** per Top-N begrenzt.\n"
+                embed_model_name = st.selectbox(
+                    "Embedding-Modell",
+                    ["sentence-transformers/all-MiniLM-L6-v2",
+                     "sentence-transformers/all-MiniLM-L12-v2",
+                     "sentence-transformers/all-mpnet-base-v2"],
+                    index=0,
+                    help="Standard: all-MiniLM-L6-v2",
+                    key="a4_embed_model",
                 )
+                embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh",
+                                         help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer.")
 
+                help_text_schwellen = (
+                    "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
+                    "• Mindest-Klicks/Query – wird nur angewendet, wenn oben Clicks ausgewählt ist. Filtert Suchanfragen mit zu wenigen Klicks heraus.\n"
+                    "• Mindest-Impressions/Query – wird nur angewendet, wenn oben Impressions ausgewählt ist. Filtert Queries mit Impressionen unter dem gewählten Schwellenwert heraus.\n"
+                    "• Top-N Queries pro URL – zusätzlicher Deckel nach der Top-20-%-Auswahl. Pro URL werden maximal N der stärksten Queries (aus dem Topf der Top-20 %) geprüft (mindestens 1).\n\n"
+                    "Hinweise:\n"
+                    "– Die Auswahl Impressions vs. Clicks steuert, welche Schwelle greift.\n"
+                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, dann die Top-20-% berechnet, und anschließend per Top-N begrenzt."
+                )
+                col_header, col_help = st.columns([1, 20])
+                with col_header:
+                    st.markdown("**Schwellen & Filter**")
+                with col_help:
+                    with st.expander("❓", expanded=False):
+                        st.markdown(help_text_schwellen)
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
-                    if metric_choice == "Clicks":
-                        min_clicks = st.number_input(
-                            "Mindest-Klicks/Query",
-                            min_value=0, value=st.session_state.get("a4_min_clicks", 50), step=10,
-                            key="a4_min_clicks",
-                            help="Filtert Queries unterhalb dieser Klickzahl (gilt nur wenn oben 'Clicks' gewählt ist)."
-                        )
-                    else:
-                        st.markdown(" ")  # Platzhalter für sauberes Grid
-            
+                    min_clicks = st.number_input("Mindest-Klicks/Query", min_value=0, value=50, step=10, key="a4_min_clicks",
+                                                 help="Queries mit weniger Klicks werden gefiltert (nur wenn 'Clicks' gewählt).")
                 with col_s2:
-                    if metric_choice == "Impressions":
-                        min_impr = st.number_input(
-                            "Mindest-Impressions/Query",
-                            min_value=0, value=st.session_state.get("a4_min_impr", 500), step=50,
-                            key="a4_min_impr",
-                            help="Filtert Queries unterhalb dieser Impressionen (gilt nur wenn oben 'Impressions' gewählt ist)."
-                        )
-                    else:
-                        st.markdown(" ")  # Platzhalter
-                
+                    min_impr   = st.number_input("Mindest-Impressions/Query", min_value=0, value=500, step=50, key="a4_min_impr",
+                                                 help="Queries mit weniger Impressions werden gefiltert (nur wenn 'Impressions' gewählt).")
                 with col_s3:
                     topN_default = st.number_input(
                         "Top-N Queries pro URL (zusätzliche Bedingung)",
                         min_value=1, value=st.session_state.get("a4_topN", 10), step=1, key="a4_topN",
                         help="Begrenzt pro URL die Anzahl der geprüften Queries nach Anwendung der 20%-Regel."
                     )
-                
             else:
                 # Setze Defaults wenn deaktiviert
                 st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
                 st.session_state.setdefault("a4_brand_text", "")
                 st.session_state.setdefault("a4_auto_variants", True)
+                st.session_state.setdefault("a4_head_nouns", "kochfeld, kochfeldabzug, system, kochfelder")
                 st.session_state.setdefault("a4_metric_choice", "Impressions")
                 st.session_state.setdefault("a4_check_exact", True)
                 st.session_state.setdefault("a4_check_embed", True)
@@ -794,6 +740,7 @@ with st.sidebar:
                 st.session_state.setdefault("a4_topN", 10)
             
             # --- Visualisierung (A4) ---
+            st.markdown("**Visualisierung**")
             show_treemap = st.checkbox(
                 "Treemap-Visualisierung aktivieren",
                 value=True,
@@ -803,8 +750,6 @@ with st.sidebar:
                     "Grundlage sind ausschließlich die Anker aus deiner All-Inlinks-Datei."
                 )
             )
-            
-            st.markdown("**Visualisierung**")
             st.info(
                 "Die Visualisierung basiert auf den **Ankertexten aus deiner _All Inlinks_-Datei**. "
                 "Für jede Ziel-URL wird ein **Anchor-Inventar** gebildet (Anchor + Häufigkeit). "
@@ -847,10 +792,15 @@ with st.sidebar:
                 )
             
             # ---- Treemap zeichnen (optional) ----
-            if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
+            # anchor_inv wird erst später definiert, wenn die Analyse läuft
+            try:
+                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+            except NameError:
+                anchor_inv_check = pd.DataFrame()
+            if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
                 st.markdown("#### Treemap der häufigsten Anchors je Ziel-URL")
                 tre_rows = []
-                for tgt, grp in anchor_inv.groupby("target", sort=False):
+                for tgt, grp in anchor_inv_check.groupby("target", sort=False):
                     topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
                     for _, rr in topk.iterrows():
                         tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
@@ -873,11 +823,15 @@ with st.sidebar:
             
             # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
             st.markdown("#### Vollständiges Anchor-Inventar (Wide)")
-            if anchor_inv.empty:
+            try:
+                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+            except NameError:
+                anchor_inv_check = pd.DataFrame()
+            if anchor_inv_check.empty:
                 st.info("Kein Anchor-Inventar vorhanden. Bitte 'All Inlinks' hochladen.")
             else:
                 # Sortiert je Ziel-URL absteigend nach Count
-                inv_sorted = anchor_inv.sort_values(["target", "count"], ascending=[True, False]).copy()
+                inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
             
                 # max. Anzahl Anker je URL ermitteln, um Spalten dynamisch anzulegen
                 max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
@@ -2522,11 +2476,15 @@ if A4_NAME in selected_analyses:
             # ============================
             # Optional: Treemap-Visualisierung
             # ============================
-            if show_treemap and _HAS_PLOTLY and not anchor_inv.empty:
+            try:
+                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+            except NameError:
+                anchor_inv_check = pd.DataFrame()
+            if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
                 st.markdown("#### 5) Treemap der häufigsten Anchors je Ziel-URL")
                 # Top-K Anchors je Ziel aggregieren
                 tre_rows = []
-                for tgt, grp in anchor_inv.groupby("target", sort=False):
+                for tgt, grp in anchor_inv_check.groupby("target", sort=False):
                     topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
                     for _, rr in topk.iterrows():
                         tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
@@ -2556,5 +2514,3 @@ if A4_NAME in selected_analyses:
             ph4.empty()
     except Exception:
         pass
-
-
