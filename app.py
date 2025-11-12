@@ -511,7 +511,7 @@ with st.sidebar:
         if A2_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – A2")
+            st.subheader("Einstellungen – Unpassende interne Links entfernen A2")
             st.caption("Schwellen & Filter für potenziell unpassende Links")
             not_similar_threshold = st.slider(
                 "Unähnlichkeitsschwelle (schwache Links)", 0.0, 1.0, 0.60, 0.01,
@@ -537,7 +537,7 @@ with st.sidebar:
         if A3_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – A3")
+            st.subheader("Einstellungen – SEO-Potenziallinks finden A3")
             st.caption("Gems bestimmen, Linkbedarf gewichten, Sortierung steuern.")
 
             gem_pct = st.slider(
@@ -612,7 +612,8 @@ with st.sidebar:
         if A4_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – A4")
+            st.subheader("Einstellungen – Ankertexte analysieren A4")
+            st.caption("Hier sind mehrere Detail-Analysen möglich – diese können nachfolgend aktiviert oder deaktiviert werden.")
             
             # Switch für Over-Anchor-Check
             enable_over_anchor = st.checkbox(
