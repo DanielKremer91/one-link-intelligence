@@ -693,11 +693,18 @@ with st.sidebar:
 
                 
                 st.markdown("**Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?**")
+                               
                 metric_choice = st.radio(
-                    "["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice"
+                    "",  # kein Label über dem Radiobutton
+                    ["Impressions", "Clicks"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_metric_choice"
                 )
+                
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+
 
                 embed_model_name = st.selectbox(
                     "Embedding-Modell",
