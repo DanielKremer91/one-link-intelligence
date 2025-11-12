@@ -700,8 +700,29 @@ with st.sidebar:
                     key="a4_metric_choice"
                 )
 
-                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
-                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+                # --- Matching-Variante ---
+                st.radio(
+                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match oder auch "
+                    "auf Basis semantischer Ähnlichkeit erfolgen?",
+                    options=[],
+                    index=None,
+                    horizontal=True,
+                    key="a4_match_dummy",
+                    help=(
+                        "Steuert, welche Matching-Arten aktiviert werden: "
+                        "Exact Match = exakte Textübereinstimmung, Embedding Match = semantischer Vergleich über Vektoren."
+                    ),
+                )
+                check_exact = st.checkbox(
+                    "Exact Match prüfen",
+                    value=True,
+                    key="a4_check_exact",
+                )
+                check_embed = st.checkbox(
+                    "Embedding Match prüfen",
+                    value=True,
+                    key="a4_check_embed",
+                )
 
 
                 embed_model_name = st.selectbox(
