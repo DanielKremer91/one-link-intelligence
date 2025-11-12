@@ -661,7 +661,7 @@ with st.sidebar:
             
             if enable_gsc_coverage:
                 st.markdown("**Search Console Query Coverage bei Ankertexten**")
-                st.caption("Vergleicht Top-Queries aus der Search Console mit vorhandenen Ankertexten und identifiziert fehlende oder falsch verlinkte Queries.")
+                st.caption("Gleicht die Top 20% der Suchanfragen einer URL (basierend auf Search Console Daten) mit vorhandenen Ankertexten ab und identifiziert fehlende oder falsch verlinkte Queries.")
                 
                 # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
                 brand_mode = st.radio(
@@ -692,10 +692,9 @@ with st.sidebar:
                     st.session_state.setdefault("a4_auto_variants", True)
 
                 
-                st.markdown("**Matching**")
+                st.markdown("**Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?**")
                 metric_choice = st.radio(
-                    "GSC-Bewertung nach …", ["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice",
-                    help="Bestimmt, ob Klicks oder Impressionen die Relevanz pro Query bestimmen."
+                    "["Impressions", "Clicks"], index=0, horizontal=True, key="a4_metric_choice"
                 )
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
