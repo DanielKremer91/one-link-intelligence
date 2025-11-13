@@ -771,7 +771,19 @@ with st.sidebar:
             # --- Visualisierung (A4) ---
             st.markdown("**Ankertext-Matrix & Visualisierung**")
             st.caption(
-                "Lasse dir je URL die häufigsten Ankertexte visuell oder als csv ausgeben."
+                "Lasse dir je URL die häufigsten Ankertexte visuell oder als CSV ausgeben. "
+                "Optional kannst du externe Offpage-Ankertexte mit einbeziehen."
+            )
+            
+            # NEU: Offpage-Anker einbeziehen
+            include_offpage_anchors = st.checkbox(
+                "Auch Ankertexte aus externen Backlinks berücksichtigen (Offpage-Datei)",
+                value=False,
+                key="a4_include_offpage_anchors",
+                help=(
+                    "Wenn aktiviert, werden Ankertexte aus einer separaten Offpage-Datei "
+                    "(z. B. Backlink-Export mit Anchor-Text) zusätzlich zu den internen Ankertexten gezählt."
+                )
             )
             
             show_treemap = st.checkbox(
@@ -780,9 +792,10 @@ with st.sidebar:
                 key="a4_show_treemap",
                 help=(
                     "Schaltet die Treemap ein/aus. Die Treemap zeigt je Ziel-URL die häufigsten Ankertexte. "
-                    "Grundlage sind ausschließlich die Anker aus deiner All-Inlinks-Datei."
+                    "Grundlage sind die Anker aus All Inlinks und – falls aktiviert – aus der Offpage-Ankerdatei."
                 )
             )
+
 
             # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
             enable_anchor_matrix = st.checkbox(
@@ -860,7 +873,7 @@ with st.sidebar:
             
             # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
             if st.session_state.get("a4_enable_anchor_matrix", True):
-                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+                anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
                 if not anchor_inv_check.empty:
                     inv_sorted = anchor_inv_check.sort_values(["target","count"], ascending=[True, False]).copy()
                     max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
@@ -892,7 +905,7 @@ with st.sidebar:
 
 
             # ---- Shared Ankertexte (ein Anchor → viele Ziel-URLs) ----
-            anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+            anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
 
             if st.session_state.get("a4_shared_enable", True) and not anchor_inv_check.empty:
                 st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
@@ -1002,6 +1015,7 @@ required_sets = {
 shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2]
 
 emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
+offpage_anchors_df = None  # <– NEU
 gsc_df_loaded = None
 
 def _read_up(label: str, uploader, required: bool):
@@ -1174,12 +1188,25 @@ if A4_NAME in selected_analyses:
     # GSC Upload nur wenn GSC-Coverage aktiviert ist
     if st.session_state.get("a4_enable_gsc_coverage", True):
         needs.append(("Search Console (CSV/Excel)", "up_gsc_a4", HELP_GSC_A4))
+    # NEU: Offpage-Ankerdatei nur anbieten, wenn Option aktiviert
+    if st.session_state.get("a4_include_offpage_anchors", False):
+        needs.append((
+            "Offpage-Ankertexte (CSV/Excel)",
+            "up_offpage_anchors_a4",
+            "Struktur: mindestens Ziel-URL + Ankertext. "
+            "Ziel-URL wird ähnlich wie in 'All Inlinks' erkannt, Ankertext über Spaltennamen wie "
+            "'Anchor', 'Anchor Text', 'Anker', 'Ankertext' etc."
+        ))
 
-    
     if needs:
         for (label, df) in upload_for_analysis("Analyse 4 Ankertexte analysieren – erforderliche Dateien", needs):
-            if "Inlinks" in label: inlinks_df = df
-            if "Search Console" in label: gsc_df_loaded = df
+            if "Inlinks" in label:
+                inlinks_df = df
+            if "Search Console" in label:
+                gsc_df_loaded = df
+            if "Offpage-Ankertexte" in label:
+                offpage_anchors_df = df  # <– NEU
+
             
 # Separate Start-Buttons für jede Analyse (rot eingefärbt)
 st.markdown("---")
@@ -2133,7 +2160,59 @@ if A4_NAME in selected_analyses:
         agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
         return agg
 
-    anchor_inv = extract_anchor_inventory(inlinks_df)
+    anchor_inv_internal = extract_anchor_inventory(inlinks_df)
+
+    # NEU: Offpage-Ankertexte ggf. ergänzen
+    include_offpage_anchors = bool(st.session_state.get("a4_include_offpage_anchors", False))
+    anchor_inv_vis = anchor_inv_internal.copy()  # für Visualisierung (Treemap/Matrix/Shared)
+    
+    offpage_anchor_inv = pd.DataFrame(columns=["target", "anchor", "count"])
+    
+    if include_offpage_anchors and isinstance(offpage_anchors_df, pd.DataFrame) and not offpage_anchors_df.empty:
+        df_off = offpage_anchors_df.copy()
+        df_off.columns = [str(c).strip() for c in df_off.columns]
+        hdr_off = [str(c).strip() for c in df_off.columns]
+    
+        # Ziel-URL & Anchor-Spalte suchen (wie bei Inlinks)
+        off_tgt_idx = find_column_index(hdr_off, POSSIBLE_TARGET)
+        off_anc_idx = find_column_index(hdr_off, POSSIBLE_ANCHOR)
+    
+        if off_tgt_idx == -1 or off_anc_idx == -1:
+            st.warning(
+                "In der Offpage-Ankerdatei wurden Ziel-URL oder Anker-Spalte nicht erkannt. "
+                "Offpage-Ankertexte werden für A4 ignoriert."
+            )
+        else:
+            rows = []
+            for row in df_off.itertuples(index=False, name=None):
+                dst = remember_original(row[off_tgt_idx])
+                if not dst:
+                    continue
+                anchor_val = row[off_anc_idx]
+                anchor = str(anchor_val or "").strip()
+                if not anchor:
+                    continue
+                rows.append([normalize_url(dst), anchor])
+    
+            if rows:
+                tmp = pd.DataFrame(rows, columns=["target", "anchor"])
+                offpage_anchor_inv = (
+                    tmp.groupby(["target", "anchor"], as_index=False)
+                       .size()
+                       .rename(columns={"size": "count"})
+                )
+    
+            if not offpage_anchor_inv.empty:
+                # interne + Offpage-Anker kumulieren
+                anchor_inv_vis = (
+                    pd.concat([anchor_inv_vis, offpage_anchor_inv], ignore_index=True)
+                      .groupby(["target", "anchor"], as_index=False)["count"]
+                      .sum()
+                )
+    else:
+        # falls nicht genutzt: leere DF, nur intern verwenden
+        offpage_anchor_inv = pd.DataFrame(columns=["target", "anchor", "count"])
+
 
     # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
     # Nur wenn Over-Anchor-Check aktiviert ist
@@ -2375,7 +2454,7 @@ if A4_NAME in selected_analyses:
             # Optional: Treemap-Visualisierung
             # ============================
             try:
-                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
+                anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
             except NameError:
                 anchor_inv_check = pd.DataFrame()
             if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
