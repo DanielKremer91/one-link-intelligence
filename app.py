@@ -842,11 +842,8 @@ with st.sidebar:
             )
                         
             # ---- Treemap zeichnen (optional) ----
-            # anchor_inv wird erst später definiert, wenn die Analyse läuft
-            try:
-                anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
-            except NameError:
-                anchor_inv_check = pd.DataFrame()
+            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+
             if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
                 st.markdown("#### Treemap der häufigsten Anchors je Ziel-URL")
                 tre_rows = []
@@ -871,54 +868,131 @@ with st.sidebar:
             elif show_treemap and not _HAS_PLOTLY:
                 st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
             
-            # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
+            # ---- Vollständiges Anchor-Inventar (Wide) + Exports (mit Quelle-Flag) ----
             if st.session_state.get("a4_enable_anchor_matrix", True):
-                anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
+                # anchor_inv_vis kommt aus Analyse 4 (Session-State)
+                anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+
                 if not anchor_inv_check.empty:
-                    inv_sorted = anchor_inv_check.sort_values(["target","count"], ascending=[True, False]).copy()
+                    inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
+                    has_flag = "source_flag" in inv_sorted.columns
+            
                     max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
-                    cols = ["Ziel-URL"] + [x for i in range(1, max_n+1) for x in (f"Ankertext {i}", f"Count Ankertext {i}")]
+            
+                    # Spalten dynamisch aufbauen – mit oder ohne Quelle-Spalte
+                    if has_flag:
+                        cols = ["Ziel-URL"] + [
+                            x
+                            for i in range(1, max_n + 1)
+                            for x in (f"Ankertext {i}", f"Count Ankertext {i}", f"Quelle Ankertext {i}")
+                        ]
+                    else:
+                        cols = ["Ziel-URL"] + [
+                            x
+                            for i in range(1, max_n + 1)
+                            for x in (f"Ankertext {i}", f"Count Ankertext {i}")
+                        ]
+            
                     rows = []
                     for tgt, grp in inv_sorted.groupby("target", sort=False):
                         row = [disp(tgt)]
-                        for a, c in zip(grp["anchor"].astype(str), grp["count"].astype(int)):
-                            row += [a, c]
-                        while len(row) < len(cols): row += ["",""]
+                        if has_flag:
+                            for a, c, src_flag in zip(
+                                grp["anchor"].astype(str),
+                                grp["count"].astype(int),
+                                grp["source_flag"].astype(str),
+                            ):
+                                row += [a, c, src_flag]
+                        else:
+                            for a, c in zip(
+                                grp["anchor"].astype(str),
+                                grp["count"].astype(int),
+                            ):
+                                row += [a, c]
+            
+                        # mit leeren Strings auffüllen, damit jede Zeile die gleiche Länge wie cols hat
+                        while len(row) < len(cols):
+                            row.append("")
                         rows.append(row)
+            
                     anchor_wide_df = pd.DataFrame(rows, columns=cols)
                     st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
-                    st.download_button("Download Anchor-Inventar (Wide) – CSV",
-                                       data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                                       file_name="a4_anchor_inventar_wide.csv", mime="text/csv", key="a4_dl_anchor_wide_csv")
+            
+                    # CSV-Download
+                    st.download_button(
+                        "Download Anchor-Inventar (Wide) – CSV",
+                        data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="a4_anchor_inventar_wide.csv",
+                        mime="text/csv",
+                        key="a4_dl_anchor_wide_csv"
+                    )
+            
+                    # XLSX-Download
                     try:
                         buf_anchor = io.BytesIO()
                         with pd.ExcelWriter(buf_anchor, engine="xlsxwriter") as xw:
                             anchor_wide_df.to_excel(xw, index=False, sheet_name="Anchor-Inventar")
                         buf_anchor.seek(0)
-                        st.download_button("Download Anchor-Inventar (Wide) – XLSX",
-                                           data=buf_anchor.getvalue(), file_name="a4_anchor_inventar_wide.xlsx",
-                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                           key="a4_dl_anchor_wide_xlsx")
+                        st.download_button(
+                            "Download Anchor-Inventar (Wide) – XLSX",
+                            data=buf_anchor.getvalue(),
+                            file_name="a4_anchor_inventar_wide.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="a4_dl_anchor_wide_xlsx"
+                        )
                     except Exception:
                         pass
+# else: nichts tun (Matrix ist deaktiviert)
+
             # else: nichts tun (Matrix ist deaktiviert)
 
 
             # ---- Shared Ankertexte (ein Anchor → viele Ziel-URLs) ----
-            anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
+            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+
 
             if st.session_state.get("a4_shared_enable", True) and not anchor_inv_check.empty:
                 st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
                 min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
                 ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
-            
+
                 df_shared = anchor_inv_check.copy()
                 df_shared["target"] = df_shared["target"].astype(str)
                 df_shared["anchor"] = df_shared["anchor"].astype(str)
-            
+
                 if ignore_nav and 'NAVIGATIONAL_ANCHORS' in globals():
                     df_shared = df_shared[~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)]
-            
+
+                # Hat die Tabelle überhaupt ein Quelle-Flag?
+                has_flag = "source_flag" in df_shared.columns
+
+                # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
+                anchor_source_map = {}
+                if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
+                    def _merge_flags(flags):
+                        flags = {f for f in flags if pd.notna(f)}
+                        if not flags:
+                            return "unbekannt"
+                        if "intern + Offpage" in flags:
+                            return "intern + Offpage"
+                        has_int = "nur intern" in flags
+                        has_off = "nur Offpage" in flags
+                        if has_int and has_off:
+                            return "intern + Offpage"
+                        if has_int:
+                            return "nur intern"
+                        if has_off:
+                            return "nur Offpage"
+                        # Fallback
+                            # sort, damit es deterministisch ist
+                        return sorted(flags)[0]
+
+                    anchor_source_map = (
+                        df_shared.groupby("anchor")["source_flag"]
+                        .agg(lambda s: _merge_flags(set(s)))
+                        .to_dict()
+                    )
+
                 grouped = (
                     df_shared.groupby("anchor")["target"]
                     .agg(lambda s: sorted({disp(t) for t in s}))
@@ -926,20 +1000,31 @@ with st.sidebar:
                 )
                 grouped["url_count"] = grouped["urls"].apply(len)
                 grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
-            
+
+                if has_flag and anchor_source_map:
+                    grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
+
                 if grouped.empty:
                     st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
                 else:
                     max_len = int(grouped["url_count"].max())
-                    cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
+
+                    if has_flag and "Quelle" in grouped.columns:
+                        cols = ["Ankertext", "Quelle"] + [f"URL {i}" for i in range(1, max_len + 1)]
+                    else:
+                        cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
+
                     rows = []
                     for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
                         urls = list(r["urls"])
-                        rows.append([r["anchor"], *urls, *([""] * (max_len - len(urls)))])
-            
+                        base = [r["anchor"]]
+                        if "Quelle" in grouped.columns:
+                            base.append(r["Quelle"])
+                        rows.append(base + urls + [""] * (max_len - len(urls)))
+
                     shared_wide_df = pd.DataFrame(rows, columns=cols)
                     st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
-            
+
                     # CSV
                     st.download_button(
                         "Download Shared-Ankertexte (CSV)",
@@ -948,7 +1033,7 @@ with st.sidebar:
                         mime="text/csv",
                         key="a4_dl_shared_csv"
                     )
-            
+
                     # XLSX
                     try:
                         buf_shared = io.BytesIO()
@@ -971,8 +1056,6 @@ with st.sidebar:
                         )
                     except Exception as e:
                         st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
-
-
                     
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
@@ -1040,8 +1123,15 @@ HELP_INL = ("Export aus Screaming Frog: **Massenexport → Links → Alle Inlink
             "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
 HELP_MET = ("Struktur: mindestens **4 Spalten** – **URL**, **Score (Interner Link Score)**, **Inlinks**, **Outlinks**. "
             "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
-HELP_BL  = ("Struktur: mindestens **3 Spalten** – **URL**, **Backlinks**, **Referring Domains**. "
-            "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
+HELP_BL = ( "Du kannst hier zwei Arten von Backlink-Dateien hochladen:\n\n"
+            "1) Aggregierte Backlink-Metriken (klassisch)\n"
+            "   – Struktur: mindestens **URL**, **Backlinks**, **Referring Domains**.\n"
+            "   – Typisch: Export aus einem SEO-Tool (z. B. pro URL bereits aggregierte Metriken).\n\n"
+            "2) Offpage-Linkliste (eine Zeile = ein Backlink)\n"
+            "   – Struktur: mindestens **Ziel-URL** und eine Spalte mit verweisender Domain oder Quell-URL\n"
+            "     (z. B. 'Referring Domain', 'Source URL', 'Domain').\n"
+            "   – Das Tool aggregiert daraus automatisch **Backlinks** und **Referring Domains** je Ziel-URL.\n\n"
+            "Spaltennamen werden automatisch erkannt; zusätzliche Spalten werden ignoriert.")
 HELP_GSC_A3 = ("Struktur: **URL**, **Impressions** · optional **Clicks**, **Position**. "
                "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
 HELP_GSC_A4 = ("Struktur: **URL**, **Query**, **Impressions** oder **Clicks** (mind. eine der beiden). "
@@ -1383,9 +1473,88 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
     backlinks_df = backlinks_df.copy()
     backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
     b_header = [str(c).strip() for c in backlinks_df.columns]
+    
+    # 1) URL-Spalte finden
     b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
-    b_bl_idx  = find_column_index(b_header, ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"])
-    b_rd_idx  = find_column_index(b_header, ["referring domains","ref domains","verweisende domains","anzahl referring domains","anzahl verweisende domains","domains","rd"])
+    if b_url_idx == -1:
+        if backlinks_df.shape[1] >= 1:
+            b_url_idx = 0
+            st.warning("Backlinks: URL-Spalte nicht eindeutig erkannt – nehme erste Spalte als URL.")
+        else:
+            st.error("'Backlinks' braucht mindestens eine URL-Spalte.")
+            st.stop()
+    
+    # 2) Versuche zunächst, aggregierte Metriken zu finden (klassischer Modus)
+    b_bl_idx = find_column_index(
+        b_header,
+        ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
+    )
+    b_rd_idx = find_column_index(
+        b_header,
+        ["referring domains","ref domains","verweisende domains",
+         "anzahl referring domains","anzahl verweisende domains","domains","rd"]
+    )
+    
+    # 3) Wenn keine Metrik-Spalten gefunden wurden → versuche, Datei als Offpage-Linkliste zu interpretieren
+    if b_bl_idx == -1 or b_rd_idx == -1:
+        from urllib.parse import urlparse
+    
+        # Kandidaten für Referrer/Source
+        src_idx = find_column_index(b_header, POSSIBLE_SOURCE)
+        dom_idx = find_column_index(
+            b_header,
+            ["referring domain","referring domains","domain","source domain",
+             "verweisende domain","verweisende domains"]
+        )
+    
+        # Nur wenn wir wenigstens eine Info zur verweisenden Seite haben, können wir aggregieren
+        if dom_idx != -1 or src_idx != -1:
+            rows = []
+            for row in backlinks_df.itertuples(index=False, name=None):
+                tgt = remember_original(row[b_url_idx])
+                if not tgt:
+                    continue
+    
+                dom = None
+                if dom_idx != -1:
+                    dom = str(row[dom_idx] or "").strip()
+                elif src_idx != -1:
+                    src_val = str(row[src_idx] or "").strip()
+                    if src_val:
+                        try:
+                            parsed = urlparse(src_val)
+                            dom = parsed.netloc.lower()
+                        except Exception:
+                            dom = ""
+                if not dom:
+                    continue
+    
+                rows.append([normalize_url(tgt), dom])
+    
+            if rows:
+                tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
+                agg = tmp.groupby("URL").agg(
+                    Backlinks=("Domain", "size"),
+                    RefDomains=("Domain", "nunique")
+                ).reset_index()
+    
+                # Ab hier haben wir wieder die gewohnte Struktur pro URL
+                backlinks_df = agg
+                backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
+                b_header = [str(c).strip() for c in backlinks_df.columns]
+                b_url_idx = 0
+                b_bl_idx  = 1
+                b_rd_idx  = 2
+    
+                st.info(
+                    "Backlink-Metriken wurden automatisch aus einer Offpage-Linkliste abgeleitet "
+                    "(eine Zeile = ein Backlink → Backlinks & Referring Domains je URL aggregiert)."
+                )
+            else:
+                # Kein brauchbares Mapping möglich → fällt auf alten Fallback unten zurück
+                b_bl_idx, b_rd_idx = -1, -1
+    
+    # 4) Falls immer noch nicht alle Indizes vorhanden sind → alter Fallback / Error
     if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
         if backlinks_df.shape[1] >= 3:
             if b_url_idx == -1: b_url_idx = 0
@@ -1395,6 +1564,7 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
         else:
             st.error("'Backlinks' braucht mindestens 3 Spalten (URL, Backlinks, Referring Domains).")
             st.stop()
+
     backlink_map: Dict[str, Dict[str, float]] = {}
     for _, r in backlinks_df.iterrows():
         u = remember_original(r.iloc[b_url_idx])
@@ -2164,19 +2334,20 @@ if A4_NAME in selected_analyses:
 
     # NEU: Offpage-Ankertexte ggf. ergänzen
     include_offpage_anchors = bool(st.session_state.get("a4_include_offpage_anchors", False))
+
+    # Basis: interne Anker (werden immer verwendet)
     anchor_inv_vis = anchor_inv_internal.copy()  # für Visualisierung (Treemap/Matrix/Shared)
-    
     offpage_anchor_inv = pd.DataFrame(columns=["target", "anchor", "count"])
-    
+
     if include_offpage_anchors and isinstance(offpage_anchors_df, pd.DataFrame) and not offpage_anchors_df.empty:
         df_off = offpage_anchors_df.copy()
         df_off.columns = [str(c).strip() for c in df_off.columns]
         hdr_off = [str(c).strip() for c in df_off.columns]
-    
+
         # Ziel-URL & Anchor-Spalte suchen (wie bei Inlinks)
         off_tgt_idx = find_column_index(hdr_off, POSSIBLE_TARGET)
         off_anc_idx = find_column_index(hdr_off, POSSIBLE_ANCHOR)
-    
+
         if off_tgt_idx == -1 or off_anc_idx == -1:
             st.warning(
                 "In der Offpage-Ankerdatei wurden Ziel-URL oder Anker-Spalte nicht erkannt. "
@@ -2193,7 +2364,7 @@ if A4_NAME in selected_analyses:
                 if not anchor:
                     continue
                 rows.append([normalize_url(dst), anchor])
-    
+
             if rows:
                 tmp = pd.DataFrame(rows, columns=["target", "anchor"])
                 offpage_anchor_inv = (
@@ -2201,26 +2372,99 @@ if A4_NAME in selected_analyses:
                        .size()
                        .rename(columns={"size": "count"})
                 )
-    
+
             if not offpage_anchor_inv.empty:
                 # interne + Offpage-Anker kumulieren
                 anchor_inv_vis = (
-                    pd.concat([anchor_inv_vis, offpage_anchor_inv], ignore_index=True)
+                    pd.concat([anchor_inv_internal, offpage_anchor_inv], ignore_index=True)
                       .groupby(["target", "anchor"], as_index=False)["count"]
                       .sum()
                 )
+
+                # ✅ Quelle-Flag („nur intern“, „nur Offpage“, „intern + Offpage“)
+                tmp2 = anchor_inv_vis.merge(
+                    anchor_inv_internal.assign(internal_count=lambda df: df["count"])[["target", "anchor", "internal_count"]],
+                    on=["target", "anchor"],
+                    how="left"
+                ).merge(
+                    offpage_anchor_inv.assign(offpage_count=lambda df: df["count"])[["target", "anchor", "offpage_count"]],
+                    on=["target", "anchor"],
+                    how="left"
+                )
+
+                tmp2["internal_count"] = tmp2["internal_count"].fillna(0)
+                tmp2["offpage_count"] = tmp2["offpage_count"].fillna(0)
+
+                def _src_flag(row):
+                    has_int = row["internal_count"] > 0
+                    has_off = row["offpage_count"] > 0
+                    if has_int and has_off:
+                        return "intern + Offpage"
+                    elif has_int:
+                        return "nur intern"
+                    elif has_off:
+                        return "nur Offpage"
+                    else:
+                        return "unbekannt"
+
+                tmp2["source_flag"] = tmp2.apply(_src_flag, axis=1)
+                anchor_inv_vis = tmp2[["target", "anchor", "count", "source_flag"]]
+            else:
+                # Offpage-Datei leer / keine Anker → zurück zu intern-only
+                anchor_inv_vis = anchor_inv_internal.copy()
     else:
-        # falls nicht genutzt: leere DF, nur intern verwenden
-        offpage_anchor_inv = pd.DataFrame(columns=["target", "anchor", "count"])
+        # Offpage-Anker nicht aktiviert → nur interne Anker, ohne source_flag
+        anchor_inv_vis = anchor_inv_internal.copy()
+
+    # Für spätere Verwendung (Sidebar: Matrix, Shared, Treemap)
+    st.session_state["_anchor_inv_internal"] = anchor_inv_internal
+    st.session_state["_anchor_inv_vis"] = anchor_inv_vis
+
+    
+    # ✅ NEU: Quelle-Flag („nur intern“, „nur Offpage“, „intern + Offpage“)
+    if not anchor_inv_vis.empty:
+        tmp = anchor_inv_vis.merge(
+            anchor_inv_internal.assign(internal_count=lambda df: df["count"])[["target", "anchor", "internal_count"]],
+            on=["target", "anchor"],
+            how="left"
+        ).merge(
+            offpage_anchor_inv.assign(offpage_count=lambda df: df["count"])[["target", "anchor", "offpage_count"]],
+            on=["target", "anchor"],
+            how="left"
+        )
+    
+        tmp["internal_count"] = tmp["internal_count"].fillna(0)
+        tmp["offpage_count"] = tmp["offpage_count"].fillna(0)
+    
+        def _src_flag(row):
+            has_int = row["internal_count"] > 0
+            has_off = row["offpage_count"] > 0
+            if has_int and has_off:
+                return "intern + Offpage"
+            elif has_int:
+                return "nur intern"
+            elif has_off:
+                return "nur Offpage"
+            else:
+                return "unbekannt"
+    
+        tmp["source_flag"] = tmp.apply(_src_flag, axis=1)
+    
+        # zurück auf schlanke Struktur + Flag
+        anchor_inv_vis = tmp[["target", "anchor", "count", "source_flag"]]
+    else:
+        # Fallback – Struktur konsistent halten
+        anchor_inv_vis = anchor_inv_vis.assign(source_flag=pd.NA) 
+
 
 
     # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
     # Nur wenn Over-Anchor-Check aktiviert ist
     enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
     over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
-    if enable_over_anchor and not anchor_inv.empty:
-        totals = anchor_inv.groupby("target")["count"].sum().rename("total")
-        tmp = anchor_inv.merge(totals, on="target", how="left")
+    if enable_over_anchor and not anchor_inv_internal.empty:
+        totals = anchor_inv_internal.groupby("target")["count"].sum().rename("total")
+        tmp = anchor_inv_internal.merge(totals, on="target", how="left")
         tmp["share"] = np.where(tmp["total"] > 0, (100.0 * tmp["count"] / tmp["total"]), 0.0).round(2)
 
         mode = st.session_state.get("a4_over_anchor_mode", "Absolut")
@@ -2305,7 +2549,7 @@ if A4_NAME in selected_analyses:
 
             # Anchor-Inventar als Multiset: target -> {anchor: count}
             inv_map: Dict[str, Dict[str, int]] = {}
-            for _, r in anchor_inv.iterrows():
+            for _, r in anchor_inv_internal.iterrows():
                 inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
 
             # Embedding-Vorbereitung
@@ -2461,11 +2705,42 @@ if A4_NAME in selected_analyses:
                 st.markdown("#### 3) Treemap der häufigsten Anchors je Ziel-URL")
                 # Top-K Anchors je Ziel aggregieren
                 tre_rows = []
+                has_flag = "source_flag" in anchor_inv_check.columns and bool(st.session_state.get("a4_include_offpage_anchors", False))
                 for tgt, grp in anchor_inv_check.groupby("target", sort=False):
                     topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
                     for _, rr in topk.iterrows():
-                        tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
-                tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count"])
+                        if has_flag:
+                            tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"]), str(rr["source_flag"])])
+                        else:
+                            tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
+
+                if has_flag:
+                    tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count","Quelle"])
+                else:
+                    tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count"])
+
+                if tre_df.empty:
+                    st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
+                else:
+                    try:
+                        if has_flag:
+                            fig = px.treemap(
+                                tre_df,
+                                path=["Ziel-URL","Anchor"],
+                                values="Count",
+                                color="Quelle",
+                                title="Treemap: Top-Anchors je Ziel-URL"
+                            )
+                        else:
+                            fig = px.treemap(
+                                tre_df,
+                                path=["Ziel-URL","Anchor"],
+                                values="Count",
+                                title="Treemap: Top-Anchors je Ziel-URL"
+                            )
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Treemap konnte nicht gerendert werden: {e}")
                 if tre_df.empty:
                     st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
                 else:
