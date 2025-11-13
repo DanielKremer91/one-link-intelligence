@@ -868,6 +868,7 @@ with st.sidebar:
                     selected_urls_for_treemap = st.multiselect(
                         "URLs für Treemap auswählen",
                         options=url_options,
+                        format_func=lambda u: disp(u),
                         key="a4_treemap_selected_urls",
                         help="Wähle eine oder mehrere Ziel-URLs, für die im Hauptbereich je eine Treemap erzeugt wird."
                     )
@@ -879,192 +880,7 @@ with st.sidebar:
                 st.session_state["a4_treemap_selected_urls"] = []
 
                                    
-            # ---- Vollständiges Anchor-Inventar (Wide) + Exports (mit Quelle-Flag) ----
-            if st.session_state.get("a4_enable_anchor_matrix", True):
-                # anchor_inv_vis kommt aus Analyse 4 (Session-State)
-                anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
-
-                if not anchor_inv_check.empty:
-                    inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
-                    has_flag = "source_flag" in inv_sorted.columns
             
-                    max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
-            
-                    # Spalten dynamisch aufbauen – mit oder ohne Quelle-Spalte
-                    if has_flag:
-                        cols = ["Ziel-URL"] + [
-                            x
-                            for i in range(1, max_n + 1)
-                            for x in (f"Ankertext {i}", f"Count Ankertext {i}", f"Quelle Ankertext {i}")
-                        ]
-                    else:
-                        cols = ["Ziel-URL"] + [
-                            x
-                            for i in range(1, max_n + 1)
-                            for x in (f"Ankertext {i}", f"Count Ankertext {i}")
-                        ]
-            
-                    rows = []
-                    for tgt, grp in inv_sorted.groupby("target", sort=False):
-                        row = [disp(tgt)]
-                        if has_flag:
-                            for a, c, src_flag in zip(
-                                grp["anchor"].astype(str),
-                                grp["count"].astype(int),
-                                grp["source_flag"].astype(str),
-                            ):
-                                row += [a, c, src_flag]
-                        else:
-                            for a, c in zip(
-                                grp["anchor"].astype(str),
-                                grp["count"].astype(int),
-                            ):
-                                row += [a, c]
-            
-                        # mit leeren Strings auffüllen, damit jede Zeile die gleiche Länge wie cols hat
-                        while len(row) < len(cols):
-                            row.append("")
-                        rows.append(row)
-            
-                    anchor_wide_df = pd.DataFrame(rows, columns=cols)
-                    st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
-            
-                    # CSV-Download
-                    st.download_button(
-                        "Download Anchor-Inventar (Wide) – CSV",
-                        data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="a4_anchor_inventar_wide.csv",
-                        mime="text/csv",
-                        key="a4_dl_anchor_wide_csv"
-                    )
-            
-                    # XLSX-Download
-                    try:
-                        buf_anchor = io.BytesIO()
-                        with pd.ExcelWriter(buf_anchor, engine="xlsxwriter") as xw:
-                            anchor_wide_df.to_excel(xw, index=False, sheet_name="Anchor-Inventar")
-                        buf_anchor.seek(0)
-                        st.download_button(
-                            "Download Anchor-Inventar (Wide) – XLSX",
-                            data=buf_anchor.getvalue(),
-                            file_name="a4_anchor_inventar_wide.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="a4_dl_anchor_wide_xlsx"
-                        )
-                    except Exception:
-                        pass
-# else: nichts tun (Matrix ist deaktiviert)
-
-            # else: nichts tun (Matrix ist deaktiviert)
-
-
-            # ---- Shared Ankertexte (ein Anchor → viele Ziel-URLs) ----
-            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
-
-
-            if st.session_state.get("a4_shared_enable", True) and not anchor_inv_check.empty:
-                st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
-                min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
-                ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
-
-                df_shared = anchor_inv_check.copy()
-                df_shared["target"] = df_shared["target"].astype(str)
-                df_shared["anchor"] = df_shared["anchor"].astype(str)
-
-                if ignore_nav and 'NAVIGATIONAL_ANCHORS' in globals():
-                    df_shared = df_shared[~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)]
-
-                # Hat die Tabelle überhaupt ein Quelle-Flag?
-                has_flag = "source_flag" in df_shared.columns
-
-                # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
-                anchor_source_map = {}
-                if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
-                    def _merge_flags(flags):
-                        flags = {f for f in flags if pd.notna(f)}
-                        if not flags:
-                            return "unbekannt"
-                        if "intern + Offpage" in flags:
-                            return "intern + Offpage"
-                        has_int = "nur intern" in flags
-                        has_off = "nur Offpage" in flags
-                        if has_int and has_off:
-                            return "intern + Offpage"
-                        if has_int:
-                            return "nur intern"
-                        if has_off:
-                            return "nur Offpage"
-                        # Fallback
-                            # sort, damit es deterministisch ist
-                        return sorted(flags)[0]
-
-                    anchor_source_map = (
-                        df_shared.groupby("anchor")["source_flag"]
-                        .agg(lambda s: _merge_flags(set(s)))
-                        .to_dict()
-                    )
-
-                grouped = (
-                    df_shared.groupby("anchor")["target"]
-                    .agg(lambda s: sorted({disp(t) for t in s}))
-                    .reset_index(name="urls")
-                )
-                grouped["url_count"] = grouped["urls"].apply(len)
-                grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
-
-                if has_flag and anchor_source_map:
-                    grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
-
-                if grouped.empty:
-                    st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
-                else:
-                    max_len = int(grouped["url_count"].max())
-
-                    if has_flag and "Quelle" in grouped.columns:
-                        cols = ["Ankertext", "Quelle"] + [f"URL {i}" for i in range(1, max_len + 1)]
-                    else:
-                        cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
-
-                    rows = []
-                    for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
-                        urls = list(r["urls"])
-                        base = [r["anchor"]]
-                        if "Quelle" in grouped.columns:
-                            base.append(r["Quelle"])
-                        rows.append(base + urls + [""] * (max_len - len(urls)))
-
-                    shared_wide_df = pd.DataFrame(rows, columns=cols)
-                    st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
-
-                    # CSV
-                    st.download_button(
-                        "Download Shared-Ankertexte (CSV)",
-                        data=shared_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="a4_shared_ankertexte.csv",
-                        mime="text/csv",
-                        key="a4_dl_shared_csv"
-                    )
-
-                    # XLSX
-                    try:
-                        buf_shared = io.BytesIO()
-                        with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
-                            shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
-                            ws = xw.sheets["Shared-Ankertexte"]
-                            for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
-                                max_len_col = max(
-                                    len(str(col_name)),
-                                    *(len(str(v)) for v in shared_wide_df.iloc[:, col_idx-1].astype(str).values[:1000])
-                                )
-                                ws.set_column(col_idx-1, col_idx-1, min(max_len_col + 2, 60))
-                        buf_shared.seek(0)
-                        st.download_button(
-                            "Download Shared-Ankertexte (XLSX)",
-                            data=buf_shared.getvalue(),
-                            file_name="a4_shared_ankertexte.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="a4_dl_shared_xlsx"
-                        )
                     except Exception as e:
                         st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
                     
@@ -2271,10 +2087,11 @@ if A4_NAME in selected_analyses:
     brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
     if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
         st.warning(
-            "Du hast einen Brand-Filter gewählt (**{brand_mode}**), "
+            f"Du hast einen Brand-Filter gewählt (**{brand_mode}**), "
             "aber keine Brand-Schreibweisen hinterlegt. "
             "Brand/Non-Brand-Queries können so nicht zuverlässig getrennt werden."
         )
+
 
 
     
@@ -2476,7 +2293,200 @@ if A4_NAME in selected_analyses:
         anchor_inv_vis = tmp[["target", "anchor", "count", "source_flag"]]
     else:
         # Fallback – Struktur konsistent halten
-        anchor_inv_vis = anchor_inv_vis.assign(source_flag=pd.NA) 
+        anchor_inv_vis = anchor_inv_vis.assign(source_flag=pd.NA)
+
+    # ============================================================
+    # A4: Anchor-Inventar (Wide) & Shared-Ankertexte im Hauptbereich
+    # ============================================================
+
+    # 3a) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
+    if st.session_state.get("a4_enable_anchor_matrix", True):
+        anchor_inv_check = anchor_inv_vis.copy()
+
+        if not anchor_inv_check.empty:
+            inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
+            has_flag = "source_flag" in inv_sorted.columns
+
+            max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
+
+            if has_flag:
+                cols = ["Ziel-URL"] + [
+                    x
+                    for i in range(1, max_n + 1)
+                    for x in (f"Ankertext {i}", f"Count Ankertext {i}", f"Quelle Ankertext {i}")
+                ]
+            else:
+                cols = ["Ziel-URL"] + [
+                    x
+                    for i in range(1, max_n + 1)
+                    for x in (f"Ankertext {i}", f"Count Ankertext {i}")
+                ]
+
+            rows = []
+            for tgt, grp in inv_sorted.groupby("target", sort=False):
+                row = [disp(tgt)]
+                if has_flag:
+                    for a, c, src_flag in zip(
+                        grp["anchor"].astype(str),
+                        grp["count"].astype(int),
+                        grp["source_flag"].astype(str),
+                    ):
+                        row += [a, c, src_flag]
+                else:
+                    for a, c in zip(
+                        grp["anchor"].astype(str),
+                        grp["count"].astype(int),
+                    ):
+                        row += [a, c]
+
+                while len(row) < len(cols):
+                    row.append("")
+                rows.append(row)
+
+            anchor_wide_df = pd.DataFrame(rows, columns=cols)
+
+            st.markdown("#### 3) Anchor-Inventar (Wide)")
+            st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
+
+            # CSV-Download
+            st.download_button(
+                "Download Anchor-Inventar (Wide) – CSV",
+                data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_anchor_inventar_wide.csv",
+                mime="text/csv",
+                key="a4_dl_anchor_wide_csv_main",
+            )
+
+            # XLSX-Download
+            try:
+                buf_anchor = io.BytesIO()
+                with pd.ExcelWriter(buf_anchor, engine="xlsxwriter") as xw:
+                    anchor_wide_df.to_excel(xw, index=False, sheet_name="Anchor-Inventar")
+                buf_anchor.seek(0)
+                st.download_button(
+                    "Download Anchor-Inventar (Wide) – XLSX",
+                    data=buf_anchor.getvalue(),
+                    file_name="a4_anchor_inventar_wide.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="a4_dl_anchor_wide_xlsx_main",
+                )
+            except Exception:
+                pass
+
+    # 3b) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
+    if st.session_state.get("a4_shared_enable", True):
+        anchor_inv_check = anchor_inv_vis.copy()
+
+        if not anchor_inv_check.empty:
+            st.markdown("#### 4) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
+
+            min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
+            ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
+
+            df_shared = anchor_inv_check.copy()
+            df_shared["target"] = df_shared["target"].astype(str)
+            df_shared["anchor"] = df_shared["anchor"].astype(str)
+
+            if ignore_nav:
+                df_shared = df_shared[
+                    ~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)
+                ]
+
+            has_flag = "source_flag" in df_shared.columns
+
+            # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
+            anchor_source_map = {}
+            if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
+                def _merge_flags(flags):
+                    flags = {f for f in flags if pd.notna(f)}
+                    if not flags:
+                        return "unbekannt"
+                    if "intern + Offpage" in flags:
+                        return "intern + Offpage"
+                    has_int = "nur intern" in flags
+                    has_off = "nur Offpage" in flags
+                    if has_int and has_off:
+                        return "intern + Offpage"
+                    if has_int:
+                        return "nur intern"
+                    if has_off:
+                        return "nur Offpage"
+                    return sorted(flags)[0]
+
+                anchor_source_map = (
+                    df_shared.groupby("anchor")["source_flag"]
+                    .agg(lambda s: _merge_flags(set(s)))
+                    .to_dict()
+                )
+
+            grouped = (
+                df_shared.groupby("anchor")["target"]
+                .agg(lambda s: sorted({disp(t) for t in s}))
+                .reset_index(name="urls")
+            )
+            grouped["url_count"] = grouped["urls"].apply(len)
+            grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
+
+            if has_flag and anchor_source_map:
+                grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
+
+            if grouped.empty:
+                st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
+            else:
+                max_len = int(grouped["url_count"].max())
+
+                if has_flag and "Quelle" in grouped.columns:
+                    cols = ["Ankertext", "Quelle"] + [f"URL {i}" for i in range(1, max_len + 1)]
+                else:
+                    cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
+
+                rows = []
+                for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
+                    urls = list(r["urls"])
+                    base = [r["anchor"]]
+                    if "Quelle" in grouped.columns:
+                        base.append(r["Quelle"])
+                    rows.append(base + urls + [""] * (max_len - len(urls)))
+
+                shared_wide_df = pd.DataFrame(rows, columns=cols)
+
+                st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
+
+                # CSV
+                st.download_button(
+                    "Download Shared-Ankertexte (CSV)",
+                    data=shared_wide_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="a4_shared_ankertexte.csv",
+                    mime="text/csv",
+                    key="a4_dl_shared_csv_main",
+                )
+
+                # XLSX
+                try:
+                    buf_shared = io.BytesIO()
+                    with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
+                        shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
+                        ws = xw.sheets["Shared-Ankertexte"]
+                        for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
+                            max_len_col = max(
+                                len(str(col_name)),
+                                *(
+                                    len(str(v))
+                                    for v in shared_wide_df.iloc[:, col_idx - 1].astype(str).values[:1000]
+                                ),
+                            )
+                            ws.set_column(col_idx - 1, col_idx - 1, min(max_len_col + 2, 60))
+                    buf_shared.seek(0)
+                    st.download_button(
+                        "Download Shared-Ankertexte (XLSX)",
+                        data=buf_shared.getvalue(),
+                        file_name="a4_shared_ankertexte.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="a4_dl_shared_xlsx_main",
+                    )
+                except Exception as e:
+                    st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
+
 
 
 
@@ -2498,7 +2508,14 @@ if A4_NAME in selected_analyses:
             filt = (tmp["count"] >= int(top_anchor_abs)) & (tmp["share"] >= float(top_anchor_share))
         
         over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
-        over_anchor_df.columns = ["Ziel-URL","Anchor","Count","TopAnchorShare(%)"]
+
+        # Ziel-URL für Ausgabe in Original-Form bringen
+        over_anchor_df["Ziel-URL"] = over_anchor_df["target"].map(disp)
+        
+        # Reihenfolge der Spalten neu setzen
+        over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
+        over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
+
 
     # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
     # GSC-Daten aus Upload-Center verwenden
@@ -2751,6 +2768,7 @@ if A4_NAME in selected_analyses:
                     preview_url = st.selectbox(
                         "URL für Treemap-Vorschau auswählen",
                         options=targets,
+                        format_func=lambda u: disp(u),
                         key="a4_treemap_preview_url"
                     )
             
