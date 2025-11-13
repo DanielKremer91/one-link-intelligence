@@ -82,8 +82,8 @@ st.markdown(
 # ===============================
 # Helpers
 # ===============================
-POSSIBLE_SOURCE = ["quelle", "source", "from", "origin", "linkgeber", "quell-url"]
-POSSIBLE_TARGET = ["ziel", "destination", "to", "target", "ziel-url", "ziel url"]
+POSSIBLE_SOURCE = ["quelle", "source", "from", "origin", "linkgeber", "quell-url", "referring page url", "referring page", "referring url", "referring page address"]
+POSSIBLE_TARGET = ["ziel", "destination", "to", "target", "ziel-url", "ziel url", "target url", "target-url", "target page"]
 POSSIBLE_POSITION = ["linkposition", "link position", "position"]
 
 # Neu: Anchor/ALT-Erkennung (inkl. "anchor")
@@ -1298,177 +1298,100 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
         prdiff   = inlinks - outlinks
         metrics_map[u] = {"score": score, "prDiff": prdiff}
 
-    # Backlinks
-    backlinks_df = backlinks_df.copy()
-    backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
-    b_header = [str(c).strip() for c in backlinks_df.columns]
+        # Backlinks
+        backlinks_df = backlinks_df.copy()
+        backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
+        b_header = [str(c).strip() for c in backlinks_df.columns]
     
-    # 1) URL-Spalte finden
-    b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
-    if b_url_idx == -1:
-        if backlinks_df.shape[1] >= 1:
-            b_url_idx = 0
-            st.warning("Backlinks: URL-Spalte nicht eindeutig erkannt – nehme erste Spalte als URL.")
-        else:
-            st.error("'Backlinks' braucht mindestens eine URL-Spalte.")
-            st.stop()
+        # Kandidaten für Offpage-Backlinkliste (Referring page URL + Target-URL)
+        src_idx_file = find_column_index(b_header, POSSIBLE_SOURCE)   # z. B. "Referring page URL"
+        tgt_idx_file = find_column_index(b_header, POSSIBLE_TARGET)   # z. B. "Target-URL"
     
-    # 2) Versuche zunächst, aggregierte Metriken zu finden (klassischer Modus)
-    b_bl_idx = find_column_index(
-        b_header,
-        ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
-    )
-    b_rd_idx = find_column_index(
-        b_header,
-        ["referring domains","ref domains","verweisende domains",
-         "anzahl referring domains","anzahl verweisende domains","domains","rd"]
-    )
+        # =====================================================
+        # Fall A: Offpage-Linkliste (eine Zeile = ein Backlink)
+        # =====================================================
+        if src_idx_file != -1 and tgt_idx_file != -1:
+            from urllib.parse import urlparse
     
-    # 3) Wenn keine Metrik-Spalten gefunden wurden → versuche, Datei als Offpage-Linkliste zu interpretieren
-    if b_bl_idx == -1 or b_rd_idx == -1:
-        from urllib.parse import urlparse
-    
-        # Kandidaten für Referrer/Source
-        src_idx = find_column_index(b_header, POSSIBLE_SOURCE)
-        dom_idx = find_column_index(
-            b_header,
-            ["referring domain","referring domains","domain","source domain",
-             "verweisende domain","verweisende domains"]
-        )
-    
-        # Nur wenn wir wenigstens eine Info zur verweisenden Seite haben, können wir aggregieren
-        if dom_idx != -1 or src_idx != -1:
             rows = []
             for row in backlinks_df.itertuples(index=False, name=None):
-                tgt = remember_original(row[b_url_idx])
+                tgt_raw = row[tgt_idx_file]
+                src_raw = row[src_idx_file]
+    
+                tgt = remember_original(tgt_raw)
                 if not tgt:
                     continue
     
-                dom = None
-                if dom_idx != -1:
-                    dom = str(row[dom_idx] or "").strip()
-                elif src_idx != -1:
-                    src_val = str(row[src_idx] or "").strip()
-                    if src_val:
-                        try:
-                            parsed = urlparse(src_val)
-                            dom = parsed.netloc.lower()
-                        except Exception:
-                            dom = ""
+                src_val = str(src_raw or "").strip()
+                if not src_val:
+                    continue
+    
+                try:
+                    dom = urlparse(src_val).netloc.lower()
+                except Exception:
+                    dom = ""
                 if not dom:
                     continue
     
                 rows.append([normalize_url(tgt), dom])
     
-            if rows:
-                tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
-                agg = tmp.groupby("URL").agg(
-                    Backlinks=("Domain", "size"),
-                    RefDomains=("Domain", "nunique")
-                ).reset_index()
-    
-                # Ab hier haben wir wieder die gewohnte Struktur pro URL
-                backlinks_df = agg
-                backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
-                b_header = [str(c).strip() for c in backlinks_df.columns]
-                b_url_idx = 0
-                b_bl_idx  = 1
-                b_rd_idx  = 2
-    
-                st.info(
-                    "Backlink-Metriken wurden automatisch aus einer Offpage-Linkliste abgeleitet "
-                    "(eine Zeile = ein Backlink → Backlinks & Referring Domains je URL aggregiert)."
+            if not rows:
+                st.error(
+                    "Backlinks-Datei konnte nicht als Offpage-Linkliste interpretiert werden "
+                    "(keine gültigen Kombinationen aus 'Referring page URL' und 'Target-URL' gefunden)."
                 )
-            else:
-                # Kein brauchbares Mapping möglich → fällt auf alten Fallback unten zurück
-                b_bl_idx, b_rd_idx = -1, -1
+                st.stop()
     
-    # 4) Falls immer noch nicht alle Indizes vorhanden sind → alter Fallback / Error
-    if -1 in (b_url_idx, b_bl_idx, b_rd_idx):
-        if backlinks_df.shape[1] >= 3:
-            if b_url_idx == -1: b_url_idx = 0
-            if b_bl_idx  == -1: b_bl_idx  = 1
-            if b_rd_idx  == -1: b_rd_idx  = 2
-            st.warning("Backlinks: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
+            tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
+            agg = tmp.groupby("URL").agg(
+                Backlinks=("Domain", "size"),
+                ReferringDomains=("Domain", "nunique")
+            ).reset_index()
+    
+            backlinks_df = agg
+            backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
+            b_header = [str(c).strip() for c in backlinks_df.columns]
+            b_url_idx = 0
+            b_bl_idx  = 1
+            b_rd_idx  = 2
+    
+            st.info(
+                "Backlink-Metriken wurden automatisch aus einer Offpage-Backlinkliste berechnet "
+                "(Referring page URL → Domain, aggregiert je Target-URL)."
+            )
+    
+        # =====================================================
+        # Fall B: Aggregierte Metriken (eine Zeile = eine URL)
+        # =====================================================
         else:
-            st.error("'Backlinks' braucht mindestens 3 Spalten (URL, Backlinks, Referring Domains).")
-            st.stop()
+            # URL-Spalte
+            b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
+            if b_url_idx == -1:
+                if backlinks_df.shape[1] >= 1:
+                    b_url_idx = 0
+                    st.warning("Backlinks (aggregiert): URL-Spalte nicht eindeutig erkannt – nehme erste Spalte als URL.")
+                else:
+                    st.error("'Backlinks' braucht mindestens eine URL-Spalte.")
+                    st.stop()
+    
+            # numerische Metrik-Spalten
+            b_bl_idx = find_column_index(
+                b_header,
+                ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
+            )
+            b_rd_idx = find_column_index(
+                b_header,
+                ["referring domains","ref domains","verweisende domains",
+                 "anzahl referring domains","anzahl verweisende domains","domains","rd"]
+            )
+    
+            if -1 in (b_bl_idx, b_rd_idx):
+                st.error(
+                    "Backlinks (aggregiert): Spalten für 'Backlinks' und 'Referring Domains' "
+                    "konnten nicht eindeutig erkannt werden."
+                )
+                st.stop()
 
-    backlink_map: Dict[str, Dict[str, float]] = {}
-    for _, r in backlinks_df.iterrows():
-        u = remember_original(r.iloc[b_url_idx])
-        if not u:
-            continue
-        bl = _num(r.iloc[b_bl_idx])
-        rd = _num(r.iloc[b_rd_idx])
-        backlink_map[u] = {"backlinks": bl, "referringDomains": rd}
-
-    # Ranges
-    ils_vals = [m["score"] for m in metrics_map.values()]
-    prd_vals = [m["prDiff"] for m in metrics_map.values()]
-    bl_vals  = [b["backlinks"] for b in backlink_map.values()]
-    rd_vals  = [b["referringDomains"] for b in backlink_map.values()]
-    min_ils, max_ils = robust_range(ils_vals, 0.05, 0.95)
-    min_prd, max_prd = robust_range(prd_vals, 0.05, 0.95)
-    min_bl,  max_bl  = robust_range(bl_vals,  0.05, 0.95)
-    min_rd,  max_rd  = robust_range(rd_vals,  0.05, 0.95)
-    bl_log_vals = [float(np.log1p(max(0.0, v))) for v in bl_vals]
-    rd_log_vals = [float(np.log1p(max(0.0, v))) for v in rd_vals]
-    lo_bl_log, hi_bl_log = robust_range(bl_log_vals, 0.05, 0.95)
-    lo_rd_log, hi_rd_log = robust_range(rd_log_vals, 0.05, 0.95)
-
-    # Inlinks lesen (Quelle/Ziel/Position)
-    inlinks_df = inlinks_df.copy()
-    header = [str(c).strip() for c in inlinks_df.columns]
-    src_idx = find_column_index(header, POSSIBLE_SOURCE)
-    dst_idx = find_column_index(header, POSSIBLE_TARGET)
-    pos_idx = find_column_index(header, POSSIBLE_POSITION)
-    if src_idx == -1 or dst_idx == -1:
-        st.error("In 'All Inlinks' wurden die Spalten 'Quelle/Source' oder 'Ziel/Destination' nicht gefunden.")
-        st.stop()
-
-    # Anchor/ALT Spalten (für Analyse 4 – werden unten erneut verwendet)
-    anchor_idx = find_column_index(header, POSSIBLE_ANCHOR)
-    alt_idx    = find_column_index(header, POSSIBLE_ALT)
-
-    all_links: set[Tuple[str, str]] = set()
-    content_links: set[Tuple[str, str]] = set()
-    for row in inlinks_df.itertuples(index=False, name=None):
-        source = remember_original(row[src_idx])
-        target = remember_original(row[dst_idx])
-        if not source or not target:
-            continue
-        key = (source, target)
-        all_links.add(key)
-        if pos_idx != -1 and is_content_position(row[pos_idx]):
-            content_links.add(key)
-
-    # "Nur Contentlinks berücksichtigen" für A2 ggf. anwenden (Kandidatenmenge einschränken)
-    if bool(st.session_state.get("a2_only_content", False)):
-        st.session_state["_all_links"] = content_links.copy()
-        st.session_state["_content_links"] = content_links.copy()
-    else:
-        st.session_state["_all_links"] = all_links
-        st.session_state["_content_links"] = content_links
-
-    # Related map (beidseitig, thresholded)
-    related_df = related_df.copy()
-    if related_df.shape[1] < 3:
-        st.error("'Related URLs' braucht mindestens 3 Spalten.")
-        st.stop()
-    rel_header = [str(c).strip() for c in related_df.columns]
-    rel_dst_idx = find_column_index(rel_header, POSSIBLE_TARGET)
-    rel_src_idx = find_column_index(rel_header, POSSIBLE_SOURCE)
-    rel_sim_idx = find_column_index(rel_header, ["similarity","similarität","ähnlichkeit","cosine","cosine similarity","semantische ähnlichkeit","sim"])
-    if -1 in (rel_dst_idx, rel_src_idx, rel_sim_idx):
-        if related_df.shape[1] >= 3:
-            if rel_dst_idx == -1: rel_dst_idx = 0
-            if rel_src_idx == -1: rel_src_idx = 1
-            if rel_sim_idx == -1: rel_sim_idx = 2
-            st.warning("Related URLs: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
-        else:
-            st.error("'Related URLs' braucht mindestens 3 Spalten (Ziel, Quelle, Similarity).")
-            st.stop()
 
     related_map: Dict[str, List[Tuple[str, float]]] = {}
     processed_pairs = set()
@@ -2502,7 +2425,7 @@ if A4_NAME in selected_analyses:
     
             # ---------- Tabs bauen (auf Basis von cov_df) ----------
             if not cov_df.empty:
-                # Tab 1: URLs mit < 50% Abdeckung ihrer Top-Queries
+                # Coverage je URL berechnen
                 agg = (
                     cov_df.groupby("Ziel-URL")
                     .agg(
@@ -2516,11 +2439,14 @@ if A4_NAME in selected_analyses:
                     agg["Treffer"] / agg["Top_Queries"],
                     0.0,
                 )
-                gsc_tab1_df = agg[agg["Coverage"] < 0.5].copy()
-                gsc_tab1_df["Coverage_%"] = (gsc_tab1_df["Coverage"] * 100).round(1)
-                gsc_tab1_df = gsc_tab1_df[["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"]]
-    
-                # Tab 2: URLs, bei denen die Top-3-Queries alle NICHT als Anchor vorkommen
+
+                # --- Tab 1: Alle Top-Queries je URL mit < 50 % Abdeckung ---
+                low_cov_urls = agg[agg["Coverage"] < 0.5][["Ziel-URL"]]
+                tab1 = cov_df.merge(low_cov_urls, on="Ziel-URL", how="inner")
+                tab1["Als_Anker_vorhanden?"] = np.where(tab1["MatchBool"], "ja", "nein")
+                gsc_tab1_df = tab1[["Ziel-URL", "Query", "Als_Anker_vorhanden?"]].copy()
+
+                # --- Tab 2: URLs, deren Top-3-Queries alle NICHT als Anchor vorkommen ---
                 rows2 = []
                 for url, grp in cov_df.groupby("Ziel-URL", sort=False):
                     top3 = grp.head(3)
@@ -2528,10 +2454,17 @@ if A4_NAME in selected_analyses:
                         continue
                     if not top3["MatchBool"].any():
                         for _, r in top3.iterrows():
-                            rows2.append([url, r["Query"], r["Match-Typ"]])
-                gsc_tab2_df = pd.DataFrame(rows2, columns=["Ziel-URL", "Query", "Match-Typ"])
-    
-                # Tab 3: URLs, bei denen die Top-Query nicht als Anchor vorkommt
+                            rows2.append([
+                                url,
+                                r["Query"],
+                                "nein",  # als Anker vorhanden?
+                            ])
+                gsc_tab2_df = pd.DataFrame(
+                    rows2,
+                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
+                )
+
+                # --- Tab 3: URLs, deren Top-Query NICHT als Anchor vorkommt ---
                 rows3 = []
                 for url, grp in cov_df.groupby("Ziel-URL", sort=False):
                     top1 = grp.head(1)
@@ -2539,8 +2472,16 @@ if A4_NAME in selected_analyses:
                         continue
                     r = top1.iloc[0]
                     if not r["MatchBool"]:
-                        rows3.append([url, r["Query"], r["Match-Typ"]])
-                gsc_tab3_df = pd.DataFrame(rows3, columns=["Ziel-URL", "Query", "Match-Typ"])
+                        rows3.append([
+                            url,
+                            r["Query"],
+                            "nein",  # als Anker vorhanden?
+                        ])
+                gsc_tab3_df = pd.DataFrame(
+                    rows3,
+                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
+                )
+
             else:
                 gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
                 gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
@@ -2892,21 +2833,29 @@ if A4_NAME in selected_analyses:
                 grp = grp.sort_values("count", ascending=False).head(treemap_topK)
                 if grp.empty:
                     return None, None
-    
+
                 # einfache Struktur: nur Anchor + Count für diese URL
                 df_t = grp[["anchor", "count"]].rename(columns={"anchor": "Anchor", "count": "Count"})
-    
+
                 fig = px.treemap(
                     df_t,
                     path=["Anchor"],
                     values="Count",
                     title=f"Treemap: häufigste Anchors für {disp(target)}"
                 )
-    
+
+                # Text in den Kästchen zentrieren und etwas größer machen
+                fig.update_traces(
+                    textposition="middle center",
+                    textinfo="label+value",
+                    textfont_size=16,
+                )
+
                 # HTML für Download
                 html_bytes = fig.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
-    
+
                 return fig, html_bytes
+
     
             fig, html_bytes = build_treemap_for_target(preview_url)
     
