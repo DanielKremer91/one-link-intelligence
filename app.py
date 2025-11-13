@@ -1065,8 +1065,9 @@ with st.sidebar:
 needs_embeddings_or_related = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
 needs_inlinks_a1 = A1_NAME in selected_analyses
 needs_inlinks_a2 = A2_NAME in selected_analyses
+needs_inlinks_a3 = A3_NAME in selected_analyses
 needs_inlinks_a4 = A4_NAME in selected_analyses
-needs_inlinks = needs_inlinks_a1 or needs_inlinks_a2 or needs_inlinks_a4
+needs_inlinks = needs_inlinks_a1 or needs_inlinks_a2 or needs_inlinks_a3 or needs_inlinks_a4
 needs_metrics_a1 = A1_NAME in selected_analyses
 needs_metrics_a2 = A2_NAME in selected_analyses
 needs_metrics_a3 = A3_NAME in selected_analyses
@@ -1088,7 +1089,7 @@ st.subheader("Benötigte Dateien hochladen")
 required_sets = {
     "URLs + Embeddings": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_embeddings_or_related]},
     "Related URLs": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_embeddings_or_related]},
-    "All Inlinks": {"analyses": [a for a in [A1_NAME, A2_NAME, A4_NAME] if a in selected_analyses and needs_inlinks]},
+    "All Inlinks": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME] if a in selected_analyses and needs_inlinks]},
     "Linkmetriken": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_metrics]},
     "Backlinks": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_backlinks]},
     "Search Console": {"analyses": [A3_NAME] if needs_gsc_a3 else []},
@@ -1256,19 +1257,26 @@ if A3_NAME in selected_analyses:
             needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_a3", HELP_EMB))
         else:
             needs.append(("Related URLs (CSV/Excel)", "up_rel_a3", HELP_REL))
+
+    if needs_inlinks_a3 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a3", HELP_INL))
+
     if needs_metrics_a3 and "Linkmetriken" not in shared_uploads:
         needs.append(("Linkmetriken (CSV/Excel)", "up_metrics_a3", HELP_MET))
     if needs_backlinks_a3 and "Backlinks" not in shared_uploads:
         needs.append(("Backlinks (CSV/Excel)", "up_backlinks_a3", HELP_BL))
-    # GSC optional: auch hier anbieten, wenn nicht shared
+    # GSC optional: ...
     if needs_gsc_a3 and "Search Console" not in shared_uploads:
         needs.append(("Search Console Daten (optional, CSV/Excel)", "up_gsc_a3", HELP_GSC_A3))
+
     for (label, df) in upload_for_analysis("Analyse 3 SEO-Potenziallinks finden – erforderliche Dateien", needs):
         if "Embeddings" in label: emb_df = df
         if "Related URLs" in label: related_df = df
+        if "Inlinks" in label: inlinks_df = df          # 👈 NEU
         if "Linkmetriken" in label: metrics_df = df
         if "Backlinks" in label: backlinks_df = df
         if "Search Console" in label: gsc_df_loaded = df
+
 
 # A4 – separate Uploads
 if A4_NAME in selected_analyses:
@@ -1333,10 +1341,8 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (not run_c
     st.info("Bitte Dateien für die gewählten Analysen hochladen und auf **Let's Go** klicken.")
     st.stop()
 
-# =====================================================================
-# Vorverarbeitung & Validierung NUR für A1/A2 (und ggf. Embeddings/Related)
-# =====================================================================
-if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_clicked or st.session_state.ready):
+# Vorverarbeitung & Validierung für A1/A2/A3 (und ggf. Embeddings/Related)
+if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_clicked or st.session_state.ready):
 
     # Validierung & ggf. Related aus Embeddings bauen
     if needs_embeddings_or_related and (emb_df is not None or related_df is not None):
@@ -1940,8 +1946,16 @@ if A3_NAME in selected_analyses:
     related_map = st.session_state.get("_related_map")
     content_links = st.session_state.get("_content_links")
     all_links = st.session_state.get("_all_links")
-
-    if not (isinstance(source_potential_map, dict) and isinstance(related_map, dict) and isinstance(content_links, set) and isinstance(all_links, set)):
+    
+    if not (
+        isinstance(source_potential_map, dict) 
+        and isinstance(related_map, dict) 
+        and isinstance(content_links, set) 
+        and isinstance(all_links, set)
+    ):
+        if run_clicked_a3:
+            st.error("Für Analyse 3 fehlen vorbereitete Daten. Bitte prüfe, ob 'Related URLs', 'All Inlinks', 'Linkmetriken' und 'Backlinks' hochgeladen sind.")
+        st.stop()
     else:
         # GSC (optional) – falls im Upload-Center bereitgestellt
         gsc_df_a3 = gsc_df_loaded
