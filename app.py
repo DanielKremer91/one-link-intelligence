@@ -864,9 +864,7 @@ with st.sidebar:
             if st.session_state.get("a4_enable_anchor_matrix", True):
                 st.markdown("#### Je URL: Anzahl der Ankertexte, mit denen sie verlinkt ist")
                 anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
-                if anchor_inv_check.empty:
-                    st.info("Kein Anchor-Inventar vorhanden. Bitte 'All Inlinks' hochladen.")
-                else:
+                if not anchor_inv_check.empty:
                     inv_sorted = anchor_inv_check.sort_values(["target","count"], ascending=[True, False]).copy()
                     max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
                     cols = ["Ziel-URL"] + [x for i in range(1, max_n+1) for x in (f"Ankertext {i}", f"Count Ankertext {i}")]
@@ -898,14 +896,12 @@ with st.sidebar:
 
             # ---- Shared Ankertexte (ein Anchor → viele Ziel-URLs) ----
             anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
-            
-            if st.session_state.get("a4_shared_enable", True):
+
+            if st.session_state.get("a4_shared_enable", True) and not anchor_inv_check.empty:
                 st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
-                if anchor_inv_check.empty:
-                    st.info("Keine Ankerdaten vorhanden. Bitte 'All Inlinks' hochladen.")
-                else:
-                    min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
-                    ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
+                min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
+                ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
+
             
                     df_shared = anchor_inv_check.copy()
                     df_shared["target"] = df_shared["target"].astype(str)
