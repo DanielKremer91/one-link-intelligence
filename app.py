@@ -2291,17 +2291,373 @@ if A4_NAME in selected_analyses:
         # Fallback – Struktur konsistent halten
         anchor_inv_vis = anchor_inv_vis.assign(source_flag=pd.NA)
 
-    # ============================================================
-    # A4: Anchor-Inventar (Wide) & Shared-Ankertexte im Hauptbereich
-    # ============================================================
+    
+        # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
+    # Nur wenn Over-Anchor-Check aktiviert ist
+    enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
+    over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
+    if enable_over_anchor and not anchor_inv_internal.empty:
+        totals = anchor_inv_internal.groupby("target")["count"].sum().rename("total")
+        tmp = anchor_inv_internal.merge(totals, on="target", how="left")
+        tmp["share"] = np.where(tmp["total"] > 0, (100.0 * tmp["count"] / tmp["total"]), 0.0).round(2)
 
-    # 3a) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
+        mode = st.session_state.get("a4_over_anchor_mode", "Absolut")
+        if mode == "Absolut":
+            filt = (tmp["count"] >= int(top_anchor_abs))
+        elif mode == "Anteil (%)":
+            filt = (tmp["share"] >= float(top_anchor_share))
+        else:  # "Beides"
+            filt = (tmp["count"] >= int(top_anchor_abs)) & (tmp["share"] >= float(top_anchor_share))
+        
+        over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
+
+        # Ziel-URL für Ausgabe in Original-Form bringen
+        over_anchor_df["Ziel-URL"] = over_anchor_df["target"].map(disp)
+        
+        # Reihenfolge der Spalten neu setzen
+        over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
+        over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
+
+    # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
+    # GSC-Daten aus Upload-Center verwenden
+    if gsc_df_loaded is not None:
+        gsc_df = gsc_df_loaded.copy()
+        st.session_state["__gsc_df_raw__"] = gsc_df
+    else:
+        gsc_df = st.session_state.get("__gsc_df_raw__", None)
+
+    # GSC-Coverage nur wenn aktiviert
+    enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
+    
+    # Platzhalter für später
+    gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
+    gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+    gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+    cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
+    
+    if enable_gsc_coverage and isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
+        df = gsc_df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
+        hdr = [_norm_header(c) for c in df.columns]
+    
+        def _find_idx(candidates: Iterable[str], default=None):
+            cand_norm = {_norm_header(c) for c in candidates}
+            for i, h in enumerate(hdr):
+                if h in cand_norm:
+                    return i
+            for i, h in enumerate(hdr):
+                if any(c in h for c in cand_norm):
+                    return i
+            return default
+    
+        url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
+        q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
+        c_i   = _find_idx({"clicks","klicks"}, None)
+        im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
+    
+        if url_i is None or q_i is None or (c_i is None and im_i is None):
+            st.warning("GSC-Datei für A4 benötigt: **URL + Query + (Clicks oder Impressions)**. Bitte Datei prüfen.")
+        else:
+            # Normalisierung & Filter
+            df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(normalize_url)
+            df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
+            if c_i is not None:
+                df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
+            if im_i is not None:
+                df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
+    
+            # Brand-Filter
+            def brand_filter(row) -> bool:
+                q = str(row.iloc[q_i])
+                is_b = is_brand_query(q)
+                if brand_mode == "Nur Non-Brand":
+                    return (not is_b)
+                elif brand_mode == "Nur Brand":
+                    return is_b
+                else:
+                    return True
+    
+            df = df[df.apply(brand_filter, axis=1)]
+    
+            # Mindestschwellen
+            if c_i is not None and metric_choice == "Clicks":
+                df = df[df.iloc[:, c_i] >= int(min_clicks)]
+            if im_i is not None and metric_choice == "Impressions":
+                df = df[df.iloc[:, im_i] >= int(min_impr)]
+    
+            if df.empty:
+                cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
+            else:
+                # Top-20 % je URL (mind. 1) + Top-N-Limit
+                metric_col = c_i if metric_choice == "Clicks" else im_i
+                df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
+    
+                top_rows = []
+                for u, grp in df.groupby(df.columns[url_i], sort=False):
+                    n = max(1, int(math.ceil(0.2 * len(grp))))
+                    if int(topN_default) > 0:
+                        n = max(1, min(n, int(topN_default)))
+                    top_rows.append(grp.head(n))
+    
+                df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
+    
+                # Anchor-Inventar als Multiset: target -> {anchor: count}
+                inv_map: Dict[str, Dict[str, int]] = {}
+                for _, r in anchor_inv_internal.iterrows():
+                    inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
+    
+                # Embedding-Modell vorbereiten
+                model = None
+                if check_embed:
+                    try:
+                        from sentence_transformers import SentenceTransformer
+                        if (
+                            "_A4_EMB_MODEL_NAME" not in st.session_state
+                            or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name
+                        ):
+                            st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
+                            st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
+                        model = st.session_state["_A4_EMB_MODEL"]
+                    except Exception as e:
+                        st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
+                        check_embed = False
+    
+                def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+                    A = A.astype(np.float32, copy=False)
+                    B = B.astype(np.float32, copy=False)
+                    A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
+                    B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
+                    return A @ B.T
+    
+                # Cache Anchor-Embeddings je Ziel-URL
+                anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
+    
+                coverage_rows = []  # eine Zeile pro URL+Query
+    
+                for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
+                    url_norm = str(u)
+                    inv = inv_map.get(url_norm, {})
+                    a_names = list(inv.keys())
+                    a_emb = None
+    
+                    # Embeddings je URL vorbereiten
+                    if check_embed and model is not None and len(a_names) > 0:
+                        if url_norm not in anchor_emb_cache:
+                            try:
+                                a_emb = np.asarray(
+                                    model.encode(a_names, batch_size=64, show_progress_bar=False)
+                                )
+                                anchor_emb_cache[url_norm] = (a_names, a_emb)
+                            except Exception:
+                                anchor_emb_cache[url_norm] = (a_names, None)
+                                a_emb = None
+                        else:
+                            a_names, a_emb = anchor_emb_cache[url_norm]
+    
+                    for _, rr in grp.iterrows():
+                        q = str(rr.iloc[q_i]).strip()
+                        if not q:
+                            continue
+    
+                        found = False
+                        found_cnt = 0
+                        match_type_parts = []
+    
+                        # Exact Match
+                        if check_exact:
+                            cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
+                            if cnt > 0:
+                                found = True
+                                found_cnt = max(found_cnt, cnt)
+                                match_type_parts.append("Exact")
+    
+                        # Embedding Match
+                        if (not found) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
+                            try:
+                                q_emb = model.encode([q], show_progress_bar=False)
+                                S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
+                                idxs = np.where(S >= float(embed_thresh))[0]
+                                if idxs.size > 0:
+                                    found = True
+                                    cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
+                                    found_cnt = max(found_cnt, cnt)
+                                    match_type_parts.append("Embedding")
+                            except Exception:
+                                pass
+    
+                        match_type = "+".join(match_type_parts) if match_type_parts else "—"
+    
+                        coverage_rows.append([
+                            disp(url_norm),  # Original-URL ausgeben
+                            q,
+                            match_type,
+                            bool(found),
+                            int(found_cnt),
+                        ])
+    
+                cov_df = pd.DataFrame(
+                    coverage_rows,
+                    columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"]
+                )
+    
+            # ---------- Tabs bauen (auf Basis von cov_df) ----------
+            if not cov_df.empty:
+                # Tab 1: URLs mit < 50% Abdeckung ihrer Top-Queries
+                agg = (
+                    cov_df.groupby("Ziel-URL")
+                    .agg(
+                        Top_Queries=("Query", "size"),
+                        Treffer=("MatchBool", "sum"),
+                    )
+                    .reset_index()
+                )
+                agg["Coverage"] = np.where(
+                    agg["Top_Queries"] > 0,
+                    agg["Treffer"] / agg["Top_Queries"],
+                    0.0,
+                )
+                gsc_tab1_df = agg[agg["Coverage"] < 0.5].copy()
+                gsc_tab1_df["Coverage_%"] = (gsc_tab1_df["Coverage"] * 100).round(1)
+                gsc_tab1_df = gsc_tab1_df[["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"]]
+    
+                # Tab 2: URLs, bei denen die Top-3-Queries alle NICHT als Anchor vorkommen
+                rows2 = []
+                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
+                    top3 = grp.head(3)
+                    if top3.empty:
+                        continue
+                    if not top3["MatchBool"].any():
+                        for _, r in top3.iterrows():
+                            rows2.append([url, r["Query"], r["Match-Typ"]])
+                gsc_tab2_df = pd.DataFrame(rows2, columns=["Ziel-URL", "Query", "Match-Typ"])
+    
+                # Tab 3: URLs, bei denen die Top-Query nicht als Anchor vorkommt
+                rows3 = []
+                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
+                    top1 = grp.head(1)
+                    if top1.empty:
+                        continue
+                    r = top1.iloc[0]
+                    if not r["MatchBool"]:
+                        rows3.append([url, r["Query"], r["Match-Typ"]])
+                gsc_tab3_df = pd.DataFrame(rows3, columns=["Ziel-URL", "Query", "Match-Typ"])
+            else:
+                gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
+                gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+                gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+    else:
+        cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
+        gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
+        gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+        gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+
+    # ============================
+    # AUSGABE A4 – 1)–4)
+    # ============================
+
+    # 1) Over-Anchor-Check
+    if enable_over_anchor:
+        st.markdown("#### 1) Over-Anchor-Check (identische Anker pro Ziel-URL)")
+        if over_anchor_df.empty:
+            st.info("Keine Over-Anchor-Fälle nach den gewählten Schwellen gefunden.")
+        else:
+            st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download Over-Anchor-Check (CSV)",
+                data=over_anchor_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_over_anchor_check.csv",
+                mime="text/csv",
+                key="a4_dl_over_anchor_csv",
+            )
+            try:
+                buf_oa = io.BytesIO()
+                with pd.ExcelWriter(buf_oa, engine="xlsxwriter") as xw:
+                    over_anchor_df.to_excel(xw, index=False, sheet_name="Over-Anchor")
+                buf_oa.seek(0)
+                st.download_button(
+                    "Download Over-Anchor-Check (XLSX)",
+                    data=buf_oa.getvalue(),
+                    file_name="a4_over_anchor_check.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="a4_dl_over_anchor_xlsx",
+                )
+            except Exception:
+                pass
+
+    # 2) GSC-Query-Coverage – Tabs 1–3
+    if enable_gsc_coverage:
+        st.markdown("#### 2) GSC-Query-Coverage (Top-20 % je URL, zusätzlich Top-N-Limit)")
+
+        st.markdown("**Tab 1: URLs mit < 50 % Abdeckung ihrer Top-Queries**")
+        if gsc_tab1_df.empty:
+            st.info("Keine URLs mit weniger als 50 % Anchor-Abdeckung der Top-Queries gefunden.")
+        else:
+            st.dataframe(gsc_tab1_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download GSC-Coverage – Tab 1 (CSV)",
+                data=gsc_tab1_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_gsc_coverage_tab1_urls_unter_50_prozent.csv",
+                mime="text/csv",
+                key="a4_dl_cov_tab1_csv"
+            )
+
+        st.markdown("---")
+        st.markdown("**Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen**")
+        if gsc_tab2_df.empty:
+            st.info("Keine URLs, bei denen alle Top-3-Queries nicht als Anchor vorkommen.")
+        else:
+            st.dataframe(gsc_tab2_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download GSC-Coverage – Tab 2 (CSV)",
+                data=gsc_tab2_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_gsc_coverage_tab2_top3_ohne_anchor.csv",
+                mime="text/csv",
+                key="a4_dl_cov_tab2_csv"
+            )
+
+        st.markdown("---")
+        st.markdown("**Tab 3: URLs, deren Top-Query nicht als Anchor vorkommt**")
+        if gsc_tab3_df.empty:
+            st.info("Keine URLs, bei denen die Top-Query nicht als Anchor vorkommt.")
+        else:
+            st.dataframe(gsc_tab3_df, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download GSC-Coverage – Tab 3 (CSV)",
+                data=gsc_tab3_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_gsc_coverage_tab3_top1_ohne_anchor.csv",
+                mime="text/csv",
+                key="a4_dl_cov_tab3_csv"
+            )
+
+        # XLSX mit 3 Tabs
+        try:
+            buf_cov = io.BytesIO()
+            with pd.ExcelWriter(buf_cov, engine="xlsxwriter") as xw:
+                gsc_tab1_df.to_excel(xw, index=False, sheet_name="Tab1_Coverage")
+                gsc_tab2_df.to_excel(xw, index=False, sheet_name="Tab2_Top3_NoAnchor")
+                gsc_tab3_df.to_excel(xw, index=False, sheet_name="Tab3_Top1_NoAnchor")
+            buf_cov.seek(0)
+            st.download_button(
+                "Download GSC-Coverage (XLSX, 3 Tabs)",
+                data=buf_cov.getvalue(),
+                file_name="a4_gsc_coverage_3tabs.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="a4_dl_cov_xlsx_multi"
+            )
+        except Exception:
+            pass
+
+    # 3) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
     if st.session_state.get("a4_enable_anchor_matrix", True):
         anchor_inv_check = anchor_inv_vis.copy()
 
         if not anchor_inv_check.empty:
             inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
-            has_flag = "source_flag" in inv_sorted.columns
+            has_flag = (
+                "source_flag" in inv_sorted.columns
+                and bool(st.session_state.get("a4_include_offpage_anchors", False))
+            )
+
 
             max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
 
@@ -2369,27 +2725,27 @@ if A4_NAME in selected_analyses:
             except Exception:
                 pass
 
-    # 3b) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
+    # 4) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
     if st.session_state.get("a4_shared_enable", True):
         anchor_inv_check = anchor_inv_vis.copy()
-
+    
         if not anchor_inv_check.empty:
             st.markdown("#### 4) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
-
+    
             min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
             ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
-
+    
             df_shared = anchor_inv_check.copy()
             df_shared["target"] = df_shared["target"].astype(str)
             df_shared["anchor"] = df_shared["anchor"].astype(str)
-
+    
             if ignore_nav:
                 df_shared = df_shared[
                     ~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)
                 ]
-
+    
             has_flag = "source_flag" in df_shared.columns
-
+    
             # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
             anchor_source_map = {}
             if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
@@ -2408,67 +2764,77 @@ if A4_NAME in selected_analyses:
                     if has_off:
                         return "nur Offpage"
                     return sorted(flags)[0]
-
+    
                 anchor_source_map = (
                     df_shared.groupby("anchor")["source_flag"]
                     .agg(lambda s: _merge_flags(set(s)))
                     .to_dict()
                 )
-
+    
+            # Gruppieren: ein Eintrag pro Anchor → Liste der URLs
             grouped = (
                 df_shared.groupby("anchor")["target"]
-                .agg(lambda s: sorted({disp(t) for t in s}))
+                .agg(lambda s: sorted({disp(t) for t in s}))  # disp() = Original-URL-Format
                 .reset_index(name="urls")
             )
             grouped["url_count"] = grouped["urls"].apply(len)
             grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
-
+    
             if has_flag and anchor_source_map:
                 grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
-
+    
             if grouped.empty:
                 st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
             else:
-                max_len = int(grouped["url_count"].max())
-
-                if has_flag and "Quelle" in grouped.columns:
-                    cols = ["Ankertext", "Quelle"] + [f"URL {i}" for i in range(1, max_len + 1)]
-                else:
-                    cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
-
+                # 🔁 NEU: Long-Format
+                # Eine Zeile = Ankertext + Ziel-URL (untereinander), optional mit Quelle + Anzahl URLs pro Anker
                 rows = []
                 for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
-                    urls = list(r["urls"])
-                    base = [r["anchor"]]
-                    if "Quelle" in grouped.columns:
-                        base.append(r["Quelle"])
-                    rows.append(base + urls + [""] * (max_len - len(urls)))
-
-                shared_wide_df = pd.DataFrame(rows, columns=cols)
-
-                st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
-
+                    anchor_txt = r["anchor"]
+                    urls = r["urls"]
+                    url_count = int(r["url_count"])
+                    quelle_val = r.get("Quelle", None) if "Quelle" in grouped.columns else None
+    
+                    for u in urls:
+                        if quelle_val is not None:
+                            rows.append([anchor_txt, quelle_val, u, url_count])
+                        else:
+                            rows.append([anchor_txt, u, url_count])
+    
+                if "Quelle" in grouped.columns:
+                    shared_long_df = pd.DataFrame(
+                        rows,
+                        columns=["Ankertext", "Quelle", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
+                    )
+                else:
+                    shared_long_df = pd.DataFrame(
+                        rows,
+                        columns=["Ankertext", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
+                    )
+    
+                st.dataframe(shared_long_df, use_container_width=True, hide_index=True)
+    
                 # CSV
                 st.download_button(
                     "Download Shared-Ankertexte (CSV)",
-                    data=shared_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="a4_shared_ankertexte.csv",
-                    mime="text/csv",
-                    key="a4_dl_shared_csv_main",
+                     data=shared_long_df.to_csv(index=False).encode("utf-8-sig"),
+                     file_name="a4_shared_ankertexte_long.csv",
+                     mime="text/csv",
+                     key="a4_dl_shared_csv_main",
                 )
-
+    
                 # XLSX
                 try:
                     buf_shared = io.BytesIO()
                     with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
-                        shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
+                        shared_long_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
                         ws = xw.sheets["Shared-Ankertexte"]
-                        for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
-                            max_len_col = max(
+                        for col_idx, col_name in enumerate(shared_long_df.columns, start=1):
+                             max_len_col = max(
                                 len(str(col_name)),
                                 *(
                                     len(str(v))
-                                    for v in shared_wide_df.iloc[:, col_idx - 1].astype(str).values[:1000]
+                                    for v in shared_long_df.iloc[:, col_idx - 1].astype(str).values[:1000]
                                 ),
                             )
                             ws.set_column(col_idx - 1, col_idx - 1, min(max_len_col + 2, 60))
@@ -2476,359 +2842,110 @@ if A4_NAME in selected_analyses:
                     st.download_button(
                         "Download Shared-Ankertexte (XLSX)",
                         data=buf_shared.getvalue(),
-                        file_name="a4_shared_ankertexte.xlsx",
+                         file_name="a4_shared_ankertexte_long.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="a4_dl_shared_xlsx_main",
-                    )
+                     )
                 except Exception as e:
                     st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
 
 
-
-
-    # ---- Over-Anchor ≥ Schwellen (absolut / share) ----
-    # Nur wenn Over-Anchor-Check aktiviert ist
-    enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
-    over_anchor_df = pd.DataFrame(columns=["Ziel-URL","Anchor","Count","TopAnchorShare(%)"])
-    if enable_over_anchor and not anchor_inv_internal.empty:
-        totals = anchor_inv_internal.groupby("target")["count"].sum().rename("total")
-        tmp = anchor_inv_internal.merge(totals, on="target", how="left")
-        tmp["share"] = np.where(tmp["total"] > 0, (100.0 * tmp["count"] / tmp["total"]), 0.0).round(2)
-
-        mode = st.session_state.get("a4_over_anchor_mode", "Absolut")
-        if mode == "Absolut":
-            filt = (tmp["count"] >= int(top_anchor_abs))
-        elif mode == "Anteil (%)":
-            filt = (tmp["share"] >= float(top_anchor_share))
-        else:  # "Beides"
-            filt = (tmp["count"] >= int(top_anchor_abs)) & (tmp["share"] >= float(top_anchor_share))
-        
-        over_anchor_df = tmp.loc[filt, ["target","anchor","count","share"]].copy()
-
-        # Ziel-URL für Ausgabe in Original-Form bringen
-        over_anchor_df["Ziel-URL"] = over_anchor_df["target"].map(disp)
-        
-        # Reihenfolge der Spalten neu setzen
-        over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
-        over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
-
-
-    # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
-    # GSC-Daten aus Upload-Center verwenden
-    if gsc_df_loaded is not None:
-        gsc_df = gsc_df_loaded.copy()
-        st.session_state["__gsc_df_raw__"] = gsc_df
-    else:
-        gsc_df = st.session_state.get("__gsc_df_raw__", None)
-
-    # GSC-Coverage nur wenn aktiviert
-    enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
-    gsc_issues_df = pd.DataFrame(columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"])
+    # ============================
+    # Optional: Treemap-Visualisierung (Hauptbereich)
+    # ============================
+    show_treemap = bool(st.session_state.get("a4_show_treemap", True))
     
-    if enable_gsc_coverage and isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
-        df = gsc_df.copy()
-        df.columns = [str(c).strip() for c in df.columns]
-        hdr = [_norm_header(c) for c in df.columns]
-
-        def _find_idx(candidates: Iterable[str], default=None):
-            cand_norm = {_norm_header(c) for c in candidates}
-            for i, h in enumerate(hdr):
-                if h in cand_norm: return i
-            for i, h in enumerate(hdr):
-                if any(c in h for c in cand_norm): return i
-            return default
-
-        url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
-        q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
-        c_i   = _find_idx({"clicks","klicks"}, None)
-        im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
-
-        if url_i is None or q_i is None or (c_i is None and im_i is None):
-            st.warning("GSC-Datei für A4 benötigt: **URL + Query + (Clicks oder Impressions)**. Bitte Datei prüfen.")
-
+    # Anchor-Inventar aus Session holen (kommt aus A4-Berechnung)
+    anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+    
+    if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
+        st.markdown("#### Treemap der häufigsten Anchors je Ziel-URL")
+    
+        treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
+        treemap_url_mode = st.session_state.get("a4_treemap_url_mode", "Alle URLs")
+        selected_urls = st.session_state.get("a4_treemap_selected_urls") or []
+    
+        all_targets = sorted(anchor_inv_check["target"].astype(str).unique())
+    
+        # Bestimme, welche URLs final verwendet werden
+        if treemap_url_mode == "Ausgewählte URLs" and selected_urls:
+            targets = [u for u in selected_urls if u in all_targets]
         else:
-            df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(normalize_url)
-            df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
-            if c_i is not None:
-                df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
-            if im_i is not None:
-                df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
-
-            # Brand-Filter
-            def brand_filter(row) -> bool:
-                q = str(row.iloc[q_i])
-                is_b = is_brand_query(q)
-                if brand_mode == "Nur Non-Brand":
-                    return (not is_b)
-                elif brand_mode == "Nur Brand":
-                    return is_b
-                else:
-                    return True
-
-            df = df[df.apply(brand_filter, axis=1)]
-            # Mindestschwellen
-            if c_i is not None and metric_choice == "Clicks":
-                df = df[df.iloc[:, c_i] >= int(min_clicks)]
-            if im_i is not None and metric_choice == "Impressions":
-                df = df[df.iloc[:, im_i] >= int(min_impr)]
-
-            # Top-20% je URL (mind. 1) und Top-N-Grenze
-            metric_col = c_i if metric_choice == "Clicks" else im_i
-            df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
-            top_rows = []
-            for u, grp in df.groupby(df.columns[url_i], sort=False):
-                # Basis: Top 20 % (mindestens 1)
-                n = max(1, int(math.ceil(0.2 * len(grp))))
-            
-                # Nur wenn ein Top-N-Deckel gesetzt ist (> 0), zusätzlich begrenzen
-                if int(topN_default) > 0:
-                    n = max(1, min(n, int(topN_default)))
-            
-                top_rows.append(grp.head(n))
-            df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
-
-            # Anchor-Inventar als Multiset: target -> {anchor: count}
-            inv_map: Dict[str, Dict[str, int]] = {}
-            for _, r in anchor_inv_internal.iterrows():
-                inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
-
-            # Embedding-Vorbereitung
-            model = None
-            if check_embed:
-                try:
-                    from sentence_transformers import SentenceTransformer
-                    if "_A4_EMB_MODEL_NAME" not in st.session_state or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name:
-                        st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
-                        st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
-                    model = st.session_state["_A4_EMB_MODEL"]
-                except Exception as e:
-                    st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
-                    check_embed = False
-
-            def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-                A = A.astype(np.float32, copy=False)
-                B = B.astype(np.float32, copy=False)
-                A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
-                B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
-                return A @ B.T
-
-            # Cache Anchor-Embeddings je target
-            anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
-            # 1) Coverage der Top-Queries als Anchors
-            issues_rows = []
-            for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
-                inv = inv_map.get(u, {})
-                a_names = list(inv.keys())
-                a_emb = None
-            
-                # ⚠️ Cache bei Bedarf füllen
-                if check_embed and model is not None and len(a_names) > 0:
-                    if u not in anchor_emb_cache:
-                        try:
-                            a_emb = np.asarray(model.encode(a_names, batch_size=64, show_progress_bar=False))
-                            anchor_emb_cache[u] = (a_names, a_emb)
-                        except Exception:
-                            anchor_emb_cache[u] = (a_names, None)
-                            a_emb = None
-                    else:
-                        a_names, a_emb = anchor_emb_cache[u]
-            
-                for _, rr in grp.iterrows():
-                    q = str(rr.iloc[q_i]).strip()
-                    if not q:
-                        continue
-                    found = False
-                    found_cnt = 0
-                    match_type = []
-            
-                    # Exact
-                    if check_exact:
-                        cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
-                        if cnt > 0:
-                            found = True
-                            found_cnt = max(found_cnt, cnt)
-                            match_type.append("Exact")
-            
-                    # Embedding (nur wenn noch nicht gefunden)
-                    if (not found) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
-                        try:
-                            q_emb = model.encode([q], show_progress_bar=False)
-                            S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
-                            idxs = np.where(S >= float(embed_thresh))[0]
-                            if idxs.size > 0:
-                                found = True
-                                cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
-                                found_cnt = max(found_cnt, cnt)
-                                match_type.append("Embedding")
-                        except Exception:
-                            pass
-            
-                    if not found:
-                        issues_rows.append([disp(u), q, "+".join(match_type) if match_type else "—", "nein", 0,
-                                            "Top-Query kommt nicht als Anchor vor"])
-            
-            # DataFrame AUẞERHALB der Loops bauen (so wie bei dir)
-            if issues_rows:
-                gsc_issues_df = pd.DataFrame(
-                    issues_rows,
-                    columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"]
+            targets = all_targets
+    
+        if not targets:
+            st.info("Keine passenden Ziel-URLs für die Treemap-Auswertung gefunden.")
+        else:
+            # Vorschau: eine URL auswählen
+            preview_url = st.selectbox(
+                "URL für Treemap-Vorschau auswählen",
+                options=targets,
+                format_func=lambda u: disp(u),
+                key="a4_treemap_preview_url"
+            )
+    
+            import re
+    
+            def build_treemap_for_target(target: str):
+                grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(target)].copy()
+                grp = grp.sort_values("count", ascending=False).head(treemap_topK)
+                if grp.empty:
+                    return None, None
+    
+                # einfache Struktur: nur Anchor + Count für diese URL
+                df_t = grp[["anchor", "count"]].rename(columns={"anchor": "Anchor", "count": "Count"})
+    
+                fig = px.treemap(
+                    df_t,
+                    path=["Anchor"],
+                    values="Count",
+                    title=f"Treemap: häufigste Anchors für {disp(target)}"
                 )
+    
+                # HTML für Download
+                html_bytes = fig.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+    
+                return fig, html_bytes
+    
+            fig, html_bytes = build_treemap_for_target(preview_url)
+    
+            if fig is None:
+                st.info("Für die ausgewählte URL liegen keine Ankerdaten vor.")
             else:
-                gsc_issues_df = pd.DataFrame(
-                    columns=["Ziel-URL","Query","Match-Typ","Anker gefunden?","Fund-Count","Hinweis"]
-                )
-
-            
-            
-            # ============================
-            # AUSGABEN A4
-            # ============================
-            st.markdown("### A4-Ergebnisse")
-
-            # Over-Anchor nur anzeigen wenn aktiviert
-            enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
-            if enable_over_anchor:
-                st.markdown("#### 1) Over-Anchors (identische Anker ≥ Schwellwert)")
-                if over_anchor_df.empty:
-                    st.info("Keine Over-Anchor-Fälle nach den gesetzten Schwellen gefunden.")
-                else:
-                    st.dataframe(over_anchor_df, use_container_width=True, hide_index=True)
-                    st.download_button(
-                        "Download Over-Anchors (CSV)",
-                        data=over_anchor_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="a4_over_anchors.csv",
-                        mime="text/csv",
-                        key="a4_dl_over"
-                    )
-
-            # GSC-Coverage nur anzeigen wenn aktiviert
-            enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
-            if enable_gsc_coverage:
-                st.markdown("#### 2) GSC-Query-Coverage (Top-20 % je URL, zusätzlich Top-N-Limit)")
-                if gsc_issues_df.empty:
-                    st.info("Alle gefilterten Top-Queries sind als Anchor vorhanden (gemäß Exact/Embedding und Schwellen).")
-                else:
-                    st.dataframe(gsc_issues_df, use_container_width=True, hide_index=True)
-                # CSV
+                # Vorschau im Hauptbereich
+                st.plotly_chart(fig, use_container_width=True)
+    
+                # Dateiname etwas entschärfen
+                safe_name = re.sub(r"[^A-Za-z0-9]+", "_", str(preview_url))[:60] or "url"
                 st.download_button(
-                    "Download GSC-Coverage (CSV)",
-                    data=gsc_issues_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="a4_gsc_coverage.csv",
-                    mime="text/csv",
-                    key="a4_dl_cov_csv"
+                    "Treemap für ausgewählte URL herunterladen (HTML)",
+                    data=html_bytes,
+                    file_name=f"treemap_anchors_{safe_name}.html",
+                    mime="text/html",
+                    key="a4_dl_treemap_single"
                 )
-                # XLSX
-                try:
-                    buf_cov = io.BytesIO()
-                    with pd.ExcelWriter(buf_cov, engine="xlsxwriter") as xw:
-                        gsc_issues_df.to_excel(xw, index=False, sheet_name="Coverage")
-                    buf_cov.seek(0)
-                    st.download_button(
-                        "Download GSC-Coverage (XLSX)",
-                        data=buf_cov.getvalue(),
-                        file_name="a4_gsc_coverage.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="a4_dl_cov_xlsx"
-                    )
-                except Exception:
-                    pass
+    
+            # Basisdaten für alle ausgewählten URLs als CSV-Download
+            export_rows = []
+            for tgt in targets:
+                grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(tgt)].copy()
+                grp = grp.sort_values("count", ascending=False).head(treemap_topK)
+                for _, row in grp.iterrows():
+                    export_rows.append([disp(tgt), str(row["anchor"]), int(row["count"])])
+    
+            if export_rows:
+                treemap_export_df = pd.DataFrame(export_rows, columns=["Ziel-URL", "Anchor", "Count"])
+                st.download_button(
+                    "Treemap-Basisdaten (alle ausgewählten URLs, CSV)",
+                    data=treemap_export_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="treemap_anchor_basisdaten.csv",
+                    mime="text/csv",
+                    key="a4_dl_treemap_csv"
+                )
+    
+    elif show_treemap and not _HAS_PLOTLY:
+        st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
 
-
-            # ============================
-            # Optional: Treemap-Visualisierung (Hauptbereich)
-            # ============================
-            show_treemap = bool(st.session_state.get("a4_show_treemap", True))
-            
-            # Anchor-Inventar aus Session holen (kommt aus A4-Berechnung)
-            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
-            
-            if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
-                st.markdown("#### 3) Treemap der häufigsten Anchors je Ziel-URL")
-            
-                treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
-                treemap_url_mode = st.session_state.get("a4_treemap_url_mode", "Alle URLs")
-                selected_urls = st.session_state.get("a4_treemap_selected_urls") or []
-            
-                all_targets = sorted(anchor_inv_check["target"].astype(str).unique())
-            
-                # Bestimme, welche URLs final verwendet werden
-                if treemap_url_mode == "Ausgewählte URLs" and selected_urls:
-                    targets = [u for u in selected_urls if u in all_targets]
-                else:
-                    targets = all_targets
-            
-                if not targets:
-                    st.info("Keine passenden Ziel-URLs für die Treemap-Auswertung gefunden.")
-                else:
-                    # Vorschau: eine URL auswählen
-                    preview_url = st.selectbox(
-                        "URL für Treemap-Vorschau auswählen",
-                        options=targets,
-                        format_func=lambda u: disp(u),
-                        key="a4_treemap_preview_url"
-                    )
-            
-                    import re
-            
-                    def build_treemap_for_target(target: str):
-                        grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(target)].copy()
-                        grp = grp.sort_values("count", ascending=False).head(treemap_topK)
-                        if grp.empty:
-                            return None, None
-            
-                        # einfache Struktur: nur Anchor + Count für diese URL
-                        df_t = grp[["anchor", "count"]].rename(columns={"anchor": "Anchor", "count": "Count"})
-            
-                        fig = px.treemap(
-                            df_t,
-                            path=["Anchor"],
-                            values="Count",
-                            title=f"Treemap: häufigste Anchors für {disp(target)}"
-                        )
-            
-                        # HTML für Download (funktioniert ohne zusätzliche libs)
-                        html_bytes = fig.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
-            
-                        return fig, html_bytes
-            
-                    fig, html_bytes = build_treemap_for_target(preview_url)
-            
-                    if fig is None:
-                        st.info("Für die ausgewählte URL liegen keine Ankerdaten vor.")
-                    else:
-                        # Vorschau im Hauptbereich
-                        st.plotly_chart(fig, use_container_width=True)
-            
-                        # Dateiname etwas entschärfen
-                        safe_name = re.sub(r"[^A-Za-z0-9]+", "_", str(preview_url))[:60] or "url"
-                        st.download_button(
-                            "Treemap für ausgewählte URL herunterladen (HTML)",
-                            data=html_bytes,
-                            file_name=f"treemap_anchors_{safe_name}.html",
-                            mime="text/html",
-                            key="a4_dl_treemap_single"
-                        )
-            
-                    # Optional: Basisdaten für alle ausgewählten URLs als CSV-Download
-                    export_rows = []
-                    for tgt in targets:
-                        grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(tgt)].copy()
-                        grp = grp.sort_values("count", ascending=False).head(treemap_topK)
-                        for _, row in grp.iterrows():
-                            export_rows.append([disp(tgt), str(row["anchor"]), int(row["count"])])
-            
-                    if export_rows:
-                        treemap_export_df = pd.DataFrame(export_rows, columns=["Ziel-URL", "Anchor", "Count"])
-                        st.download_button(
-                            "Treemap-Basisdaten (alle ausgewählten URLs, CSV)",
-                            data=treemap_export_df.to_csv(index=False).encode("utf-8-sig"),
-                            file_name="treemap_anchor_basisdaten.csv",
-                            mime="text/csv",
-                            key="a4_dl_treemap_csv"
-                        )
-            
-            elif show_treemap and not _HAS_PLOTLY:
-                st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
 
 
     # Abschluss: Loader abbauen, Status setzen
