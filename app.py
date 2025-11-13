@@ -665,31 +665,34 @@ with st.sidebar:
                 
                 # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
                 brand_mode = st.radio(
-                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?", ["Nur Non-Brand", "Nur Brand", "Beides"],
-                    index=0, horizontal=True, key="a4_brand_mode",
+                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?",
+                    ["Nur Non-Brand", "Nur Brand", "Beides"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_brand_mode",
                     help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
                 )
+                
+                # Brand-Schreibweisen IMMER anzeigen, wenn GSC-Coverage aktiv ist
+                brand_text = st.text_area(
+                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)",
+                    value=st.session_state.get("a4_brand_text", ""),
+                    key="a4_brand_text",
+                    help="Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
+                )
+                brand_file = st.file_uploader(
+                    "Optional: Brand-Liste (1 Spalte)",
+                    type=["csv", "xlsx", "xlsm", "xls"],
+                    key="a4_brand_file",
+                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
+                )
+                auto_variants = st.checkbox(
+                    "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
+                    value=st.session_state.get("a4_auto_variants", True),
+                    key="a4_auto_variants",
+                    help="Alle Keyword+Brand-Kombinationen werden als Brand-Queries erkannt."
+                )
 
-                # Danach Brand-Schreibweisen NUR anzeigen, wenn nicht "Nur Non-Brand"
-                if brand_mode != "Nur Non-Brand":
-                    brand_text = st.text_area(
-                        "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)", value="", key="a4_brand_text",
-                        help="Optional: Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
-                    )
-                    brand_file = st.file_uploader(
-                        "Optional: Brand-Liste (1 Spalte)", type=["csv","xlsx","xlsm","xls"], key="a4_brand_file",
-                        help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-                    )
-                    auto_variants = st.checkbox(
-                        "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
-                        value=True, key="a4_auto_variants",
-                        help="Alle Keyword+Brand-Kombinationen werden als Brand-Queries erkannt."
-                    )
-                else:
-                    # Defaults setzen, wenn die Felder ausgeblendet sind
-                    st.session_state.setdefault("a4_brand_text", "")
-                    st.session_state.setdefault("a4_brand_file", None)
-                    st.session_state.setdefault("a4_auto_variants", True)
 
                 
                 # --- Relevanzgrundlage ---
@@ -2257,8 +2260,14 @@ if A4_NAME in selected_analyses:
     brand_list = split_list_text(brand_text)
     brand_list += read_single_col_file_obj(brand_file)
     brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
-    if st.session_state.get("a4_brand_mode", "Nur Non-Brand") == "Nur Brand" and not brand_list:
-        st.info("Für die Auswahl 'Nur Brand' bitte Brand-Schreibweisen hinterlegen (Textfeld oder Datei).")
+    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+    if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
+        st.warning(
+            "Du hast einen Brand-Filter gewählt (**{brand_mode}**), "
+            "aber keine Brand-Schreibweisen hinterlegt. "
+            "Brand/Non-Brand-Queries können so nicht zuverlässig getrennt werden."
+        )
+
 
     
     # 2) Brand-Erkennung abhängig von der Checkbox:
