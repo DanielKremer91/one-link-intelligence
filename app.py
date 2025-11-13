@@ -1913,10 +1913,6 @@ if (A1_NAME in selected_analyses or A2_NAME in selected_analyses) and (run_click
 # =========================================================
 if A3_NAME in selected_analyses:
 
-    st.markdown("---")
-    st.subheader("Analyse 3: Was sind starke Linkgeber (\"Gems\") & welche URLs diese verlinken sollten (-> SEO-Potenziallinks)")
-    st.caption("Diese Analyse identifiziert die aus SEO-Gesichtspunkten wertvollsten, aber noch nicht gesetzten, Content-Links.")
-
     # A3 wird über Button oben gestartet
     if run_clicked_a3:
         st.session_state["__gems_loading__"] = True
@@ -2170,10 +2166,6 @@ if A3_NAME in selected_analyses:
 # Analyse 4: Anchor & Query Intelligence (Embeddings)
 # =========================================================
 if A4_NAME in selected_analyses:
-
-    st.markdown("---")
-    st.subheader("🔎 Analyse 4: Anchor & Query Intelligence (Embeddings)")
-    st.caption("Verknüpft Suchanfragen, Ankertexte und Zielseiten via Embeddings. Findet Over-Anchors und fehlende Query-Anchors.")
 
     # A4 wird über Button oben gestartet
     if run_clicked_a4:
