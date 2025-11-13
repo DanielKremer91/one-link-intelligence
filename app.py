@@ -901,67 +901,67 @@ with st.sidebar:
                 st.markdown("#### Shared Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
                 min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
                 ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
-
             
-                    df_shared = anchor_inv_check.copy()
-                    df_shared["target"] = df_shared["target"].astype(str)
-                    df_shared["anchor"] = df_shared["anchor"].astype(str)
+                df_shared = anchor_inv_check.copy()
+                df_shared["target"] = df_shared["target"].astype(str)
+                df_shared["anchor"] = df_shared["anchor"].astype(str)
             
-                    if ignore_nav and 'NAVIGATIONAL_ANCHORS' in globals():
-                        df_shared = df_shared[~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)]
+                if ignore_nav and 'NAVIGATIONAL_ANCHORS' in globals():
+                    df_shared = df_shared[~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)]
             
-                    grouped = (
-                        df_shared.groupby("anchor")["target"]
-                        .agg(lambda s: sorted({disp(t) for t in s}))
-                        .reset_index(name="urls")
+                grouped = (
+                    df_shared.groupby("anchor")["target"]
+                    .agg(lambda s: sorted({disp(t) for t in s}))
+                    .reset_index(name="urls")
+                )
+                grouped["url_count"] = grouped["urls"].apply(len)
+                grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
+            
+                if grouped.empty:
+                    st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
+                else:
+                    max_len = int(grouped["url_count"].max())
+                    cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
+                    rows = []
+                    for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
+                        urls = list(r["urls"])
+                        rows.append([r["anchor"], *urls, *([""] * (max_len - len(urls)))])
+            
+                    shared_wide_df = pd.DataFrame(rows, columns=cols)
+                    st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
+            
+                    # CSV
+                    st.download_button(
+                        "Download Shared-Ankertexte (CSV)",
+                        data=shared_wide_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="a4_shared_ankertexte.csv",
+                        mime="text/csv",
+                        key="a4_dl_shared_csv"
                     )
-                    grouped["url_count"] = grouped["urls"].apply(len)
-                    grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
             
-                    if grouped.empty:
-                        st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
-                    else:
-                        max_len = int(grouped["url_count"].max())
-                        cols = ["Ankertext"] + [f"URL {i}" for i in range(1, max_len + 1)]
-                        rows = []
-                        for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
-                            urls = list(r["urls"])
-                            rows.append([r["anchor"], *urls, *([""] * (max_len - len(urls)))])
-            
-                        shared_wide_df = pd.DataFrame(rows, columns=cols)
-                        st.dataframe(shared_wide_df, use_container_width=True, hide_index=True)
-            
-                        # CSV
+                    # XLSX
+                    try:
+                        buf_shared = io.BytesIO()
+                        with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
+                            shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
+                            ws = xw.sheets["Shared-Ankertexte"]
+                            for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
+                                max_len_col = max(
+                                    len(str(col_name)),
+                                    *(len(str(v)) for v in shared_wide_df.iloc[:, col_idx-1].astype(str).values[:1000])
+                                )
+                                ws.set_column(col_idx-1, col_idx-1, min(max_len_col + 2, 60))
+                        buf_shared.seek(0)
                         st.download_button(
-                            "Download Shared-Ankertexte (CSV)",
-                            data=shared_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                            file_name="a4_shared_ankertexte.csv",
-                            mime="text/csv",
-                            key="a4_dl_shared_csv"
+                            "Download Shared-Ankertexte (XLSX)",
+                            data=buf_shared.getvalue(),
+                            file_name="a4_shared_ankertexte.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="a4_dl_shared_xlsx"
                         )
-            
-                        # XLSX
-                        try:
-                            buf_shared = io.BytesIO()
-                            with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
-                                shared_wide_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
-                                ws = xw.sheets["Shared-Ankertexte"]
-                                for col_idx, col_name in enumerate(shared_wide_df.columns, start=1):
-                                    max_len_col = max(
-                                        len(str(col_name)),
-                                        *(len(str(v)) for v in shared_wide_df.iloc[:, col_idx-1].astype(str).values[:1000])
-                                    )
-                                    ws.set_column(col_idx-1, col_idx-1, min(max_len_col + 2, 60))
-                            buf_shared.seek(0)
-                            st.download_button(
-                                "Download Shared-Ankertexte (XLSX)",
-                                data=buf_shared.getvalue(),
-                                file_name="a4_shared_ankertexte.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key="a4_dl_shared_xlsx"
-                            )
-                        except Exception as e:
-                            st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
+                    except Exception as e:
+                        st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
+
 
                     
     else:
