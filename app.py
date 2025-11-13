@@ -877,13 +877,9 @@ with st.sidebar:
                     st.session_state["a4_treemap_selected_urls"] = []
             else:
                 # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
-                st.session_state["a4_treemap_selected_urls"] = []
-
-                                   
+                st.session_state["a4_treemap_selected_urls"] = []                                
             
-                    except Exception as e:
-                        st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
-                    
+                                      
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
 # ===============================
