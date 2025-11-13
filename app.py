@@ -1942,7 +1942,6 @@ if A3_NAME in selected_analyses:
     all_links = st.session_state.get("_all_links")
 
     if not (isinstance(source_potential_map, dict) and isinstance(related_map, dict) and isinstance(content_links, set) and isinstance(all_links, set)):
-        st.info("Für Analyse 3 werden die vorbereiteten Daten benötigt (Linkmetriken/Backlinks/Inlinks & Related). Bitte zuvor Analyse 1 oder 2 einmal laufen lassen.")
     else:
         # GSC (optional) – falls im Upload-Center bereitgestellt
         gsc_df_a3 = gsc_df_loaded
