@@ -862,7 +862,6 @@ with st.sidebar:
             
             # ---- NEU: Vollständiges Anchor-Inventar (Wide) + Exports (ohne Limit) ----
             if st.session_state.get("a4_enable_anchor_matrix", True):
-                st.markdown("#### Je URL: Anzahl der Ankertexte, mit denen sie verlinkt ist")
                 anchor_inv_check = anchor_inv if 'anchor_inv' in locals() or 'anchor_inv' in globals() else pd.DataFrame()
                 if not anchor_inv_check.empty:
                     inv_sorted = anchor_inv_check.sort_values(["target","count"], ascending=[True, False]).copy()
