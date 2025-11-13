@@ -701,13 +701,11 @@ with st.sidebar:
                     key="a4_metric_choice"
                 )
                 
-                # --- Matching-Variante (gleicher Stil, schwarzer Text) ---
-                st.markdown(
-                    "<p style='color:black; font-weight:600; margin-bottom:0.3rem;'>"
-                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match oder auf Basis semantischer Ähnlichkeit erfolgen?"
-                    "</p>",
-                    unsafe_allow_html=True
+                st.caption(
+                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match "
+                    "oder auf Basis semantischer Ähnlichkeit erfolgen?"
                 )
+
                 
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
