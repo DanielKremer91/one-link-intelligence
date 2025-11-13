@@ -2830,7 +2830,7 @@ if A4_NAME in selected_analyses:
                         shared_long_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
                         ws = xw.sheets["Shared-Ankertexte"]
                         for col_idx, col_name in enumerate(shared_long_df.columns, start=1):
-                             max_len_col = max(
+                            max_len_col = max(
                                 len(str(col_name)),
                                 *(
                                     len(str(v))
@@ -2842,12 +2842,13 @@ if A4_NAME in selected_analyses:
                     st.download_button(
                         "Download Shared-Ankertexte (XLSX)",
                         data=buf_shared.getvalue(),
-                         file_name="a4_shared_ankertexte_long.xlsx",
+                        file_name="a4_shared_ankertexte_long.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="a4_dl_shared_xlsx_main",
-                     )
+                    )
                 except Exception as e:
                     st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
+
 
 
     # ============================
