@@ -752,9 +752,16 @@ with st.sidebar:
                 with col_s3:
                     topN_default = st.number_input(
                         "Top-N Queries pro URL (zusätzliche Bedingung)",
-                        min_value=1, value=st.session_state.get("a4_topN", 10), step=1, key="a4_topN",
-                        help=help_text_schwellen
+                        min_value=0,                      # 0 = kein Zusatz-Deckel
+                        value=st.session_state.get("a4_topN", 0),
+                        step=1,
+                        key="a4_topN",
+                        help=(
+                            help_text_schwellen
+                            + "\n\nHinweis: **0 = kein zusätzlicher Top-N-Deckel** (es gelten nur die Top-20 % je URL)."
+                        )
                     )
+
 
             else:
                 # Setze Defaults wenn deaktiviert
@@ -768,7 +775,7 @@ with st.sidebar:
                 st.session_state.setdefault("a4_embed_thresh", 0.75)
                 st.session_state.setdefault("a4_min_clicks", 50)
                 st.session_state.setdefault("a4_min_impr", 500)
-                st.session_state.setdefault("a4_topN", 10)
+                st.session_state.setdefault("a4_topN", 0)
                 st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
 
             # --- Visualisierung (A4) ---
@@ -843,34 +850,35 @@ with st.sidebar:
                     "Die nachfolgende Analyse/Exports enthalten **immer alle** Anker."
                 )
             )
-                        
-            # ---- Treemap zeichnen (optional) ----
-            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
-
-            if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
-                st.markdown("#### Treemap der häufigsten Anchors je Ziel-URL")
-                tre_rows = []
-                for tgt, grp in anchor_inv_check.groupby("target", sort=False):
-                    topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
-                    for _, rr in topk.iterrows():
-                        tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
-                tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count"])
-                if tre_df.empty:
-                    st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
-                else:
-                    try:
-                        fig = px.treemap(
-                            tre_df,
-                            path=["Ziel-URL","Anchor"],
-                            values="Count",
-                            title="Treemap: Top-Anchors je Ziel-URL"
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Treemap konnte nicht gerendert werden: {e}")
-            elif show_treemap and not _HAS_PLOTLY:
-                st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
             
+            # Auswahl, für welche URLs Treemaps erzeugt werden sollen
+            treemap_url_mode = st.radio(
+                "Für welche URLs sollen Treemaps erzeugt werden?",
+                ["Alle URLs", "Ausgewählte URLs"],
+                index=0,
+                key="a4_treemap_url_mode",
+                help="Bestimmt, ob für alle Ziel-URLs oder nur für eine Auswahl Treemaps gebaut werden."
+            )
+            
+            if treemap_url_mode == "Ausgewählte URLs":
+                # Versuche, bekannte URLs aus dem Anchor-Inventar zu laden (falls A4 schon einmal lief)
+                anchor_inv_check_sidebar = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+                if not anchor_inv_check_sidebar.empty and "target" in anchor_inv_check_sidebar.columns:
+                    url_options = sorted(anchor_inv_check_sidebar["target"].astype(str).unique())
+                    selected_urls_for_treemap = st.multiselect(
+                        "URLs für Treemap auswählen",
+                        options=url_options,
+                        key="a4_treemap_selected_urls",
+                        help="Wähle eine oder mehrere Ziel-URLs, für die im Hauptbereich je eine Treemap erzeugt wird."
+                    )
+                else:
+                    st.caption("Noch keine Ziel-URLs bekannt – die Auswahl wird nutzbar, nachdem A4 einmal gelaufen ist.")
+                    st.session_state["a4_treemap_selected_urls"] = []
+            else:
+                # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
+                st.session_state["a4_treemap_selected_urls"] = []
+
+                                   
             # ---- Vollständiges Anchor-Inventar (Wide) + Exports (mit Quelle-Flag) ----
             if st.session_state.get("a4_enable_anchor_matrix", True):
                 # anchor_inv_vis kommt aus Analyse 4 (Session-State)
@@ -2224,7 +2232,7 @@ if A4_NAME in selected_analyses:
 
     min_clicks = int(st.session_state.get("a4_min_clicks", 50))
     min_impr = int(st.session_state.get("a4_min_impr", 500))
-    topN_default = int(st.session_state.get("a4_topN", 10))
+    topN_default = int(st.session_state.get("a4_topN", 0))
     top_anchor_abs = int(st.session_state.get("a4_top_anchor_abs", 200))
     top_anchor_share = int(st.session_state.get("a4_top_anchor_share", 60))
 
@@ -2556,8 +2564,13 @@ if A4_NAME in selected_analyses:
             df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
             top_rows = []
             for u, grp in df.groupby(df.columns[url_i], sort=False):
+                # Basis: Top 20 % (mindestens 1)
                 n = max(1, int(math.ceil(0.2 * len(grp))))
-                n = max(1, min(n, int(topN_default)))
+            
+                # Nur wenn ein Top-N-Deckel gesetzt ist (> 0), zusätzlich begrenzen
+                if int(topN_default) > 0:
+                    n = max(1, min(n, int(topN_default)))
+            
                 top_rows.append(grp.head(n))
             df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
 
@@ -2709,67 +2722,100 @@ if A4_NAME in selected_analyses:
 
 
             # ============================
-            # Optional: Treemap-Visualisierung
+            # Optional: Treemap-Visualisierung (Hauptbereich)
             # ============================
-            try:
-                anchor_inv_check = anchor_inv_vis if 'anchor_inv_vis' in locals() or 'anchor_inv_vis' in globals() else pd.DataFrame()
-            except NameError:
-                anchor_inv_check = pd.DataFrame()
+            show_treemap = bool(st.session_state.get("a4_show_treemap", True))
+            
+            # Anchor-Inventar aus Session holen (kommt aus A4-Berechnung)
+            anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+            
             if show_treemap and _HAS_PLOTLY and not anchor_inv_check.empty:
                 st.markdown("#### 3) Treemap der häufigsten Anchors je Ziel-URL")
-                # Top-K Anchors je Ziel aggregieren
-                tre_rows = []
-                has_flag = "source_flag" in anchor_inv_check.columns and bool(st.session_state.get("a4_include_offpage_anchors", False))
-                for tgt, grp in anchor_inv_check.groupby("target", sort=False):
-                    topk = grp.sort_values("count", ascending=False).head(int(treemap_topK))
-                    for _, rr in topk.iterrows():
-                        if has_flag:
-                            tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"]), str(rr["source_flag"])])
-                        else:
-                            tre_rows.append([disp(tgt), str(rr["anchor"]), int(rr["count"])])
-
-                if has_flag:
-                    tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count","Quelle"])
+            
+                treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
+                treemap_url_mode = st.session_state.get("a4_treemap_url_mode", "Alle URLs")
+                selected_urls = st.session_state.get("a4_treemap_selected_urls") or []
+            
+                all_targets = sorted(anchor_inv_check["target"].astype(str).unique())
+            
+                # Bestimme, welche URLs final verwendet werden
+                if treemap_url_mode == "Ausgewählte URLs" and selected_urls:
+                    targets = [u for u in selected_urls if u in all_targets]
                 else:
-                    tre_df = pd.DataFrame(tre_rows, columns=["Ziel-URL","Anchor","Count"])
-
-                if tre_df.empty:
-                    st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
+                    targets = all_targets
+            
+                if not targets:
+                    st.info("Keine passenden Ziel-URLs für die Treemap-Auswertung gefunden.")
                 else:
-                    try:
-                        if has_flag:
-                            fig = px.treemap(
-                                tre_df,
-                                path=["Ziel-URL","Anchor"],
-                                values="Count",
-                                color="Quelle",
-                                title="Treemap: Top-Anchors je Ziel-URL"
-                            )
-                        else:
-                            fig = px.treemap(
-                                tre_df,
-                                path=["Ziel-URL","Anchor"],
-                                values="Count",
-                                title="Treemap: Top-Anchors je Ziel-URL"
-                            )
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Treemap konnte nicht gerendert werden: {e}")
-                if tre_df.empty:
-                    st.info("Keine Daten für Treemap vorhanden (nach Filtern).")
-                else:
-                    try:
+                    # Vorschau: eine URL auswählen
+                    preview_url = st.selectbox(
+                        "URL für Treemap-Vorschau auswählen",
+                        options=targets,
+                        key="a4_treemap_preview_url"
+                    )
+            
+                    import re
+            
+                    def build_treemap_for_target(target: str):
+                        grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(target)].copy()
+                        grp = grp.sort_values("count", ascending=False).head(treemap_topK)
+                        if grp.empty:
+                            return None, None
+            
+                        # einfache Struktur: nur Anchor + Count für diese URL
+                        df_t = grp[["anchor", "count"]].rename(columns={"anchor": "Anchor", "count": "Count"})
+            
                         fig = px.treemap(
-                            tre_df,
-                            path=["Ziel-URL","Anchor"],
+                            df_t,
+                            path=["Anchor"],
                             values="Count",
-                            title="Treemap: Top-Anchors je Ziel-URL"
+                            title=f"Treemap: häufigste Anchors für {disp(target)}"
                         )
+            
+                        # HTML für Download (funktioniert ohne zusätzliche libs)
+                        html_bytes = fig.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
+            
+                        return fig, html_bytes
+            
+                    fig, html_bytes = build_treemap_for_target(preview_url)
+            
+                    if fig is None:
+                        st.info("Für die ausgewählte URL liegen keine Ankerdaten vor.")
+                    else:
+                        # Vorschau im Hauptbereich
                         st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e:
-                        st.warning(f"Treemap konnte nicht gerendert werden: {e}")
+            
+                        # Dateiname etwas entschärfen
+                        safe_name = re.sub(r"[^A-Za-z0-9]+", "_", str(preview_url))[:60] or "url"
+                        st.download_button(
+                            "Treemap für ausgewählte URL herunterladen (HTML)",
+                            data=html_bytes,
+                            file_name=f"treemap_anchors_{safe_name}.html",
+                            mime="text/html",
+                            key="a4_dl_treemap_single"
+                        )
+            
+                    # Optional: Basisdaten für alle ausgewählten URLs als CSV-Download
+                    export_rows = []
+                    for tgt in targets:
+                        grp = anchor_inv_check[anchor_inv_check["target"].astype(str) == str(tgt)].copy()
+                        grp = grp.sort_values("count", ascending=False).head(treemap_topK)
+                        for _, row in grp.iterrows():
+                            export_rows.append([disp(tgt), str(row["anchor"]), int(row["count"])])
+            
+                    if export_rows:
+                        treemap_export_df = pd.DataFrame(export_rows, columns=["Ziel-URL", "Anchor", "Count"])
+                        st.download_button(
+                            "Treemap-Basisdaten (alle ausgewählten URLs, CSV)",
+                            data=treemap_export_df.to_csv(index=False).encode("utf-8-sig"),
+                            file_name="treemap_anchor_basisdaten.csv",
+                            mime="text/csv",
+                            key="a4_dl_treemap_csv"
+                        )
+            
             elif show_treemap and not _HAS_PLOTLY:
                 st.info("Plotly ist nicht verfügbar – Treemap wird übersprungen.")
+
 
     # Abschluss: Loader abbauen, Status setzen
     st.session_state["__a4_loading__"] = False
