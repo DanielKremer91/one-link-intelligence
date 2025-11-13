@@ -2065,28 +2065,58 @@ if A4_NAME in selected_analyses:
         st.stop()
 
     def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Baut das Anchor-Inventar aus All Inlinks:
+        - Primär: Anchor-Spalte
+        - Fallback: wenn Anchor leer/NaN → ALT-Spalte
+        """
         rows = []
         hdr = [str(c).strip() for c in df.columns]
+    
+        # Spalten-Indizes für Anchor & ALT ermitteln
         a_idx = find_column_index(hdr, POSSIBLE_ANCHOR)
         alt_i = find_column_index(hdr, POSSIBLE_ALT)
+    
         for row in df.itertuples(index=False, name=None):
-            src = remember_original(row[src_idx]); dst = remember_original(row[dst_idx])
+            # Ziel-URL normalisieren/merken
+            dst = remember_original(row[dst_idx])
             if not dst:
                 continue
+    
+            # 1) Primärwert aus Anchor-Spalte
             anchor_val = None
             if a_idx != -1:
                 anchor_val = row[a_idx]
-            if (anchor_val is None or (str(anchor_val).strip() == "")) and alt_i != -1:
+    
+            # 2) Fallback: wenn Anchor fehlt/leer/NaN → ALT verwenden
+            anchor_is_empty = (
+                anchor_val is None
+                or (isinstance(anchor_val, str) and anchor_val.strip() == "")
+                or (not isinstance(anchor_val, str) and pd.isna(anchor_val))
+            )
+    
+            if (a_idx == -1 or anchor_is_empty) and alt_i != -1:
                 anchor_val = row[alt_i]
+    
+            # 3) Finalen Anchor aufbereiten
             anchor = str(anchor_val or "").strip()
             if not anchor:
+                # weder Anchor noch ALT → ignorieren
                 continue
+    
             rows.append([normalize_url(dst), anchor])
+    
         if not rows:
-            return pd.DataFrame(columns=["target","anchor","count"])
-        tmp = pd.DataFrame(rows, columns=["target","anchor"])
-        agg = tmp.groupby(["target","anchor"], as_index=False).size().rename(columns={"size":"count"})
+            return pd.DataFrame(columns=["target", "anchor", "count"])
+    
+        tmp = pd.DataFrame(rows, columns=["target", "anchor"])
+        agg = (
+            tmp.groupby(["target", "anchor"], as_index=False)
+               .size()
+               .rename(columns={"size": "count"})
+        )
         return agg
+
 
     anchor_inv_internal = extract_anchor_inventory(inlinks_df)
 
