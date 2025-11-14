@@ -738,7 +738,7 @@ with st.sidebar:
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
 
                 embed_model_name = st.selectbox(
-                    "Embedding-Modell",
+                    "Sentence Transformer Modell (Embedding-Modell)",
                     [
                         "sentence-transformers/all-MiniLM-L6-v2",
                         "sentence-transformers/all-MiniLM-L12-v2",
@@ -856,7 +856,7 @@ with st.sidebar:
                 # 🔥 NEU: Modell-Auswahl NUR für den Modus „Basierend auf einer oder mehreren Spalten der Crawl-Datei“
                 if a4_emb_mode == "Basierend auf einer oder mehreren Spalten der Crawl-Datei":
                     st.selectbox(
-                        "Embedding-Modell für Semantik-Analyse (Seite & Ankertexte)",
+                        "Sentence Transformer Modell (Embedding-Modell)",
                         [
                             "sentence-transformers/all-MiniLM-L6-v2",
                             "sentence-transformers/all-MiniLM-L12-v2",
