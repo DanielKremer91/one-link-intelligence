@@ -1007,7 +1007,7 @@ shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2
 
 emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
 offpage_anchors_df = None  # <– NEU
-gsc_df_loaded = NoneL_
+gsc_df_loaded = None
 crawl_df_a4 = None
 emb_df_a4 = None
 
