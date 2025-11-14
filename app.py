@@ -642,16 +642,28 @@ with st.sidebar:
                 
                 col_o1, col_o2 = st.columns(2)
                 with col_o1:
-                    top_anchor_abs = st.number_input("Schwelle identischer Anker (absolut)", min_value=1, value=200, step=10, key="a4_top_anchor_abs",
-                                                     help="Ab wie vielen identischen Ankern eine URL als Over-Anchor-Fall gilt.")
+                    top_anchor_abs = st.number_input(
+                        "Schwelle identischer Anker (absolut)",
+                        min_value=1,
+                        value=200,
+                        step=10,
+                        key="a4_top_anchor_abs",
+                        help="Ab wie vielen identischen Ankern eine URL als Over-Anchor-Fall gilt."
+                    )
                 with col_o2:
-                    top_anchor_share = st.slider("Schwelle TopAnchorShare (%)", 0, 100, 60, 1, key="a4_top_anchor_share",
-                                                 help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat.")
+                    top_anchor_share = st.slider(
+                        "Schwelle TopAnchorShare (%)",
+                        0, 100, 60, 1,
+                        key="a4_top_anchor_share",
+                        help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat."
+                    )
                 # ✅ NEU: Modus wählen
                 over_anchor_mode = st.radio(
                     "Welche Schwelle soll gelten?",
                     ["Absolut", "Anteil (%)", "Beides"],
-                    index=0, horizontal=True, key="a4_over_anchor_mode",
+                    index=0,
+                    horizontal=True,
+                    key="a4_over_anchor_mode",
                     help="Absolut: nur Count. Anteil: nur %-Anteil. Beides: Count UND Anteil müssen erreicht sein."
                 )
     
@@ -708,8 +720,6 @@ with st.sidebar:
                     help="Alle Keyword+Brand-Kombinationen werden als Brand-Queries erkannt."
                 )
 
-
-                
                 # --- Relevanzgrundlage ---
                 metric_choice = st.radio(
                     "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
@@ -724,23 +734,26 @@ with st.sidebar:
                     "oder auf Basis semantischer Ähnlichkeit erfolgen?"
                 )
 
-                
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
 
-
-
                 embed_model_name = st.selectbox(
                     "Embedding-Modell",
-                    ["sentence-transformers/all-MiniLM-L6-v2",
-                     "sentence-transformers/all-MiniLM-L12-v2",
-                     "sentence-transformers/all-mpnet-base-v2"],
+                    [
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                        "sentence-transformers/all-MiniLM-L12-v2",
+                        "sentence-transformers/all-mpnet-base-v2",
+                    ],
                     index=0,
                     help="Standard: all-MiniLM-L6-v2",
                     key="a4_embed_model",
                 )
-                embed_thresh = st.slider("Cosine-Schwelle (Embedding)", 0.50, 0.95, 0.75, 0.01, key="a4_embed_thresh",
-                                         help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer.")
+                embed_thresh = st.slider(
+                    "Cosine-Schwelle (Embedding)",
+                    0.50, 0.95, 0.75, 0.01,
+                    key="a4_embed_thresh",
+                    help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer."
+                )
 
                 help_text_schwellen = (
                     "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
@@ -755,19 +768,25 @@ with st.sidebar:
                 with col_s1:
                     min_clicks = st.number_input(
                         "Mindest-Klicks/Query",
-                        min_value=0, value=50, step=10, key="a4_min_clicks",
-                        help=help_text_schwellen  # ✅ langer Hilfe-Text on-hover hier
+                        min_value=0,
+                        value=50,
+                        step=10,
+                        key="a4_min_clicks",
+                        help=help_text_schwellen
                     )
                 with col_s2:
                     min_impr = st.number_input(
                         "Mindest-Impressions/Query",
-                        min_value=0, value=500, step=50, key="a4_min_impr",
+                        min_value=0,
+                        value=500,
+                        step=50,
+                        key="a4_min_impr",
                         help=help_text_schwellen
                     )
                 with col_s3:
                     topN_default = st.number_input(
                         "Top-N Queries pro URL (zusätzliche Bedingung)",
-                        min_value=0,                      # 0 = kein Zusatz-Deckel
+                        min_value=0,  # 0 = kein Zusatz-Deckel
                         value=st.session_state.get("a4_topN", 0),
                         step=1,
                         key="a4_topN",
@@ -776,7 +795,6 @@ with st.sidebar:
                             + "\n\nHinweis: **0 = kein zusätzlicher Top-N-Deckel** (es gelten nur die Top-20 % je URL)."
                         )
                     )
-
 
             else:
                 # Setze Defaults wenn deaktiviert
@@ -820,26 +838,38 @@ with st.sidebar:
                 )
 
                 a4_emb_mode = st.radio(
-                    "Seiten-Embeddings",
+                    "Auf welcher Basis sollen die Embeddings für die URLs berechnet werden?",
                     [
-                        "Aus Crawl-Spalte berechnen",
-                        "Embeddings-Spalte im Crawl nutzen",
+                        "Basierend auf einer oder mehreren Spalten der Crawl-Datei",
+                        "Embedding-Spalte in Crawl-Datei nutzen",
                         "Separate Embedding-Datei (URL + Embedding)",
                     ],
                     index=0,
                     key="a4_emb_mode",
                     help=(
-                        "• Aus Crawl-Spalte berechnen: Embeddings werden aus Content-Spalten des Crawls erzeugt.\n"
-                        "• Embeddings-Spalte im Crawl nutzen: Embeddings liegen direkt im Crawl.\n"
+                        "• Basierend auf einer oder mehreren Spalten der Crawl-Datei: Embeddings werden aus Content-Spalten des Crawls erzeugt.\n"
+                        "• Embedding-Spalte in Crawl-Datei nutzen: Embeddings liegen im Crawl bereits vor.\n"
                         "• Separate Embedding-Datei: eigene Datei mit URL + Embedding-Spalte nur für diese Analyse."
                     ),
                 )
 
-                if a4_emb_mode == "Aus Crawl-Spalte berechnen":
-                    st.markdown("**Spalten für Text-Basis (z. B. 'Main Content', 'H1', 'Title')**")
+                # 🔥 NEU: Modell-Auswahl NUR für den Modus „Basierend auf einer oder mehreren Spalten der Crawl-Datei“
+                if a4_emb_mode == "Basierend auf einer oder mehreren Spalten der Crawl-Datei":
+                    st.selectbox(
+                        "Embedding-Modell für Semantik-Analyse (Seite & Ankertexte)",
+                        [
+                            "sentence-transformers/all-MiniLM-L6-v2",
+                            "sentence-transformers/all-MiniLM-L12-v2",
+                            "sentence-transformers/all-mpnet-base-v2",
+                        ],
+                        index=0,
+                        key="a4_sem_embed_model",
+                        help="Dieses Modell wird für die Seiten-Embeddings und die Ankertext-Embeddings in der Semantik-Analyse verwendet.",
+                    )
+
+                    st.markdown("**Welche Spalten aus der Crawl-Datei sollen für die Embedding-Berechnung genutzt werden?**")
                 
-                    # 👉 Spalten nicht direkt von crawl_df_a4 lesen,
-                    #    sondern aus dem Session-State (wird beim Upload gesetzt)
+                    # Spalten aus Session-State (beim Upload gesetzt)
                     crawl_cols_for_select = st.session_state.get("a4_crawl_columns", [])
                 
                     if crawl_cols_for_select:
@@ -859,15 +889,16 @@ with st.sidebar:
                         st.text_input(
                             "Zusätzliche Spaltennamen (optional, frei eintragen)",
                             key="a4_text_cols",
-                            help="Kommagetrennt oder Zeilenweise – falls du Spalten per Namen referenzieren möchtest, die im aktuellen Crawl (noch) nicht vorkommen."
+                            help="Kommagetrennt oder zeilenweise – falls du Spalten per Namen referenzieren möchtest, die im aktuellen Crawl (noch) nicht vorkommen."
                         )
                     else:
                         # Fallback, wenn noch kein Crawl geladen ist
                         st.text_input(
-                            "Spaltenname(n) für Text-Basis (z. B. 'Main Content', 'H1', 'Title')",
+                            "Die ausgewählten Spalten werden kombiniert und die Embeddings berechnet – WICHTIG: Zuerst Crawl-Datei hochladen, dann Spalten auswählen",
                             key="a4_text_cols",
-                            help="Kommagetrennt oder Zeilenweise – wird als Textgrundlage für Seiten-Embeddings genutzt."
+                            help="Kommagetrennt oder zeilenweise – wird als Textgrundlage für Seiten-Embeddings genutzt."
                         )
+
 
 
 
@@ -1254,10 +1285,10 @@ if A4_NAME in selected_analyses:
 
     # NEU: Crawl + optionale Embedding-Datei für semantische Ankeranalyse
     if st.session_state.get("a4_enable_semantic_anchor", False):
-        a4_mode = st.session_state.get("a4_emb_mode", "Aus Crawl-Spalte berechnen")
+        a4_mode = st.session_state.get("a4_emb_mode", "Basierend auf einer oder mehreren Spalten der Crawl-Datei")
 
         # Crawl nur, wenn wir ihn wirklich brauchen
-        if a4_mode in ["Aus Crawl-Spalte berechnen", "Embeddings-Spalte im Crawl nutzen"]:
+        if a4_mode in ["Basierend auf einer oder mehreren Spalten der Crawl-Datei", "Embedding-Spalte in Crawl-Datei nutzen"]:
             needs.append(("Crawl (CSV/Excel)", "up_crawl_a4", HELP_CRAWL_A4))
 
         # Separate Embedding-Datei nur im entsprechenden Modus
@@ -2789,11 +2820,11 @@ if A4_NAME in selected_analyses:
         if anchor_inv_internal.empty:
             st.info("Keine internen Ankertexte vorhanden – semantische Ankeranalyse wird übersprungen.")
         else:
-            a4_emb_mode = st.session_state.get("a4_emb_mode", "Aus Crawl-Spalte berechnen")
+            a4_emb_mode = st.session_state.get("a4_emb_mode", "Basierend auf einer oder mehreren Spalten der Crawl-Datei")
 
             # Crawl nur prüfen, wenn wir ihn in diesem Modus wirklich brauchen
             if (
-                a4_emb_mode in ["Aus Crawl-Spalte berechnen", "Embeddings-Spalte im Crawl nutzen"]
+                a4_emb_mode in ["Basierend auf einer oder mehreren Spalten der Crawl-Datei", "Embedding-Spalte in Crawl-Datei nutzen"]
                 and (crawl_df_a4 is None or crawl_df_a4.empty)
             ):
                 st.error("Für die semantische Ankeranalyse wird im gewählten Modus eine Crawl-Datei benötigt.")
@@ -2825,12 +2856,12 @@ if A4_NAME in selected_analyses:
                 # ---------------------------
                 page_emb_map: Dict[str, np.ndarray] = {}
                 
-                a4_emb_mode = st.session_state.get("a4_emb_mode", "Aus Crawl-Spalte berechnen")
+                a4_emb_mode = st.session_state.get("a4_emb_mode", "Basierend auf einer oder mehreren Spalten der Crawl-Datei")
                 
                 # -----------------------------------------
                 # 3.1 / 3.2 – Seiten-Embeddings aus Crawl
                 # -----------------------------------------
-                if a4_emb_mode in ["Aus Crawl-Spalte berechnen", "Embeddings-Spalte im Crawl nutzen"]:
+                if a4_emb_mode in ["Basierend auf einer oder mehreren Spalten der Crawl-Datei", "Embedding-Spalte in Crawl-Datei nutzen"]:
                     df_c = crawl_df_a4.copy()
                     df_c.columns = [str(c).strip() for c in df_c.columns]
                     hdr_c = [str(c).strip() for c in df_c.columns]
@@ -2847,7 +2878,7 @@ if A4_NAME in selected_analyses:
                     url_c_col = df_c.columns[url_c_idx]
                 
                     # 3.1 Aus Crawl-Spalten berechnen
-                    if a4_emb_mode == "Aus Crawl-Spalte berechnen":
+                    if a4_emb_mode == "Basierend auf einer oder mehreren Spalten der Crawl-Datei":
                         # 1) Spalten-Liste aus Sidebar holen (Multiselect + Freitext)
                         selected_cols_gui = st.session_state.get("a4_text_cols_list", []) or []
                         extra_cols_raw = st.session_state.get("a4_text_cols", "") or ""
@@ -2914,8 +2945,8 @@ if A4_NAME in selected_analyses:
                                 for u, v in zip(urls_norm, V):
                                     page_emb_map[u] = v
                 
-                    # 3.2 Embeddings-Spalte im Crawl nutzen
-                    elif a4_emb_mode == "Embeddings-Spalte im Crawl nutzen":
+                    # 3.2 Embedding-Spalte in Crawl-Datei nutzen
+                    elif a4_emb_mode == "Embedding-Spalte in Crawl-Datei nutzen":
                         emb_col_spec = st.session_state.get("a4_emb_col", "") or ""
                         emb_col = None
                         if emb_col_spec:
