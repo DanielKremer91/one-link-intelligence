@@ -837,16 +837,16 @@ with st.sidebar:
 
                 if a4_emb_mode == "Aus Crawl-Spalte berechnen":
                     st.markdown("**Spalten für Text-Basis (z. B. 'Main Content', 'H1', 'Title')**")
-
-                    crawl_cols_for_select = []
-                    if crawl_df_a4 is not None and not crawl_df_a4.empty:
-                        crawl_cols_for_select = [str(c).strip() for c in crawl_df_a4.columns]
-                    
+                
+                    # 👉 Spalten nicht direkt von crawl_df_a4 lesen,
+                    #    sondern aus dem Session-State (wird beim Upload gesetzt)
+                    crawl_cols_for_select = st.session_state.get("a4_crawl_columns", [])
+                
                     if crawl_cols_for_select:
                         # Multiselect aus den tatsächlich vorhandenen Crawl-Spalten
                         default_sel = st.session_state.get("a4_text_cols_list", [])
                         default_sel = [c for c in default_sel if c in crawl_cols_for_select]
-                    
+                
                         a4_text_cols_list = st.multiselect(
                             "Spalten aus Crawl wählen",
                             options=crawl_cols_for_select,
@@ -854,7 +854,7 @@ with st.sidebar:
                             help="Diese Spalten werden zu einem Text pro URL kombiniert und für die Seiten-Embeddings genutzt.",
                             key="a4_text_cols_list",
                         )
-                    
+                
                         # Optional: Freitext-Fallback zusätzlich anbieten (für spätere Crawls mit anderen Spaltennamen)
                         st.text_input(
                             "Zusätzliche Spaltennamen (optional, frei eintragen)",
@@ -868,6 +868,7 @@ with st.sidebar:
                             key="a4_text_cols",
                             help="Kommagetrennt oder Zeilenweise – wird als Textgrundlage für Seiten-Embeddings genutzt."
                         )
+
 
 
                 st.slider(
