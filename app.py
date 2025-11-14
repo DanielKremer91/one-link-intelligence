@@ -57,6 +57,7 @@ if "__ready_a4__" not in st.session_state:
 if "__a4_ph__" not in st.session_state:
     st.session_state["__a4_ph__"] = None
 
+
 # Logo
 try:
     st.image(
@@ -224,6 +225,13 @@ def parse_vec(x) -> Optional[np.ndarray]:
         return vec if vec.size > 0 else None
     except Exception:
         return None
+
+def l2_normalize(M: np.ndarray) -> np.ndarray:
+    M = M.astype(np.float32, copy=False)
+    norms = np.linalg.norm(M, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return M / norms
+
 
 # Datei-Leser (CSV/XLSX)
 def read_any_file(f) -> Optional[pd.DataFrame]:
@@ -444,6 +452,7 @@ A1_NAME = "Interne Verlinkungsmöglichkeiten finden (A1)"
 A2_NAME = "Unpassende interne Links entfernen (A2)"
 A3_NAME = "SEO-Potenziallinks finden (A3)"
 A4_NAME = "Ankertexte analysieren (A4)"
+A5_NAME = "Semantische Ankertext-Passung analysieren (A5)"
 
 st.markdown("---")
 st.header("Welche Analysen möchtest du durchführen?")
@@ -778,6 +787,79 @@ with st.sidebar:
                 st.session_state.setdefault("a4_topN", 0)
                 st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
 
+            # =========================
+            # NEU: Semantische Ankertext-Passung / Drift
+            # =========================
+            enable_semantic_anchor = st.checkbox(
+                "Semantische Ankertext-Passung / Anchor-Drift analysieren",
+                value=False,
+                key="a4_enable_semantic_anchor",
+                help=(
+                    "Vergleicht je Ziel-URL die Ankertexte semantisch mit dem Seiten-Content. "
+                    "Output: Übersicht (Ø-Similarity & Drift) und Detailtabelle je Ankertext."
+                )
+            )
+
+            if enable_semantic_anchor:
+                st.markdown("**Semantische Ankertext-Passung / Drift**")
+
+                # Modus: Wie kommen wir an Seiten-Embeddings?
+                a4_emb_mode = st.radio(
+                    "Seiten-Embeddings",
+                    [
+                        "Aus Crawl-Spalte berechnen",
+                        "Embeddings-Spalte im Crawl nutzen",
+                        "Separate Embedding-Datei (URL + Embedding)",
+                    ],
+                    index=0,
+                    key="a4_emb_mode",
+                    help=(
+                        "• Aus Crawl-Spalte berechnen: Embeddings werden aus Content-Spalten des Crawls erzeugt.\n"
+                        "• Embeddings-Spalte im Crawl nutzen: Embeddings liegen direkt im Crawl.\n"
+                        "• Separate Embedding-Datei: eigene Datei mit URL + Embedding-Spalte nur für diese Analyse."
+                    ),
+                )
+
+                if a4_emb_mode == "Aus Crawl-Spalte berechnen":
+                    st.text_input(
+                        "Spaltenname(n) für Text-Basis (z. B. 'Main Content', 'H1', 'Title')",
+                        value=st.session_state.get("a4_text_cols", ""),
+                        key="a4_text_cols",
+                        help=(
+                            "Mehrere Spalten kannst du komma- oder zeilengetrennt angeben. "
+                            "Die Inhalte werden zu einem Text zusammengeführt und vektorisiert."
+                        ),
+                    )
+                elif a4_emb_mode == "Embeddings-Spalte im Crawl nutzen":
+                    st.text_input(
+                        "Spaltenname mit vorhandenen Embeddings im Crawl",
+                        value=st.session_state.get("a4_emb_col", ""),
+                        key="a4_emb_col",
+                        help=(
+                            "Spalte im Crawl, die je URL ein Embedding enthält (z. B. JSON-Array '[0.12, 0.03, …]')."
+                        ),
+                    )
+                else:
+                    st.caption(
+                        "Für diesen Modus lädst du unten im A4-Bereich eine separate Embedding-Datei hoch "
+                        "(URL + Embedding-Spalte)."
+                    )
+
+                # Schwelle für „Drift“ (auf Basis Ø-Similarity)
+                st.slider(
+                    "Mindest-Ähnlichkeit (Ø Anker → Seite), ab der keine Drift angenommen wird",
+                    0.0,
+                    1.0,
+                    0.70,
+                    0.01,
+                    key="a4_sem_sim_thresh",
+                    help=(
+                        "URLs mit einem durchschnittlichen Anker-Fit (Cosine Similarity) "
+                        "unter dieser Schwelle werden als 'Drift-Fall' markiert."
+                    ),
+                )
+
+            
             # --- Visualisierung (A4) ---
             st.markdown("**Ankertext-Matrix & Visualisierung**")
             st.caption(
@@ -901,6 +983,8 @@ needs_backlinks_a3 = A3_NAME in selected_analyses
 needs_backlinks = needs_backlinks_a1 or needs_backlinks_a2 or needs_backlinks_a3
 needs_gsc_a3 = A3_NAME in selected_analyses  # optional
 needs_gsc_a4 = A4_NAME in selected_analyses  # benötigt in A4-Teil für Coverage
+needs_crawl_a4_sem = A4_NAME in selected_analyses and st.session_state.get("a4_enable_semantic_anchor", False)
+
 
 # ===============================
 # Upload-Center: nach Analysen getrennt + "Für mehrere Analysen benötigt"
@@ -923,7 +1007,9 @@ shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2
 
 emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
 offpage_anchors_df = None  # <– NEU
-gsc_df_loaded = None
+gsc_df_loaded = NoneL_
+crawl_df_a4 = None
+emb_df_a4 = None
 
 def _read_up(label: str, uploader, required: bool):
     df = None
@@ -960,6 +1046,12 @@ HELP_GSC_A3 = ("Struktur: **URL**, **Impressions** · optional **Clicks**, **Pos
                "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
 HELP_GSC_A4 = ("Struktur: **URL**, **Query**, **Impressions** oder **Clicks** (mind. eine der beiden). "
                "Optional **Position**. Spaltenerkennung erfolgt automatisch.")
+HELP_CRAWL_A4 = (
+    "Crawl-Datei mit mindestens einer URL-Spalte und einer oder mehreren Content-Spalten "
+    "(z. B. 'Main Content', 'H1', 'Title'). "
+    "Diese Spalten können in A4 für die Berechnung der Seiten-Embeddings ausgewählt werden."
+)
+
 
 
 # Gemeinsame Sektion (falls mehrfach benötigt)
@@ -1102,6 +1194,7 @@ if A3_NAME in selected_analyses:
 
 
 # A4 – separate Uploads
+# A4 – separate Uploads
 if A4_NAME in selected_analyses:
     needs = []
     if needs_inlinks_a4 and "All Inlinks" not in shared_uploads:
@@ -1109,7 +1202,7 @@ if A4_NAME in selected_analyses:
     # GSC Upload nur wenn GSC-Coverage aktiviert ist
     if st.session_state.get("a4_enable_gsc_coverage", True):
         needs.append(("Search Console (CSV/Excel)", "up_gsc_a4", HELP_GSC_A4))
-    # NEU: Offpage-Ankerdatei nur anbieten, wenn Option aktiviert
+    # Offpage-Ankerdatei nur anbieten, wenn Option aktiviert
     if st.session_state.get("a4_include_offpage_anchors", False):
         needs.append((
             "Offpage-Ankertexte (CSV/Excel)",
@@ -1119,14 +1212,31 @@ if A4_NAME in selected_analyses:
             "'Anchor', 'Anchor Text', 'Anker', 'Ankertext' etc."
         ))
 
+    # NEU: Crawl + optionale Embedding-Datei für semantische Ankeranalyse
+    if st.session_state.get("a4_enable_semantic_anchor", False):
+        needs.append(("Crawl (CSV/Excel)", "up_crawl_a4", HELP_CRAWL_A4))
+        if st.session_state.get("a4_emb_mode") == "Separate Embedding-Datei (URL + Embedding)":
+            needs.append((
+                "URLs + Embeddings für semantische Ankeranalyse (CSV/Excel)",
+                "up_emb_a4",
+                HELP_EMB
+            ))
+
     if needs:
-        for (label, df) in upload_for_analysis("Analyse 4 Ankertexte analysieren – erforderliche Dateien", needs):
+        for (label, df) in upload_for_analysis(
+            "Analyse 4 Ankertexte analysieren – erforderliche Dateien", needs
+        ):
             if "Inlinks" in label:
                 inlinks_df = df
             if "Search Console" in label:
                 gsc_df_loaded = df
             if "Offpage-Ankertexte" in label:
-                offpage_anchors_df = df  # <– NEU
+                offpage_anchors_df = df
+            if "Crawl" in label:
+                crawl_df_a4 = df      # NEU
+            if "Embeddings für semantische" in label:
+                emb_df_a4 = df        # NEU
+
 
             
 # Separate Start-Buttons für jede Analyse (rot eingefärbt)
@@ -2618,7 +2728,353 @@ if A4_NAME in selected_analyses:
         except Exception:
             pass
 
-    # 3) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
+        # 3) NEU: Semantische Ankertext-Passung / Drift
+        if st.session_state.get("a4_enable_semantic_anchor", False):
+            st.markdown("#### 3) Semantische Ankertext-Passung / Drift")
+    
+            if anchor_inv_internal.empty:
+                st.info("Keine internen Ankertexte vorhanden – semantische Ankeranalyse wird übersprungen.")
+            elif crawl_df_a4 is None or crawl_df_a4.empty:
+                st.error("Für die semantische Ankeranalyse wird eine Crawl-Datei benötigt.")
+            else:
+                # Embedding-Modell laden (gleiches wie für A4 allgemein)
+                embed_model_name = st.session_state.get("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+                try:
+                    from sentence_transformers import SentenceTransformer
+                    if (
+                        "_A4_EMB_MODEL_NAME" not in st.session_state
+                        or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name
+                    ):
+                        st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
+                        st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
+                    model_a4 = st.session_state["_A4_EMB_MODEL"]
+                except Exception as e:
+                    st.warning(f"Embedding-Modell für semantische Ankeranalyse konnte nicht geladen werden ({e}).")
+                    model_a4 = None
+    
+                if model_a4 is not None:
+                    df_c = crawl_df_a4.copy()
+                    df_c.columns = [str(c).strip() for c in df_c.columns]
+                    hdr_c = [str(c).strip() for c in df_c.columns]
+                    norm_hdr_map = {_norm_header(c): c for c in df_c.columns}
+    
+                    # URL-Spalte im Crawl finden
+                    url_c_idx = find_column_index(
+                        hdr_c,
+                        ["url","urls","page","seite","address","adresse","landingpage","landing page"]
+                    )
+                    if url_c_idx == -1:
+                        url_c_idx = 0  # Fallback
+    
+                    url_c_col = df_c.columns[url_c_idx]
+    
+                    # ---------------------------
+                    # Seiten-Embeddings bauen/laden
+                    # ---------------------------
+                    page_emb_map: Dict[str, np.ndarray] = {}
+    
+                    a4_emb_mode = st.session_state.get("a4_emb_mode", "Aus Crawl-Spalte berechnen")
+    
+                    # 3.1 Aus Crawl-Spalten berechnen
+                    if a4_emb_mode == "Aus Crawl-Spalte berechnen":
+                        txt_spec = st.session_state.get("a4_text_cols", "") or ""
+                        # Spaltennamen-Spezifikation zerlegen (Komma/Zeilen)
+                        def _split_cols(s: str) -> List[str]:
+                            out = []
+                            for line in s.splitlines():
+                                for tok in line.split(","):
+                                    v = tok.strip()
+                                    if v:
+                                        out.append(v)
+                            return out
+    
+                        col_names_raw = _split_cols(txt_spec)
+                        text_cols = []
+    
+                        if col_names_raw:
+                            for name in col_names_raw:
+                                nh = _norm_header(name)
+                                if nh in norm_hdr_map:
+                                    text_cols.append(norm_hdr_map[nh])
+                                else:
+                                    # fuzzy contains
+                                    for c in df_c.columns:
+                                        if nh in _norm_header(c):
+                                            text_cols.append(c)
+                            text_cols = list(dict.fromkeys(text_cols))  # unique
+                        else:
+                            # Fallback: Content-Spalten heuristisch wählen
+                            for c in df_c.columns:
+                                nc = _norm_header(c)
+                                if any(tok in nc for tok in ["main content","content","body","text"]):
+                                    text_cols.append(c)
+    
+                        if not text_cols:
+                            st.error(
+                                "Keine passenden Content-Spalten im Crawl für die semantische Ankeranalyse gefunden. "
+                                "Bitte Spaltennamen in der Sidebar prüfen."
+                            )
+                        else:
+                            texts = []
+                            urls_norm = []
+                            for _, r in df_c.iterrows():
+                                url_norm = remember_original(r[url_c_col])
+                                if not url_norm:
+                                    continue
+                                parts = []
+                                for c in text_cols:
+                                    val = str(r.get(c, "") or "").strip()
+                                    if val:
+                                        parts.append(val)
+                                if not parts:
+                                    continue
+                                txt = " ".join(parts)
+                                texts.append(txt)
+                                urls_norm.append(url_norm)
+    
+                            if not texts:
+                                st.error("Im Crawl konnten für keine URL verwertbare Content-Texte gefunden werden.")
+                            else:
+                                V = model_a4.encode(texts, batch_size=64, show_progress_bar=False)
+                                V = np.asarray(V, dtype=np.float32)
+                                V = l2_normalize(V)
+                                for u, v in zip(urls_norm, V):
+                                    page_emb_map[u] = v
+    
+                    # 3.2 Embeddings-Spalte im Crawl nutzen
+                    elif a4_emb_mode == "Embeddings-Spalte im Crawl nutzen":
+                        emb_col_spec = st.session_state.get("a4_emb_col", "") or ""
+                        emb_col = None
+                        if emb_col_spec:
+                            nemb = _norm_header(emb_col_spec)
+                            if nemb in norm_hdr_map:
+                                emb_col = norm_hdr_map[nemb]
+                            else:
+                                for c in df_c.columns:
+                                    if nemb in _norm_header(c):
+                                        emb_col = c
+                                        break
+                        if emb_col is None:
+                            st.error(
+                                "Die Embeddings-Spalte im Crawl konnte für die semantische Ankeranalyse nicht gefunden werden. "
+                                "Bitte Spaltennamen in der Sidebar prüfen."
+                            )
+                        else:
+                            vecs = []
+                            urls_norm = []
+                            for _, r in df_c.iterrows():
+                                url_norm = remember_original(r[url_c_col])
+                                if not url_norm:
+                                    continue
+                                v = parse_vec(r.get(emb_col, ""))
+                                if v is None or v.size == 0:
+                                    continue
+                                vecs.append(v)
+                                urls_norm.append(url_norm)
+    
+                            if not vecs:
+                                st.error("Keine gültigen Embeddings in der Crawl-Datei gefunden.")
+                            else:
+                                dims = [v.size for v in vecs]
+                                max_dim = max(dims)
+                                V = np.zeros((len(vecs), max_dim), dtype=np.float32)
+                                for i, vec in enumerate(vecs):
+                                    d = min(max_dim, vec.size)
+                                    V[i, :d] = vec[:d]
+                                V = l2_normalize(V)
+    
+                                # optional Warnung bei Dim-Mismatch
+                                try:
+                                    model_dim = model_a4.get_sentence_embedding_dimension()
+                                    if model_dim != max_dim:
+                                        st.warning(
+                                            f"Warnung: Embedding-Dimension aus dem Crawl ({max_dim}) "
+                                            f"passt nicht zur Modell-Dimension ({model_dim}). "
+                                            "Bitte sicherstellen, dass beide aus demselben Modell stammen."
+                                        )
+                                except Exception:
+                                    pass
+    
+                                for u, v in zip(urls_norm, V):
+                                    page_emb_map[u] = v
+    
+                    # 3.3 Separate Embedding-Datei
+                    else:
+                        if emb_df_a4 is None or emb_df_a4.empty:
+                            st.error(
+                                "Für den Modus 'Separate Embedding-Datei' wird eine Datei mit URL + Embedding-Spalte benötigt."
+                            )
+                        else:
+                            df_e = emb_df_a4.copy()
+                            df_e.columns = [str(c).strip() for c in df_e.columns]
+                            hdr_e = [str(c).strip() for c in df_e.columns]
+    
+                            e_url_idx = find_column_index(
+                                hdr_e,
+                                ["url","urls","page","seite","address","adresse","landingpage","landing page"]
+                            )
+                            if e_url_idx == -1:
+                                e_url_idx = 0
+    
+                            def _pick_emb_idx(df, header):
+                                hdr_norm = [_norm_header(c) for c in header]
+                                candidates = [
+                                    "embedding","embeddings","text embedding","sentence embedding",
+                                    "vector","vec"
+                                ]
+                                for cand in candidates:
+                                    nc = _norm_header(cand)
+                                    for i, h in enumerate(hdr_norm):
+                                        if h == nc or nc in h:
+                                            return i
+                                return 1 if df.shape[1] >= 2 else 0
+    
+                            e_emb_idx = _pick_emb_idx(df_e, hdr_e)
+    
+                            vecs = []
+                            urls_norm = []
+                            for _, row in df_e.iterrows():
+                                url_norm = remember_original(row.iloc[e_url_idx])
+                                if not url_norm:
+                                    continue
+                                v = parse_vec(row.iloc[e_emb_idx])
+                                if v is None or v.size == 0:
+                                    continue
+                                vecs.append(v)
+                                urls_norm.append(url_norm)
+    
+                            if not vecs:
+                                st.error("Keine gültigen Embeddings in der Embedding-Datei gefunden.")
+                            else:
+                                dims = [v.size for v in vecs]
+                                max_dim = max(dims)
+                                V = np.zeros((len(vecs), max_dim), dtype=np.float32)
+                                for i, vec in enumerate(vecs):
+                                    d = min(max_dim, vec.size)
+                                    V[i, :d] = vec[:d]
+                                V = l2_normalize(V)
+    
+                                try:
+                                    model_dim = model_a4.get_sentence_embedding_dimension()
+                                    if model_dim != max_dim:
+                                        st.warning(
+                                            f"Warnung: Embedding-Dimension der Datei ({max_dim}) "
+                                            f"passt nicht zur Modell-Dimension ({model_dim}). "
+                                            "Bitte sicherstellen, dass beide aus demselben Modell stammen."
+                                        )
+                                except Exception:
+                                    pass
+    
+                                for u, v in zip(urls_norm, V):
+                                    page_emb_map[u] = v
+    
+                    # Wenn keine Seiten-Embeddings -> Ende
+                    if not page_emb_map:
+                        st.info("Es konnten keine Seiten-Embeddings für die semantische Ankeranalyse erzeugt werden.")
+                    else:
+                        # ---------------------------
+                        # Anchor-Embeddings
+                        # ---------------------------
+                        anchors_unique = sorted(anchor_inv_internal["anchor"].astype(str).unique())
+                        if not anchors_unique:
+                            st.info("Keine Ankertexte vorhanden – semantische Ankeranalyse wird übersprungen.")
+                        else:
+                            A = model_a4.encode(anchors_unique, batch_size=64, show_progress_bar=False)
+                            A = np.asarray(A, dtype=np.float32)
+                            A = l2_normalize(A)
+                            anchor_emb_map = {a: vec for a, vec in zip(anchors_unique, A)}
+    
+                            # ---------------------------
+                            # Similarities berechnen
+                            # ---------------------------
+                            sem_sim_thresh = float(st.session_state.get("a4_sem_sim_thresh", 0.70))
+    
+                            detail_rows = []
+                            sum_sim = {}
+                            sum_cnt = {}
+    
+                            for _, r in anchor_inv_internal.iterrows():
+                                tgt_norm = str(r["target"])
+                                anchor_txt = str(r["anchor"])
+                                cnt = int(r["count"])
+    
+                                page_vec = page_emb_map.get(tgt_norm)
+                                anchor_vec = anchor_emb_map.get(anchor_txt)
+    
+                                if page_vec is None or anchor_vec is None:
+                                    continue
+    
+                                sim = float(np.dot(page_vec, anchor_vec))
+                                detail_rows.append([
+                                    disp(tgt_norm),
+                                    anchor_txt,
+                                    cnt,
+                                    round(sim, 3),
+                                ])
+    
+                                sum_sim[tgt_norm] = sum_sim.get(tgt_norm, 0.0) + sim * cnt
+                                sum_cnt[tgt_norm] = sum_cnt.get(tgt_norm, 0) + cnt
+    
+                            if not detail_rows:
+                                st.info("Keine gemeinsamen Paare (Seiten-Embedding + Anker-Embedding) gefunden.")
+                            else:
+                                # Detail-Tabelle
+                                detail_df = pd.DataFrame(
+                                    detail_rows,
+                                    columns=["Ziel-URL", "Anchor", "Anker-Count", "Cosine Similarity (Anchor → Seite)"]
+                                )
+    
+                                # Übersicht pro URL
+                                overview_rows = []
+                                for tgt_norm, s_sim in sum_sim.items():
+                                    c_total = sum_cnt.get(tgt_norm, 0)
+                                    if c_total <= 0:
+                                        continue
+                                    avg_sim = s_sim / c_total
+                                    drift = 1.0 - avg_sim
+                                    status = "Drift" if avg_sim < sem_sim_thresh else "OK"
+                                    overview_rows.append([
+                                        disp(tgt_norm),
+                                        round(avg_sim, 3),
+                                        round(drift, 3),
+                                        c_total,
+                                        status,
+                                    ])
+    
+                                overview_df = pd.DataFrame(
+                                    overview_rows,
+                                    columns=[
+                                        "Ziel-URL",
+                                        "Ø Anker-Fit (Cosine)",
+                                        "Drift (1 - Ø Cosine)",
+                                        "Anker-Gesamt",
+                                        "Bewertung",
+                                    ]
+                                ).sort_values("Ø Anker-Fit (Cosine)", ascending=True)
+    
+                                st.markdown("**Übersicht je URL (Anker-Fit & Drift)**")
+                                st.dataframe(overview_df, use_container_width=True, hide_index=True)
+                                st.download_button(
+                                    "Download Übersicht Semantische Ankeranalyse (CSV)",
+                                    data=overview_df.to_csv(index=False).encode("utf-8-sig"),
+                                    file_name="a4_semantische_ankerpassung_uebersicht.csv",
+                                    mime="text/csv",
+                                    key="a4_dl_sem_overview_csv",
+                                )
+    
+                                st.markdown("---")
+                                st.markdown("**Detailtabelle: Cosine Similarity je Anchor + URL**")
+                                st.dataframe(detail_df, use_container_width=True, hide_index=True)
+                                st.download_button(
+                                    "Download Details Semantische Ankeranalyse (CSV)",
+                                    data=detail_df.to_csv(index=False).encode("utf-8-sig"),
+                                    file_name="a4_semantische_ankerpassung_details.csv",
+                                    mime="text/csv",
+                                    key="a4_dl_sem_detail_csv",
+                                )
+
+    
+    # 4) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
     if st.session_state.get("a4_enable_anchor_matrix", True):
         anchor_inv_check = anchor_inv_vis.copy()
 
@@ -2696,7 +3152,7 @@ if A4_NAME in selected_analyses:
             except Exception:
                 pass
 
-    # 4) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
+    # 5) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
     if st.session_state.get("a4_shared_enable", True):
         anchor_inv_check = anchor_inv_vis.copy()
     
