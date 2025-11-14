@@ -659,6 +659,12 @@ with st.sidebar:
                 st.session_state.setdefault("a4_top_anchor_abs", 200)
                 st.session_state.setdefault("a4_top_anchor_share", 60)
                 st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+
+            # Abstand / Trennlinie zur nächsten Unteranalyse
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
             
             # Switch für GSC-Query-Coverage
             enable_gsc_coverage = st.checkbox(
@@ -787,6 +793,12 @@ with st.sidebar:
                 st.session_state.setdefault("a4_topN", 0)
                 st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
 
+            # Abstand / Trennlinie zur nächsten Unteranalyse
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
+
             # =========================
             # NEU: Semantische Ankertext-Passung / Drift
             # =========================
@@ -797,13 +809,16 @@ with st.sidebar:
                 help=(
                     "Vergleicht je Ziel-URL die Ankertexte semantisch mit dem Seiten-Content. "
                     "Output: Übersicht (Ø-Similarity & Drift) und Detailtabelle je Ankertext."
-                )
+                ),
             )
 
             if enable_semantic_anchor:
                 st.markdown("**Semantische Ankertext-Passung / Drift**")
+                st.caption(
+                    "Wir berechnen Embeddings für Seiteninhalt und Ankertexte und messen die Cosine Similarity. "
+                    "So erkennst du URLs, deren Ankertexte nicht mehr sauber zum Content passen (Anchor-Drift)."
+                )
 
-                # Modus: Wie kommen wir an Seiten-Embeddings?
                 a4_emb_mode = st.radio(
                     "Seiten-Embeddings",
                     [
@@ -830,34 +845,24 @@ with st.sidebar:
                             "Die Inhalte werden zu einem Text zusammengeführt und vektorisiert."
                         ),
                     )
-                elif a4_emb_mode == "Embeddings-Spalte im Crawl nutzen":
-                    st.text_input(
-                        "Spaltenname mit vorhandenen Embeddings im Crawl",
-                        value=st.session_state.get("a4_emb_col", ""),
-                        key="a4_emb_col",
-                        help=(
-                            "Spalte im Crawl, die je URL ein Embedding enthält (z. B. JSON-Array '[0.12, 0.03, …]')."
-                        ),
-                    )
-                else:
-                    st.caption(
-                        "Für diesen Modus lädst du unten im A4-Bereich eine separate Embedding-Datei hoch "
-                        "(URL + Embedding-Spalte)."
-                    )
 
-                # Schwelle für „Drift“ (auf Basis Ø-Similarity)
                 st.slider(
-                    "Mindest-Ähnlichkeit (Ø Anker → Seite), ab der keine Drift angenommen wird",
+                    "Mindest-Cosine-Similarity (Ø Anker → Seite)",
                     0.0,
                     1.0,
                     0.70,
                     0.01,
                     key="a4_sem_sim_thresh",
-                    help=(
-                        "URLs mit einem durchschnittlichen Anker-Fit (Cosine Similarity) "
-                        "unter dieser Schwelle werden als 'Drift-Fall' markiert."
-                    ),
+                    help="URLs unterhalb dieser Ähnlichkeit werden als Drift-Fälle markiert.",
                 )
+
+            # Abstand / Trennlinie zur nächsten Unteranalyse
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
+
+
 
             
             # --- Visualisierung (A4) ---
@@ -896,6 +901,9 @@ with st.sidebar:
                 key="a4_enable_anchor_matrix",
                 help="Zeigt je Ziel-URL die Ankertexte in breitem Format (inkl. CSV/XLSX-Export)."
             )
+
+            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
+
             
             # ✅ NEU: Switch + Settings für Shared-Ankertexte
             enable_shared_sidebar = st.checkbox(
@@ -904,7 +912,8 @@ with st.sidebar:
                 key="a4_shared_enable",
                 help="Zeigt Ankertexte, die auf mehreren unterschiedlichen Ziel-URLs verwendet werden."
             )
-            
+
+           
             col_shs1, col_shs2 = st.columns(2)
             with col_shs1:
                 min_urls_per_anchor_sidebar = st.number_input(
@@ -918,6 +927,9 @@ with st.sidebar:
                     value=True, key="a4_shared_ignore_nav",
                     help="Blendet generische/navigative Anker wie 'hier', 'mehr' etc. aus."
                 )
+
+            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
+
 
             
             treemap_topK = st.number_input(
@@ -941,6 +953,9 @@ with st.sidebar:
                 key="a4_treemap_url_mode",
                 help="Bestimmt, ob für alle Ziel-URLs oder nur für eine Auswahl Treemaps gebaut werden."
             )
+
+            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
+
             
             if treemap_url_mode == "Ausgewählte URLs":
                 # Versuche, bekannte URLs aus dem Anchor-Inventar zu laden (falls A4 schon einmal lief)
