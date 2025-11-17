@@ -537,9 +537,8 @@ A1_NAME = "Interne Verlinkungsmöglichkeiten finden (A1)"
 A2_NAME = "Unpassende interne Links entfernen (A2)"
 A3_NAME = "SEO-Potenziallinks finden (A3)"
 A4_NAME = "Ankertexte analysieren (A4)"
-A5_NAME = "Semantische Ankertext-Passung analysieren (A5)"
-A6_NAME = "Interne Verlinkung innerhalb semantischer Cluster (A6)"
-A8_NAME = "Semantische Duplikate ohne Verlinkung (A8)"
+A5_NAME = "Interne Verlinkung innerhalb semantischer Cluster (A5)"
+A5_NAME = "Semantische Duplikate ohne Verlinkung (A6)"
 
 
 
@@ -547,7 +546,7 @@ st.markdown("---")
 st.header("Welche Analysen möchtest du durchführen?")
 selected_analyses = st.multiselect(
     "Mehrfachauswahl möglich",
-    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME, A6_NAME, A8_NAME],
+    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME, A5_NAME, A6_NAME],
     default=[],
 )
 
@@ -1146,64 +1145,64 @@ with st.sidebar:
 
 
         # ----------------
-        # A6 – Interne Verlinkung innerhalb semantischer Cluster
+        # A5 – Interne Verlinkung innerhalb semantischer Cluster
         # ----------------
-        if A6_NAME in selected_analyses:
+        if A5_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – Interne Verlinkung innerhalb semantischer Cluster (A6)")
+            st.subheader("Einstellungen – Interne Verlinkung innerhalb semantischer Cluster (A5)")
             st.caption(
                 "URLs werden in semantische Cluster gruppiert (auf Basis von Similarity/Embeddings) und "
                 "die interne Verlinkung innerhalb dieser Cluster analysiert."
             )
 
-            a6_sim_thresh = st.slider(
+            A5_sim_thresh = st.slider(
                 "Ähnlichkeitsschwelle für Cluster-Kanten",
                 0.0, 1.0, 0.80, 0.01,
-                key="a6_sim_thresh",
+                key="A5_sim_thresh",
                 help="Nur Paare mit Similarity ≥ dieser Schwelle fließen in den Cluster-Graphen ein."
             )
-            a6_top_k = st.number_input(
+            A5_top_k = st.number_input(
                 "Max. Nachbarn pro URL (für Cluster-Graph)",
                 min_value=1, max_value=50, value=10, step=1,
-                key="a6_top_k",
+                key="A5_top_k",
                 help="Begrenzt, wie viele stärkste Nachbarn je URL beim Clustern berücksichtigt werden."
             )
-            a6_min_cluster_size = st.number_input(
+            A5_min_cluster_size = st.number_input(
                 "Minimale Clustergröße",
                 min_value=2, max_value=100, value=3, step=1,
-                key="a6_min_cluster_size",
+                key="A5_min_cluster_size",
                 help="Cluster mit weniger URLs werden ignoriert."
             )
-            a6_only_content = st.checkbox(
+            A5_only_content = st.checkbox(
                 "Nur Content-Links für die Verlinkungsanalyse berücksichtigen",
                 value=True,
-                key="a6_only_content",
+                key="A5_only_content",
                 help="Wenn aktiv, werden nur Links aus dem Content (nicht Navigation/Footer) gezählt."
             )
 
         # ----------------
-        # A8 – Semantische Duplikate ohne Verlinkung
+        # A6 – Semantische Duplikate ohne Verlinkung
         # ----------------
-        if A8_NAME in selected_analyses:
+        if A6_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – Semantische Duplikate ohne Verlinkung (A8)")
+            st.subheader("Einstellungen – Semantische Duplikate ohne Verlinkung (A6)")
             st.caption(
                 "Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen (noch) keine "
                 "interne Verlinkung existiert."
             )
 
-            a8_sim_thresh = st.slider(
+            A6_sim_thresh = st.slider(
                 "Ähnlichkeitsschwelle für Duplikate",
                 0.80, 1.0, 0.95, 0.01,
-                key="a8_sim_thresh",
+                key="A6_sim_thresh",
                 help="Nur Paare mit Similarity ≥ dieser Schwelle gelten als (Near-)Duplicates."
             )
-            a8_only_content = st.checkbox(
+            A6_only_content = st.checkbox(
                 "Nur Content-Links als 'Verlinkung' werten",
                 value=True,
-                key="a8_only_content",
+                key="A6_only_content",
                 help="Wenn aktiv, wird geprüft, ob sich die Seiten über Content-Links verlinken. "
                      "Wenn deaktiviert, zählt jeder interne Link."
             )
@@ -1213,25 +1212,25 @@ with st.sidebar:
 # ===============================
 # Bedarf je Analyse für Uploads
 # ===============================
-# Embeddings / Related werden jetzt auch für A6 & A8 genutzt
+# Embeddings / Related werden jetzt auch für A5 & A6 genutzt
 needs_embeddings_or_related = any(
-    a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+    a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
 )
 
 needs_inlinks_a1 = A1_NAME in selected_analyses
 needs_inlinks_a2 = A2_NAME in selected_analyses
 needs_inlinks_a3 = A3_NAME in selected_analyses
 needs_inlinks_a4 = A4_NAME in selected_analyses
-needs_inlinks_a6 = A6_NAME in selected_analyses
-needs_inlinks_a8 = A8_NAME in selected_analyses  # für "ohne Verlinkung" brauchen wir die Linkliste
+needs_inlinks_A5 = A5_NAME in selected_analyses
+needs_inlinks_A6 = A6_NAME in selected_analyses  # für "ohne Verlinkung" brauchen wir die Linkliste
 
 needs_inlinks = any([
     needs_inlinks_a1,
     needs_inlinks_a2,
     needs_inlinks_a3,
     needs_inlinks_a4,
-    needs_inlinks_a6,
-    needs_inlinks_a8,
+    needs_inlinks_A5,
+    needs_inlinks_A6,
 ])
 
 needs_metrics_a1 = A1_NAME in selected_analyses
@@ -1260,19 +1259,19 @@ st.subheader("Benötigte Dateien hochladen")
 required_sets = {
     "URLs + Embeddings": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
             if a in selected_analyses and needs_embeddings_or_related
         ]
     },
     "Related URLs": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
             if a in selected_analyses and needs_embeddings_or_related
         ]
     },
     "All Inlinks": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME, A6_NAME, A8_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME, A5_NAME, A6_NAME]
             if a in selected_analyses and needs_inlinks
         ]
     },
@@ -1539,20 +1538,20 @@ if A4_NAME in selected_analyses:
                 emb_df_a4 = df
 
 
-# A6 – Interne Verlinkung innerhalb semantischer Cluster
-if A6_NAME in selected_analyses:
+# A5 – Interne Verlinkung innerhalb semantischer Cluster
+if A5_NAME in selected_analyses:
     needs = []
     # Embeddings oder Related – je nach globalem Modus / shared Upload
     if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
         if 'mode' not in locals():
             mode = "Related URLs"
         if mode == "URLs + Embeddings":
-            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_a6", HELP_EMB))
+            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_A5", HELP_EMB))
         else:
-            needs.append(("Related URLs (CSV/Excel)", "up_rel_a6", HELP_REL))
+            needs.append(("Related URLs (CSV/Excel)", "up_rel_A5", HELP_REL))
 
-    if needs_inlinks_a6 and "All Inlinks" not in shared_uploads:
-        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a6", HELP_INL))
+    if needs_inlinks_A5 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_A5", HELP_INL))
 
     for (label, df) in upload_for_analysis(
         "Analyse 6 Interne Verlinkung innerhalb semantischer Cluster – erforderliche Dateien",
@@ -1566,19 +1565,19 @@ if A6_NAME in selected_analyses:
             inlinks_df = df
 
 
-# A8 – Semantische Duplikate ohne Verlinkung
-if A8_NAME in selected_analyses:
+# A6 – Semantische Duplikate ohne Verlinkung
+if A6_NAME in selected_analyses:
     needs = []
     if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
         if 'mode' not in locals():
             mode = "Related URLs"
         if mode == "URLs + Embeddings":
-            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_a8", HELP_EMB))
+            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_A6", HELP_EMB))
         else:
-            needs.append(("Related URLs (CSV/Excel)", "up_rel_a8", HELP_REL))
+            needs.append(("Related URLs (CSV/Excel)", "up_rel_A6", HELP_REL))
 
-    if needs_inlinks_a8 and "All Inlinks" not in shared_uploads:
-        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a8", HELP_INL))
+    if needs_inlinks_A6 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_A6", HELP_INL))
 
     for (label, df) in upload_for_analysis(
         "Analyse 8 Semantische Duplikate ohne Verlinkung – erforderliche Dateien",
@@ -1594,7 +1593,7 @@ if A8_NAME in selected_analyses:
 # =========================================================
 # Zentrale Vorverarbeitung für "All Inlinks"
 # - baut _all_links und _content_links
-# - kann von A2/A3/A6/A8 verwendet werden
+# - kann von A2/A3/A5/A6 verwendet werden
 # =========================================================
 if inlinks_df is not None and "_all_links" not in st.session_state:
     inlinks_df = inlinks_df.copy()
@@ -1637,7 +1636,7 @@ if inlinks_df is not None and "_all_links" not in st.session_state:
 st.markdown("---")
 start_cols = st.columns(6)
 run_clicked_a1 = run_clicked_a2 = run_clicked_a3 = run_clicked_a4 = False
-run_clicked_a6 = run_clicked_a8 = False
+run_clicked_A5 = run_clicked_A6 = False
 
 if A1_NAME in selected_analyses:
     with start_cols[0]:
@@ -1655,17 +1654,17 @@ if A4_NAME in selected_analyses:
     with start_cols[3]:
         run_clicked_a4 = st.button("Let's Go (Analyse 4)", type="primary", key="btn_a4", use_container_width=True)
 
-if A6_NAME in selected_analyses:
+if A5_NAME in selected_analyses:
     with start_cols[4]:
-        run_clicked_a6 = st.button("Let's Go (Analyse 6)", type="primary", key="btn_a6", use_container_width=True)
+        run_clicked_A5 = st.button("Let's Go (Analyse 6)", type="primary", key="btn_A5", use_container_width=True)
 
-if A8_NAME in selected_analyses:
+if A6_NAME in selected_analyses:
     with start_cols[5]:
-        run_clicked_a8 = st.button("Let's Go (Analyse 8)", type="primary", key="btn_a8", use_container_width=True)
+        run_clicked_A6 = st.button("Let's Go (Analyse 8)", type="primary", key="btn_A6", use_container_width=True)
 
 run_clicked = bool(
     run_clicked_a1 or run_clicked_a2 or run_clicked_a3 or run_clicked_a4
-    or run_clicked_a6 or run_clicked_a8
+    or run_clicked_A5 or run_clicked_A6
 )
 
 # Merker für Sichtbarkeit
@@ -1673,10 +1672,10 @@ if run_clicked_a1:
     st.session_state["__show_a1__"] = True
 if run_clicked_a2:
     st.session_state["__show_a2__"] = True
-if run_clicked_a6:
-    st.session_state["__show_a6__"] = True
-if run_clicked_a8:
-    st.session_state["__show_a8__"] = True
+if run_clicked_A5:
+    st.session_state["__show_A5__"] = True
+if run_clicked_A6:
+    st.session_state["__show_A6__"] = True
 
 
 
@@ -3977,7 +3976,7 @@ if A4_NAME in selected_analyses:
 # =========================================================
 # Analyse 6: Interne Verlinkung innerhalb semantischer Cluster
 # =========================================================
-if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
+if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
     st.markdown("## Analyse 6: Interne Verlinkung innerhalb semantischer Cluster")
     st.caption("URLs werden in semantische Cluster gruppiert und die interne Verlinkung innerhalb dieser Cluster analysiert.")
@@ -3986,24 +3985,24 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
         st.error("Für Analyse 6 wird die Datei 'All Inlinks' benötigt.")
         st.stop()
 
-    a6_sim_thresh = float(st.session_state.get("a6_sim_thresh", 0.80))
-    a6_top_k = int(st.session_state.get("a6_top_k", 10))
-    a6_min_cluster_size = int(st.session_state.get("a6_min_cluster_size", 3))
-    a6_only_content = bool(st.session_state.get("a6_only_content", True))
+    A5_sim_thresh = float(st.session_state.get("A5_sim_thresh", 0.80))
+    A5_top_k = int(st.session_state.get("A5_top_k", 10))
+    A5_min_cluster_size = int(st.session_state.get("A5_min_cluster_size", 3))
+    A5_only_content = bool(st.session_state.get("A5_only_content", True))
 
     backend_pref = locals().get("backend", "Exakt (NumPy)")
-    rel_df_a6 = build_related_for_custom_analysis(
+    rel_df_A5 = build_related_for_custom_analysis(
         emb_df,
         related_df,
-        top_k=a6_top_k,
-        sim_threshold=a6_sim_thresh,
+        top_k=A5_top_k,
+        sim_threshold=A5_sim_thresh,
         prefer_backend=backend_pref,
     )
 
-    if rel_df_a6 is None or rel_df_a6.empty:
+    if rel_df_A5 is None or rel_df_A5.empty:
         st.info("Keine Related-URL-Daten für Analyse 6 verfügbar.")
     else:
-        rel_df = rel_df_a6.copy()
+        rel_df = rel_df_A5.copy()
         rel_df.columns = [str(c).strip() for c in rel_df.columns]
         hdr_rel = [str(c).strip() for c in rel_df.columns]
 
@@ -4044,7 +4043,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
                 continue
             if not np.isfinite(sim_val):
                 continue
-            if sim_val < a6_sim_thresh:
+            if sim_val < A5_sim_thresh:
                 continue
 
             u = remember_original(src_raw)
@@ -4076,13 +4075,13 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
                         if nb not in visited:
                             visited.add(nb)
                             dq.append(nb)
-                if len(comp) >= a6_min_cluster_size:
+                if len(comp) >= A5_min_cluster_size:
                     clusters.append(sorted(comp))
 
             if not clusters:
                 st.info("Es wurden keine Cluster mit der gewählten minimalen Clustergröße gefunden.")
             else:
-                links_set = st.session_state.get("_content_links", set()) if a6_only_content else st.session_state.get("_all_links", set())
+                links_set = st.session_state.get("_content_links", set()) if A5_only_content else st.session_state.get("_all_links", set())
 
 
                 overview_rows = []
@@ -4156,7 +4155,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
                     data=overview_df.to_csv(index=False).encode("utf-8-sig"),
                     file_name="analyse6_cluster_uebersicht.csv",
                     mime="text/csv",
-                    key="a6_dl_overview_csv",
+                    key="A5_dl_overview_csv",
                 )
 
                 if missing_rows:
@@ -4181,7 +4180,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
                         data=missing_df.to_csv(index=False).encode("utf-8-sig"),
                         file_name="analyse6_empfehlungen_im_cluster.csv",
                         mime="text/csv",
-                        key="a6_dl_missing_csv",
+                        key="A5_dl_missing_csv",
                     )
                 else:
                     st.info("Innerhalb der gefundenen Cluster wurden keine fehlenden Links gefunden.")
@@ -4190,7 +4189,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
 # =========================================================
 # Analyse 8: Semantische Duplikate ohne Verlinkung
 # =========================================================
-if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
+if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
 
     st.markdown("## Analyse 8: Semantische Duplikate ohne Verlinkung")
     st.caption("Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen noch keine interne Verlinkung existiert.")
@@ -4199,24 +4198,24 @@ if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
         st.error("Für Analyse 8 wird die Datei 'All Inlinks' benötigt.")
         st.stop()
 
-    a8_sim_thresh = float(st.session_state.get("a8_sim_thresh", 0.95))
-    a8_only_content = bool(st.session_state.get("a8_only_content", True))
+    A6_sim_thresh = float(st.session_state.get("A6_sim_thresh", 0.95))
+    A6_only_content = bool(st.session_state.get("A6_only_content", True))
 
     backend_pref = locals().get("backend", "Exakt (NumPy)")
-    top_k_for_a8 = int(locals().get("max_related", 50))
+    top_k_for_A6 = int(locals().get("max_related", 50))
 
-    rel_df_a8 = build_related_for_custom_analysis(
+    rel_df_A6 = build_related_for_custom_analysis(
         emb_df,
         related_df,
-        top_k=top_k_for_a8,
-        sim_threshold=a8_sim_thresh,
+        top_k=top_k_for_A6,
+        sim_threshold=A6_sim_thresh,
         prefer_backend=backend_pref,
     )
 
-    if rel_df_a8 is None or rel_df_a8.empty:
+    if rel_df_A6 is None or rel_df_A6.empty:
         st.info("Keine Related-URL-Daten für Analyse 8 verfügbar.")
     else:
-        rel_df = rel_df_a8.copy()
+        rel_df = rel_df_A6.copy()
         rel_df.columns = [str(c).strip() for c in rel_df.columns]
         hdr_rel = [str(c).strip() for c in rel_df.columns]
 
@@ -4243,7 +4242,7 @@ if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
                 st.error("Related-URL-Tabelle für Analyse 8 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
                 st.stop()
 
-        links_set = st.session_state.get("_content_links", set()) if a8_only_content else st.session_state.get("_all_links", set())
+        links_set = st.session_state.get("_content_links", set()) if A6_only_content else st.session_state.get("_all_links", set())
 
         seen_pairs = set()
         dup_rows = []
@@ -4257,7 +4256,7 @@ if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
                 continue
             if not np.isfinite(sim_val):
                 continue
-            if sim_val < a8_sim_thresh:
+            if sim_val < A6_sim_thresh:
                 continue
 
             u = remember_original(src_raw)
@@ -4301,7 +4300,7 @@ if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
                 data=dup_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name="analyse8_semantische_duplikate_ohne_verlinkung.csv",
                 mime="text/csv",
-                key="a8_dl_csv",
+                key="A6_dl_csv",
             )
 
 
