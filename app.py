@@ -415,6 +415,91 @@ def build_related_auto(urls: List[str], V: np.ndarray, top_k: int, sim_threshold
         else:
             raise
 
+def build_related_for_custom_analysis(
+    emb_df: Optional[pd.DataFrame],
+    related_df: Optional[pd.DataFrame],
+    top_k: int,
+    sim_threshold: float,
+    prefer_backend: str = "Exakt (NumPy)",
+) -> Optional[pd.DataFrame]:
+    """
+    Stellt sicher, dass eine Related-URL-Tabelle vorhanden ist:
+    - Wenn related_df schon existiert → nutzt diese (nur gefiltert).
+    - Sonst: Embeddings aus emb_df parsen und Related per Cosine Similarity berechnen.
+    """
+    if related_df is not None and not related_df.empty:
+        # Nur sicherstellen, dass eine Similarity-Spalte vorhanden ist
+        df = related_df.copy()
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+
+    if emb_df is None or emb_df.empty:
+        return None
+
+    # Parsing wie in A1/A2/A3
+    emb_df = emb_df.copy()
+    hdr = [_norm_header(c) for c in emb_df.columns]
+
+    def pick_col(candidates: list, default=None):
+        cand_norm = [_norm_header(c) for c in candidates]
+        for cand in cand_norm:
+            for i, h in enumerate(hdr):
+                if h == cand:
+                    return i
+        for cand in cand_norm:
+            toks = cand.split()
+            for i, h in enumerate(hdr):
+                if all(t in h for t in toks):
+                    return i
+        for cand in cand_norm:
+            for i, h in enumerate(hdr):
+                if cand in h:
+                    return i
+        for i, h in enumerate(hdr):
+            if re.search(r"\bembed(ding)?s?\b", h):
+                return i
+        for i, h in enumerate(hdr):
+            if re.search(r"\bvec(tor)?\b", h) and "url" not in h:
+                return i
+        return default
+
+    url_i = pick_col(["url", "urls", "page", "seite", "address", "adresse", "landingpage", "landing page"], 0)
+    emb_i = pick_col(
+        [
+            "embedding","embeddings","embedding json","embedding_json","text embedding",
+            "openai embedding","sentence embedding","vector","vec","content embedding",
+            "sf embedding","embedding 1536","embedding_1536"
+        ],
+        1 if emb_df.shape[1] >= 2 else None
+    )
+    url_col = emb_df.columns[url_i] if url_i is not None else emb_df.columns[0]
+    emb_col = emb_df.columns[emb_i] if emb_i is not None else (emb_df.columns[1] if emb_df.shape[1] >= 2 else emb_df.columns[0])
+
+    urls: List[str] = []
+    vecs: List[np.ndarray] = []
+    for _, r in emb_df.iterrows():
+        nkey = remember_original(r[url_col])
+        v = parse_vec(r[emb_col])
+        if not nkey or v is None:
+            continue
+        urls.append(nkey)
+        vecs.append(v)
+
+    if len(vecs) < 2:
+        return None
+
+    dims = [v.size for v in vecs]
+    max_dim = max(dims)
+    V = np.zeros((len(vecs), max_dim), dtype=np.float32)
+    for i, v in enumerate(vecs):
+        d = min(max_dim, v.size)
+        V[i, :d] = v[:d]
+    V = l2_normalize(V)
+    backend_eff = prefer_backend
+    df_rel = build_related_auto(list(urls), V, int(top_k), float(sim_threshold), backend_eff, mem_budget_gb=1.5)
+    return df_rel
+
+
 # =============================
 # Hilfe / Tool-Dokumentation (Expander) – aktualisiert
 # =============================
@@ -453,12 +538,16 @@ A2_NAME = "Unpassende interne Links entfernen (A2)"
 A3_NAME = "SEO-Potenziallinks finden (A3)"
 A4_NAME = "Ankertexte analysieren (A4)"
 A5_NAME = "Semantische Ankertext-Passung analysieren (A5)"
+A6_NAME = "Interne Verlinkung innerhalb semantischer Cluster (A6)"
+A8_NAME = "Semantische Duplikate ohne Verlinkung (A8)"
+
+
 
 st.markdown("---")
 st.header("Welche Analysen möchtest du durchführen?")
 selected_analyses = st.multiselect(
     "Mehrfachauswahl möglich",
-    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME],
+    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME, A6_NAME, A8_NAME],
     default=[],
 )
 
@@ -900,6 +989,23 @@ with st.sidebar:
                         )
 
 
+                # Embedding-Spalte aus der Crawl-Datei wählen / benennen
+                if a4_emb_mode == "Embedding-Spalte in Crawl-Datei nutzen":
+                    crawl_cols_for_select = st.session_state.get("a4_crawl_columns", [])
+
+                    if crawl_cols_for_select:
+                        st.selectbox(
+                            "Embeddings-Spalte in der Crawl-Datei",
+                            options=crawl_cols_for_select,
+                            key="a4_emb_col",
+                            help="Spalte wählen, die die Embeddings pro URL enthält (z. B. JSON oder Vektor).",
+                        )
+                    else:
+                        st.text_input(
+                            "Name der Embeddings-Spalte in der Crawl-Datei",
+                            key="a4_emb_col",
+                            help="Wird genutzt, um die Embeddings pro URL auszulesen (z. B. 'Embedding', 'Vector').",
+                        )
 
 
                 st.slider(
@@ -1035,26 +1141,113 @@ with st.sidebar:
                                       
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
+
+
+
+
+        # ----------------
+        # A6 – Interne Verlinkung innerhalb semantischer Cluster
+        # ----------------
+        if A6_NAME in selected_analyses:
+            if len(selected_analyses) > 1:
+                st.markdown("---")
+            st.subheader("Einstellungen – Interne Verlinkung innerhalb semantischer Cluster (A6)")
+            st.caption(
+                "URLs werden in semantische Cluster gruppiert (auf Basis von Similarity/Embeddings) und "
+                "die interne Verlinkung innerhalb dieser Cluster analysiert."
+            )
+
+            a6_sim_thresh = st.slider(
+                "Ähnlichkeitsschwelle für Cluster-Kanten",
+                0.0, 1.0, 0.80, 0.01,
+                key="a6_sim_thresh",
+                help="Nur Paare mit Similarity ≥ dieser Schwelle fließen in den Cluster-Graphen ein."
+            )
+            a6_top_k = st.number_input(
+                "Max. Nachbarn pro URL (für Cluster-Graph)",
+                min_value=1, max_value=50, value=10, step=1,
+                key="a6_top_k",
+                help="Begrenzt, wie viele stärkste Nachbarn je URL beim Clustern berücksichtigt werden."
+            )
+            a6_min_cluster_size = st.number_input(
+                "Minimale Clustergröße",
+                min_value=2, max_value=100, value=3, step=1,
+                key="a6_min_cluster_size",
+                help="Cluster mit weniger URLs werden ignoriert."
+            )
+            a6_only_content = st.checkbox(
+                "Nur Content-Links für die Verlinkungsanalyse berücksichtigen",
+                value=True,
+                key="a6_only_content",
+                help="Wenn aktiv, werden nur Links aus dem Content (nicht Navigation/Footer) gezählt."
+            )
+
+        # ----------------
+        # A8 – Semantische Duplikate ohne Verlinkung
+        # ----------------
+        if A8_NAME in selected_analyses:
+            if len(selected_analyses) > 1:
+                st.markdown("---")
+            st.subheader("Einstellungen – Semantische Duplikate ohne Verlinkung (A8)")
+            st.caption(
+                "Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen (noch) keine "
+                "interne Verlinkung existiert."
+            )
+
+            a8_sim_thresh = st.slider(
+                "Ähnlichkeitsschwelle für Duplikate",
+                0.80, 1.0, 0.95, 0.01,
+                key="a8_sim_thresh",
+                help="Nur Paare mit Similarity ≥ dieser Schwelle gelten als (Near-)Duplicates."
+            )
+            a8_only_content = st.checkbox(
+                "Nur Content-Links als 'Verlinkung' werten",
+                value=True,
+                key="a8_only_content",
+                help="Wenn aktiv, wird geprüft, ob sich die Seiten über Content-Links verlinken. "
+                     "Wenn deaktiviert, zählt jeder interne Link."
+            )
+
+
+
 # ===============================
 # Bedarf je Analyse für Uploads
 # ===============================
-needs_embeddings_or_related = any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME])
+# Embeddings / Related werden jetzt auch für A6 & A8 genutzt
+needs_embeddings_or_related = any(
+    a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+)
+
 needs_inlinks_a1 = A1_NAME in selected_analyses
 needs_inlinks_a2 = A2_NAME in selected_analyses
 needs_inlinks_a3 = A3_NAME in selected_analyses
 needs_inlinks_a4 = A4_NAME in selected_analyses
-needs_inlinks = needs_inlinks_a1 or needs_inlinks_a2 or needs_inlinks_a3 or needs_inlinks_a4
+needs_inlinks_a6 = A6_NAME in selected_analyses
+needs_inlinks_a8 = A8_NAME in selected_analyses  # für "ohne Verlinkung" brauchen wir die Linkliste
+
+needs_inlinks = any([
+    needs_inlinks_a1,
+    needs_inlinks_a2,
+    needs_inlinks_a3,
+    needs_inlinks_a4,
+    needs_inlinks_a6,
+    needs_inlinks_a8,
+])
+
 needs_metrics_a1 = A1_NAME in selected_analyses
 needs_metrics_a2 = A2_NAME in selected_analyses
 needs_metrics_a3 = A3_NAME in selected_analyses
 needs_metrics = needs_metrics_a1 or needs_metrics_a2 or needs_metrics_a3
+
 needs_backlinks_a1 = A1_NAME in selected_analyses
 needs_backlinks_a2 = A2_NAME in selected_analyses
 needs_backlinks_a3 = A3_NAME in selected_analyses
 needs_backlinks = needs_backlinks_a1 or needs_backlinks_a2 or needs_backlinks_a3
+
 needs_gsc_a3 = A3_NAME in selected_analyses  # optional
 needs_gsc_a4 = A4_NAME in selected_analyses  # benötigt in A4-Teil für Coverage
 needs_crawl_a4_sem = A4_NAME in selected_analyses and st.session_state.get("a4_enable_semantic_anchor", False)
+
 
 
 # ===============================
@@ -1065,13 +1258,39 @@ st.subheader("Benötigte Dateien hochladen")
 
 # Sammle Bedarfe je Upload-Typ
 required_sets = {
-    "URLs + Embeddings": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_embeddings_or_related]},
-    "Related URLs": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_embeddings_or_related]},
-    "All Inlinks": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME] if a in selected_analyses and needs_inlinks]},
-    "Linkmetriken": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_metrics]},
-    "Backlinks": {"analyses": [a for a in [A1_NAME, A2_NAME, A3_NAME] if a in selected_analyses and needs_backlinks]},
+    "URLs + Embeddings": {
+        "analyses": [
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+            if a in selected_analyses and needs_embeddings_or_related
+        ]
+    },
+    "Related URLs": {
+        "analyses": [
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A6_NAME, A8_NAME]
+            if a in selected_analyses and needs_embeddings_or_related
+        ]
+    },
+    "All Inlinks": {
+        "analyses": [
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME, A6_NAME, A8_NAME]
+            if a in selected_analyses and needs_inlinks
+        ]
+    },
+    "Linkmetriken": {
+        "analyses": [
+            a for a in [A1_NAME, A2_NAME, A3_NAME]
+            if a in selected_analyses and needs_metrics
+        ]
+    },
+    "Backlinks": {
+        "analyses": [
+            a for a in [A1_NAME, A2_NAME, A3_NAME]
+            if a in selected_analyses and needs_backlinks
+        ]
+    },
     "Search Console": {"analyses": [A3_NAME] if needs_gsc_a3 else []},
 }
+
 
 # Ermitteln, welche Uploads in ≥ 2 Analysen identisch gebraucht werden
 shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2]
@@ -1265,7 +1484,6 @@ if A3_NAME in selected_analyses:
 
 
 # A4 – separate Uploads
-# A4 – separate Uploads
 if A4_NAME in selected_analyses:
     needs = []
     if needs_inlinks_a4 and "All Inlinks" not in shared_uploads:
@@ -1321,12 +1539,105 @@ if A4_NAME in selected_analyses:
                 emb_df_a4 = df
 
 
+# A6 – Interne Verlinkung innerhalb semantischer Cluster
+if A6_NAME in selected_analyses:
+    needs = []
+    # Embeddings oder Related – je nach globalem Modus / shared Upload
+    if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
+        if 'mode' not in locals():
+            mode = "Related URLs"
+        if mode == "URLs + Embeddings":
+            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_a6", HELP_EMB))
+        else:
+            needs.append(("Related URLs (CSV/Excel)", "up_rel_a6", HELP_REL))
 
-            
+    if needs_inlinks_a6 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a6", HELP_INL))
+
+    for (label, df) in upload_for_analysis(
+        "Analyse 6 Interne Verlinkung innerhalb semantischer Cluster – erforderliche Dateien",
+        needs
+    ):
+        if "Embeddings" in label:
+            emb_df = df
+        if "Related URLs" in label:
+            related_df = df
+        if "Inlinks" in label:
+            inlinks_df = df
+
+
+# A8 – Semantische Duplikate ohne Verlinkung
+if A8_NAME in selected_analyses:
+    needs = []
+    if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
+        if 'mode' not in locals():
+            mode = "Related URLs"
+        if mode == "URLs + Embeddings":
+            needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_a8", HELP_EMB))
+        else:
+            needs.append(("Related URLs (CSV/Excel)", "up_rel_a8", HELP_REL))
+
+    if needs_inlinks_a8 and "All Inlinks" not in shared_uploads:
+        needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_a8", HELP_INL))
+
+    for (label, df) in upload_for_analysis(
+        "Analyse 8 Semantische Duplikate ohne Verlinkung – erforderliche Dateien",
+        needs
+    ):
+        if "Embeddings" in label:
+            emb_df = df
+        if "Related URLs" in label:
+            related_df = df
+        if "Inlinks" in label:
+            inlinks_df = df
+
+# =========================================================
+# Zentrale Vorverarbeitung für "All Inlinks"
+# - baut _all_links und _content_links
+# - kann von A2/A3/A6/A8 verwendet werden
+# =========================================================
+if inlinks_df is not None and "_all_links" not in st.session_state:
+    inlinks_df = inlinks_df.copy()
+    header = [str(c).strip() for c in inlinks_df.columns]
+
+    src_idx = find_column_index(header, POSSIBLE_SOURCE)
+    dst_idx = find_column_index(header, POSSIBLE_TARGET)
+    pos_idx = find_column_index(header, POSSIBLE_POSITION)
+
+    if src_idx == -1 or dst_idx == -1:
+        st.error("In 'All Inlinks' konnten Quelle/Ziel nicht erkannt werden.")
+        st.stop()
+
+    all_links = set()
+    content_links = set()
+
+    for row in inlinks_df.itertuples(index=False, name=None):
+        src_raw = row[src_idx]
+        dst_raw = row[dst_idx]
+
+        src = remember_original(src_raw)
+        dst = remember_original(dst_raw)
+        if not src or not dst:
+            continue
+
+        # Alle Links
+        all_links.add((src, dst))
+
+        # Content-Links (falls Positionsspalte existiert)
+        if pos_idx != -1:
+            pos_val = row[pos_idx]
+            if is_content_position(pos_val):
+                content_links.add((src, dst))
+
+    st.session_state["_all_links"] = all_links
+    st.session_state["_content_links"] = content_links
+
+
 # Separate Start-Buttons für jede Analyse (rot eingefärbt)
 st.markdown("---")
-start_cols = st.columns(4)
+start_cols = st.columns(6)
 run_clicked_a1 = run_clicked_a2 = run_clicked_a3 = run_clicked_a4 = False
+run_clicked_a6 = run_clicked_a8 = False
 
 if A1_NAME in selected_analyses:
     with start_cols[0]:
@@ -1344,13 +1655,29 @@ if A4_NAME in selected_analyses:
     with start_cols[3]:
         run_clicked_a4 = st.button("Let's Go (Analyse 4)", type="primary", key="btn_a4", use_container_width=True)
 
-run_clicked = bool(run_clicked_a1 or run_clicked_a2 or run_clicked_a3 or run_clicked_a4)
+if A6_NAME in selected_analyses:
+    with start_cols[4]:
+        run_clicked_a6 = st.button("Let's Go (Analyse 6)", type="primary", key="btn_a6", use_container_width=True)
+
+if A8_NAME in selected_analyses:
+    with start_cols[5]:
+        run_clicked_a8 = st.button("Let's Go (Analyse 8)", type="primary", key="btn_a8", use_container_width=True)
+
+run_clicked = bool(
+    run_clicked_a1 or run_clicked_a2 or run_clicked_a3 or run_clicked_a4
+    or run_clicked_a6 or run_clicked_a8
+)
 
 # Merker für Sichtbarkeit
 if run_clicked_a1:
     st.session_state["__show_a1__"] = True
 if run_clicked_a2:
     st.session_state["__show_a2__"] = True
+if run_clicked_a6:
+    st.session_state["__show_a6__"] = True
+if run_clicked_a8:
+    st.session_state["__show_a8__"] = True
+
 
 
 # Gate nur anwenden, wenn A1 oder A2 überhaupt gewählt wurden
@@ -1480,8 +1807,12 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
         else:
             st.error("'Linkmetriken' braucht mindestens 4 Spalten (URL, Score, Inlinks, Outlinks).")
             st.stop()
+
     metrics_df.iloc[:, m_url_idx] = metrics_df.iloc[:, m_url_idx].astype(str)
     metrics_map: Dict[str, Dict[str, float]] = {}
+    ils_vals: List[float] = []
+    prd_vals: List[float] = []
+
     for _, r in metrics_df.iterrows():
         u = remember_original(r.iloc[m_url_idx])
         if not u:
@@ -1491,102 +1822,153 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
         outlinks = _num(r.iloc[m_out_idx])
         prdiff   = inlinks - outlinks
         metrics_map[u] = {"score": score, "prDiff": prdiff}
+        ils_vals.append(score)
+        prd_vals.append(prdiff)
 
-        # Backlinks
-        backlinks_df = backlinks_df.copy()
-        backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
+    # Backlinks
+    backlinks_df = backlinks_df.copy()
+    backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
+    b_header = [str(c).strip() for c in backlinks_df.columns]
+
+    # Kandidaten für Offpage-Backlinkliste (Referring page URL plus Target-URL)
+    src_idx_file = find_column_index(b_header, POSSIBLE_SOURCE)
+    tgt_idx_file = find_column_index(b_header, POSSIBLE_TARGET)
+
+    backlink_map: Dict[str, Dict[str, float]] = {}
+    bl_vals: List[float] = []
+    rd_vals: List[float] = []
+
+    # Fall A: Offpage Linkliste eine Zeile ist ein Backlink
+    if src_idx_file != -1 and tgt_idx_file != -1:
+        from urllib.parse import urlparse
+
+        rows = []
+        for row in backlinks_df.itertuples(index=False, name=None):
+            tgt_raw = row[tgt_idx_file]
+            src_raw = row[src_idx_file]
+
+            tgt = remember_original(tgt_raw)
+            if not tgt:
+                continue
+
+            src_val = str(src_raw or "").strip()
+            if not src_val:
+                continue
+
+            try:
+                dom = urlparse(src_val).netloc.lower()
+            except Exception:
+                dom = ""
+            if not dom:
+                continue
+
+            rows.append([normalize_url(tgt), dom])
+
+        if not rows:
+            st.error(
+                "Backlinks Datei konnte nicht als Offpage Linkliste interpretiert werden "
+                "keine gültigen Kombinationen aus Referring page URL und Target URL gefunden."
+            )
+            st.stop()
+
+        tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
+        agg = tmp.groupby("URL").agg(
+            Backlinks=("Domain", "size"),
+            ReferringDomains=("Domain", "nunique")
+        ).reset_index()
+
+        backlinks_df = agg
+        backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
         b_header = [str(c).strip() for c in backlinks_df.columns]
-    
-        # Kandidaten für Offpage-Backlinkliste (Referring page URL + Target-URL)
-        src_idx_file = find_column_index(b_header, POSSIBLE_SOURCE)   # z. B. "Referring page URL"
-        tgt_idx_file = find_column_index(b_header, POSSIBLE_TARGET)   # z. B. "Target-URL"
-    
-        # =====================================================
-        # Fall A: Offpage-Linkliste (eine Zeile = ein Backlink)
-        # =====================================================
-        if src_idx_file != -1 and tgt_idx_file != -1:
-            from urllib.parse import urlparse
-    
-            rows = []
-            for row in backlinks_df.itertuples(index=False, name=None):
-                tgt_raw = row[tgt_idx_file]
-                src_raw = row[src_idx_file]
-    
-                tgt = remember_original(tgt_raw)
-                if not tgt:
-                    continue
-    
-                src_val = str(src_raw or "").strip()
-                if not src_val:
-                    continue
-    
-                try:
-                    dom = urlparse(src_val).netloc.lower()
-                except Exception:
-                    dom = ""
-                if not dom:
-                    continue
-    
-                rows.append([normalize_url(tgt), dom])
-    
-            if not rows:
-                st.error(
-                    "Backlinks-Datei konnte nicht als Offpage-Linkliste interpretiert werden "
-                    "(keine gültigen Kombinationen aus 'Referring page URL' und 'Target-URL' gefunden)."
-                )
+        b_url_idx = 0
+        b_bl_idx  = 1
+        b_rd_idx  = 2
+
+        st.info(
+            "Backlink Metriken wurden automatisch aus einer Offpage Linkliste berechnet "
+            "Referring page URL zu Domain, aggregiert je Target URL."
+        )
+
+    # Fall B: Aggregierte Metriken eine Zeile ist eine URL
+    else:
+        b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
+        if b_url_idx == -1:
+            if backlinks_df.shape[1] >= 1:
+                b_url_idx = 0
+                st.warning("Backlinks aggregiert URL Spalte nicht eindeutig erkannt nehme erste Spalte als URL.")
+            else:
+                st.error("'Backlinks' braucht mindestens eine URL Spalte.")
                 st.stop()
-    
-            tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
-            agg = tmp.groupby("URL").agg(
-                Backlinks=("Domain", "size"),
-                ReferringDomains=("Domain", "nunique")
-            ).reset_index()
-    
-            backlinks_df = agg
-            backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
-            b_header = [str(c).strip() for c in backlinks_df.columns]
-            b_url_idx = 0
-            b_bl_idx  = 1
-            b_rd_idx  = 2
-    
-            st.info(
-                "Backlink-Metriken wurden automatisch aus einer Offpage-Backlinkliste berechnet "
-                "(Referring page URL → Domain, aggregiert je Target-URL)."
+
+        b_bl_idx = find_column_index(
+            b_header,
+            ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
+        )
+        b_rd_idx = find_column_index(
+            b_header,
+            ["referring domains","ref domains","verweisende domains",
+             "anzahl referring domains","anzahl verweisende domains","domains","rd"]
+        )
+
+        if -1 in (b_bl_idx, b_rd_idx):
+            st.error(
+                "Backlinks aggregiert Spalten für Backlinks und Referring Domains "
+                "konnten nicht eindeutig erkannt werden."
             )
+            st.stop()
+
+    # Backlink Map und Werte Listen aufbauen
+    for row in backlinks_df.itertuples(index=False, name=None):
+        url = remember_original(row[b_url_idx])
+        if not url:
+            continue
+        bl = _num(row[b_bl_idx])
+        rd = _num(row[b_rd_idx])
+        backlink_map[url] = {
+            "backlinks": bl,
+            "referringDomains": rd,
+        }
+        bl_vals.append(bl)
+        rd_vals.append(rd)
+
+    # Normalisierungsbereiche für Linkpotenzial
+    min_ils, max_ils = robust_range(ils_vals) if ils_vals else (0.0, 1.0)
+    min_prd, max_prd = robust_range(prd_vals) if prd_vals else (0.0, 1.0)
+
+    bl_log_vals = [math.log1p(max(0.0, v)) for v in bl_vals]
+    rd_log_vals = [math.log1p(max(0.0, v)) for v in rd_vals]
+    lo_bl_log, hi_bl_log = robust_range(bl_log_vals) if bl_log_vals else (0.0, 1.0)
+    lo_rd_log, hi_rd_log = robust_range(rd_log_vals) if rd_log_vals else (0.0, 1.0)
+    min_bl, max_bl = robust_range(bl_vals) if bl_vals else (0.0, 1.0)
+    min_rd, max_rd = robust_range(rd_vals) if rd_vals else (0.0, 1.0)
+
     
-        # =====================================================
-        # Fall B: Aggregierte Metriken (eine Zeile = eine URL)
-        # =====================================================
+        
+
+
+    # Spalten in Related-URL-Tabelle erkennen
+    related_df = related_df.copy()
+    related_df.columns = [str(c).strip() for c in related_df.columns]
+    rel_header = [str(c).strip() for c in related_df.columns]
+
+    rel_src_idx = find_column_index(rel_header, ["quelle","source","from","origin","quell-url","referring page url","referring page","referring url"])
+    rel_dst_idx = find_column_index(rel_header, ["ziel","destination","target","ziel-url","ziel url","target url","target-url","zielseite"])
+    rel_sim_idx = find_column_index(rel_header, ["similarity","similarität","similarity score","score","cosine similarity","cosinus ähnlichkeit"])
+
+    if -1 in (rel_src_idx, rel_dst_idx, rel_sim_idx):
+        if related_df.shape[1] >= 3:
+            if rel_src_idx == -1:
+                rel_src_idx = 0
+            if rel_dst_idx == -1:
+                rel_dst_idx = 1
+            if rel_sim_idx == -1:
+                rel_sim_idx = 2
+            st.warning("Related URLs: Header nicht vollständig erkannt – Fallback auf Spaltenpositionen (1–3).")
         else:
-            # URL-Spalte
-            b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
-            if b_url_idx == -1:
-                if backlinks_df.shape[1] >= 1:
-                    b_url_idx = 0
-                    st.warning("Backlinks (aggregiert): URL-Spalte nicht eindeutig erkannt – nehme erste Spalte als URL.")
-                else:
-                    st.error("'Backlinks' braucht mindestens eine URL-Spalte.")
-                    st.stop()
-    
-            # numerische Metrik-Spalten
-            b_bl_idx = find_column_index(
-                b_header,
-                ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
-            )
-            b_rd_idx = find_column_index(
-                b_header,
-                ["referring domains","ref domains","verweisende domains",
-                 "anzahl referring domains","anzahl verweisende domains","domains","rd"]
-            )
-    
-            if -1 in (b_bl_idx, b_rd_idx):
-                st.error(
-                    "Backlinks (aggregiert): Spalten für 'Backlinks' und 'Referring Domains' "
-                    "konnten nicht eindeutig erkannt werden."
-                )
-                st.stop()
+            st.error("'Related URLs' braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
+            st.stop()
 
-
+    
     related_map: Dict[str, List[Tuple[str, float]]] = {}
     processed_pairs = set()
     for _, r in related_df.iterrows():
@@ -2105,6 +2487,105 @@ if A3_NAME in selected_analyses:
                         use_container_width=True, hide_index=True
                     )
 
+            # ---------------------------------------------
+            # Add-on: Near-Orphan-Analyse 2.0 – Mauerblümchen
+            # ---------------------------------------------
+            st.markdown("### Add-on: Near-Orphan-Analyse 2.0 – „Mauerblümchen mit Potenzial“")
+
+            # Inlink-Daten & GSC müssen vorhanden sein
+            if not inlink_count_map:
+                st.info("Keine Inlink-Zahlen aus 'Linkmetriken' verfügbar – Near-Orphan-Analyse wird übersprungen.")
+            elif not gsc_impr_map:
+                st.info("Keine GSC-Impressions für Analyse 3 geladen – Near-Orphan-Analyse wird übersprungen.")
+            else:
+                impr_vals = np.asarray(list(gsc_impr_map.values()), dtype=float)
+                impr_vals = impr_vals[np.isfinite(impr_vals) & (impr_vals > 0)]
+
+                if impr_vals.size == 0:
+                    st.info("Keine GSC-Impressions > 0 – Near-Orphan-Analyse wird übersprungen.")
+                else:
+                    # Nachfrage in Log-Skala normalisieren (robust)
+                    impr_log = np.log1p(impr_vals)
+                    lo_impr, hi_impr = robust_range(impr_log, 0.10, 0.95)
+
+                    near_rows = []
+
+                    for url, inl in inlink_count_map.items():
+                        inl = float(inl)
+
+                        # Nur „Mauerblümchen“: wenige interne Inlinks (Thin-Threshold aus A3)
+                        if inl > float(thin_k):
+                            continue
+
+                        impr = float(gsc_impr_map.get(url, 0.0))
+                        if impr <= 0:
+                            # Keine Nachfrage → uninteressant für dieses Add-on
+                            continue
+
+                        pos = float(gsc_pos_map.get(url, np.nan)) if url in gsc_pos_map else np.nan
+
+                        # Wenige Inlinks = hoher Wert (0 = viele Inlinks, 1 = gar keine)
+                        inl_score = 1.0 - robust_norm(inl, 0.0, float(max(thin_k, 1)))
+
+                        # Nachfrage-Signal (Impressions, log-transformiert)
+                        impr_score = robust_norm(np.log1p(impr), lo_impr, hi_impr)
+
+                        # Ranking-Sweet-Spot wie oben (optional Boost)
+                        if np.isfinite(pos):
+                            lo_pos, hi_pos = rank_minmax
+                            if lo_pos <= pos <= hi_pos:
+                                rank_score = 1.0
+                            else:
+                                if pos < lo_pos:
+                                    dist = lo_pos - pos
+                                else:
+                                    dist = pos - hi_pos
+                                rank_score = max(0.0, 1.0 - (dist / max(1.0, hi_pos)))
+                        else:
+                            rank_score = 0.0
+
+                        # Heuristischer Gesamt-Score:
+                        # - 50 % Nachfrage
+                        # - 30 % Ranking-Sweet-Spot
+                        # - 20 % „Mauerblümchenheit“ (wenig Inlinks)
+                        near_score = (0.5 * impr_score) + (0.3 * rank_score) + (0.2 * inl_score)
+
+                        near_rows.append([
+                            disp(url),
+                            inl,
+                            impr,
+                            pos if np.isfinite(pos) else np.nan,
+                            round(near_score, 3),
+                        ])
+
+                    if not near_rows:
+                        st.info("Keine Near-Orphan-Kandidaten gefunden (nach aktueller Thin-Schwelle & GSC-Daten).")
+                    else:
+                        near_df = pd.DataFrame(
+                            near_rows,
+                            columns=[
+                                "Ziel-URL",
+                                "Interne Inlinks",
+                                "GSC-Impressions (agg.)",
+                                "Ø Position (GSC)",
+                                "Near-Orphan-Score",
+                            ],
+                        ).sort_values("Near-Orphan-Score", ascending=False)
+
+                        st.dataframe(
+                            near_df.head(200),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+
+                        st.download_button(
+                            "Download Near-Orphan-Analyse (CSV)",
+                            data=near_df.to_csv(index=False).encode("utf-8-sig"),
+                            file_name="analyse3_near_orphan_addon.csv",
+                            mime="text/csv",
+                            key="a3_dl_near_orphan_csv",
+                        )
+
     # Status-Flags
     st.session_state["__gems_loading__"] = False
     st.session_state["__ready_gems__"] = True
@@ -2204,6 +2685,11 @@ if A4_NAME in selected_analyses:
             "aber keine Brand-Schreibweisen hinterlegt. "
             "Brand/Non-Brand-Queries können so nicht zuverlässig getrennt werden."
         )
+
+    if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
+        st.stop()
+
+
 
 
 
@@ -2316,20 +2802,20 @@ if A4_NAME in selected_analyses:
 
     # NEU: Offpage-Ankertexte ggf. ergänzen
     include_offpage_anchors = bool(st.session_state.get("a4_include_offpage_anchors", False))
-
+    
     # Basis: interne Anker (werden immer verwendet)
     anchor_inv_vis = anchor_inv_internal.copy()  # für Visualisierung (Treemap/Matrix/Shared)
     offpage_anchor_inv = pd.DataFrame(columns=["target", "anchor", "count"])
-
+    
     if include_offpage_anchors and isinstance(offpage_anchors_df, pd.DataFrame) and not offpage_anchors_df.empty:
         df_off = offpage_anchors_df.copy()
         df_off.columns = [str(c).strip() for c in df_off.columns]
         hdr_off = [str(c).strip() for c in df_off.columns]
-
+    
         # Ziel-URL & Anchor-Spalte suchen (wie bei Inlinks)
         off_tgt_idx = find_column_index(hdr_off, POSSIBLE_TARGET)
         off_anc_idx = find_column_index(hdr_off, POSSIBLE_ANCHOR)
-
+    
         if off_tgt_idx == -1 or off_anc_idx == -1:
             st.warning(
                 "In der Offpage-Ankerdatei wurden Ziel-URL oder Anker-Spalte nicht erkannt. "
@@ -2346,7 +2832,7 @@ if A4_NAME in selected_analyses:
                 if not anchor:
                     continue
                 rows.append([normalize_url(dst), anchor])
-
+    
             if rows:
                 tmp = pd.DataFrame(rows, columns=["target", "anchor"])
                 offpage_anchor_inv = (
@@ -2354,50 +2840,15 @@ if A4_NAME in selected_analyses:
                        .size()
                        .rename(columns={"size": "count"})
                 )
-
+    
             if not offpage_anchor_inv.empty:
-                # interne + Offpage-Anker kumulieren
+                # interne + Offpage-Anker kumulieren (noch OHNE source_flag)
                 anchor_inv_vis = (
                     pd.concat([anchor_inv_internal, offpage_anchor_inv], ignore_index=True)
                       .groupby(["target", "anchor"], as_index=False)["count"]
                       .sum()
                 )
-
-                # ✅ Quelle-Flag („nur intern“, „nur Offpage“, „intern + Offpage“)
-                tmp2 = anchor_inv_vis.merge(
-                    anchor_inv_internal.assign(internal_count=lambda df: df["count"])[["target", "anchor", "internal_count"]],
-                    on=["target", "anchor"],
-                    how="left"
-                ).merge(
-                    offpage_anchor_inv.assign(offpage_count=lambda df: df["count"])[["target", "anchor", "offpage_count"]],
-                    on=["target", "anchor"],
-                    how="left"
-                )
-
-                tmp2["internal_count"] = tmp2["internal_count"].fillna(0)
-                tmp2["offpage_count"] = tmp2["offpage_count"].fillna(0)
-
-                def _src_flag(row):
-                    has_int = row["internal_count"] > 0
-                    has_off = row["offpage_count"] > 0
-                    if has_int and has_off:
-                        return "intern + Offpage"
-                    elif has_int:
-                        return "nur intern"
-                    elif has_off:
-                        return "nur Offpage"
-                    else:
-                        return "unbekannt"
-
-                tmp2["source_flag"] = tmp2.apply(_src_flag, axis=1)
-                anchor_inv_vis = tmp2[["target", "anchor", "count", "source_flag"]]
-            else:
-                # Offpage-Datei leer / keine Anker → zurück zu intern-only
-                anchor_inv_vis = anchor_inv_internal.copy()
-    else:
-        # Offpage-Anker nicht aktiviert → nur interne Anker, ohne source_flag
-        anchor_inv_vis = anchor_inv_internal.copy()
-
+    
     # ✅ NEU: Quelle-Flag („nur intern“, „nur Offpage“, „intern + Offpage“)
     if not anchor_inv_vis.empty:
         tmp = anchor_inv_vis.merge(
@@ -2409,10 +2860,10 @@ if A4_NAME in selected_analyses:
             on=["target", "anchor"],
             how="left"
         )
-
+    
         tmp["internal_count"] = tmp["internal_count"].fillna(0)
         tmp["offpage_count"] = tmp["offpage_count"].fillna(0)
-
+    
         def _src_flag(row):
             has_int = row["internal_count"] > 0
             has_off = row["offpage_count"] > 0
@@ -2424,18 +2875,19 @@ if A4_NAME in selected_analyses:
                 return "nur Offpage"
             else:
                 return "unbekannt"
-
+    
         tmp["source_flag"] = tmp.apply(_src_flag, axis=1)
-
+    
         # zurück auf schlanke Struktur + Flag
         anchor_inv_vis = tmp[["target", "anchor", "count", "source_flag"]]
     else:
         # Fallback – Struktur konsistent halten
         anchor_inv_vis = anchor_inv_vis.assign(source_flag=pd.NA)
-
+    
     # Für spätere Verwendung (Sidebar: Matrix, Shared, Treemap)
     st.session_state["_anchor_inv_internal"] = anchor_inv_internal
     st.session_state["_anchor_inv_vis"] = anchor_inv_vis
+
 
 
 
@@ -2478,9 +2930,10 @@ if A4_NAME in selected_analyses:
     enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
     
     # Platzhalter für später
-    gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
-    gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
-    gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+    gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+    gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+    gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+
     cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
     
     if enable_gsc_coverage and isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
@@ -2713,9 +3166,10 @@ if A4_NAME in selected_analyses:
                 gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
     else:
         cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
-        gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Coverage_%", "Treffer", "Top_Queries"])
-        gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
-        gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ"])
+        gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+        gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+        gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+
 
     # ============================
     # AUSGABE A4 – 1)–4)
@@ -2830,11 +3284,25 @@ if A4_NAME in selected_analyses:
                 st.error("Für die semantische Ankeranalyse wird im gewählten Modus eine Crawl-Datei benötigt.")
                 st.stop()
 
-            # Embedding-Modell laden (gleiches wie für A4 allgemein)
-            embed_model_name = st.session_state.get(
-                "a4_embed_model",
-                "sentence-transformers/all-MiniLM-L6-v2"
+            # Embedding-Modell laden:
+            # - wenn Crawlbasis: spezielles Modell aus a4_sem_embed_model
+            # - sonst: allgemeines A4-Embedding-Modell
+            a4_emb_mode = st.session_state.get(
+                "a4_emb_mode",
+                "Basierend auf einer oder mehreren Spalten der Crawl-Datei"
             )
+            
+            if a4_emb_mode == "Basierend auf einer oder mehreren Spalten der Crawl-Datei":
+                embed_model_name = st.session_state.get(
+                    "a4_sem_embed_model",
+                    st.session_state.get("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+                )
+            else:
+                embed_model_name = st.session_state.get(
+                    "a4_embed_model",
+                    "sentence-transformers/all-MiniLM-L6-v2"
+                )
+            
             try:
                 from sentence_transformers import SentenceTransformer
                 if (
@@ -2847,6 +3315,7 @@ if A4_NAME in selected_analyses:
             except Exception as e:
                 st.warning(f"Embedding-Modell für semantische Ankeranalyse konnte nicht geladen werden ({e}).")
                 model_a4 = None
+
 
             if model_a4 is not None:
                 page_emb_map: Dict[str, np.ndarray] = {}
@@ -3235,7 +3704,7 @@ if A4_NAME in selected_analyses:
 
             anchor_wide_df = pd.DataFrame(rows, columns=cols)
 
-            st.markdown("#### 3) Anchor-Inventar (Wide)")
+            st.markdown("#### 4) Anchor-Inventar (Wide)")
             st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
 
             # CSV-Download
@@ -3268,7 +3737,7 @@ if A4_NAME in selected_analyses:
         anchor_inv_check = anchor_inv_vis.copy()
     
         if not anchor_inv_check.empty:
-            st.markdown("#### 4) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
+            st.markdown("#### 5) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
     
             min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
             ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
@@ -3504,3 +3973,335 @@ if A4_NAME in selected_analyses:
             ph4.empty()
     except Exception:
         pass
+
+# =========================================================
+# Analyse 6: Interne Verlinkung innerhalb semantischer Cluster
+# =========================================================
+if A6_NAME in selected_analyses and st.session_state.get("__show_a6__", False):
+
+    st.markdown("## Analyse 6: Interne Verlinkung innerhalb semantischer Cluster")
+    st.caption("URLs werden in semantische Cluster gruppiert und die interne Verlinkung innerhalb dieser Cluster analysiert.")
+
+    if inlinks_df is None:
+        st.error("Für Analyse 6 wird die Datei 'All Inlinks' benötigt.")
+        st.stop()
+
+    a6_sim_thresh = float(st.session_state.get("a6_sim_thresh", 0.80))
+    a6_top_k = int(st.session_state.get("a6_top_k", 10))
+    a6_min_cluster_size = int(st.session_state.get("a6_min_cluster_size", 3))
+    a6_only_content = bool(st.session_state.get("a6_only_content", True))
+
+    backend_pref = locals().get("backend", "Exakt (NumPy)")
+    rel_df_a6 = build_related_for_custom_analysis(
+        emb_df,
+        related_df,
+        top_k=a6_top_k,
+        sim_threshold=a6_sim_thresh,
+        prefer_backend=backend_pref,
+    )
+
+    if rel_df_a6 is None or rel_df_a6.empty:
+        st.info("Keine Related-URL-Daten für Analyse 6 verfügbar.")
+    else:
+        rel_df = rel_df_a6.copy()
+        rel_df.columns = [str(c).strip() for c in rel_df.columns]
+        hdr_rel = [str(c).strip() for c in rel_df.columns]
+
+        src_idx_rel = find_column_index(hdr_rel, POSSIBLE_SOURCE)
+        dst_idx_rel = find_column_index(hdr_rel, POSSIBLE_TARGET)
+        sim_idx_rel = find_column_index(
+            hdr_rel,
+            ["similarity", "similarität", "similarity score", "score", "cosine similarity", "cosinus ähnlichkeit"],
+        )
+
+        if -1 in (src_idx_rel, dst_idx_rel, sim_idx_rel):
+            if rel_df.shape[1] >= 3:
+                if src_idx_rel == -1:
+                    src_idx_rel = 0
+                if dst_idx_rel == -1:
+                    dst_idx_rel = 1
+                if sim_idx_rel == -1:
+                    sim_idx_rel = 2
+                st.warning(
+                    "Related-URL-Tabelle für Analyse 6: Header nicht vollständig erkannt "
+                    "Fallback auf Spaltenpositionen (1–3)."
+                )
+            else:
+                st.error("Related-URL-Tabelle für Analyse 6 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
+                st.stop()
+
+        from collections import defaultdict, deque
+
+        adj = defaultdict(set)
+        sim_map = {}
+
+        for row in rel_df.itertuples(index=False, name=None):
+            src_raw = row[src_idx_rel]
+            dst_raw = row[dst_idx_rel]
+            try:
+                sim_val = float(str(row[sim_idx_rel]).replace(",", "."))
+            except Exception:
+                continue
+            if not np.isfinite(sim_val):
+                continue
+            if sim_val < a6_sim_thresh:
+                continue
+
+            u = remember_original(src_raw)
+            v = remember_original(dst_raw)
+            if not u or not v or u == v:
+                continue
+
+            adj[u].add(v)
+            adj[v].add(u)
+            sim_map[(u, v)] = sim_val
+            sim_map[(v, u)] = sim_val
+
+        if not adj:
+            st.info("Keine URL-Paare mit ausreichender Similarity für Analyse 6 gefunden.")
+        else:
+            visited = set()
+            clusters = []
+
+            for node in adj.keys():
+                if node in visited:
+                    continue
+                comp = []
+                dq = deque([node])
+                visited.add(node)
+                while dq:
+                    cur = dq.popleft()
+                    comp.append(cur)
+                    for nb in adj[cur]:
+                        if nb not in visited:
+                            visited.add(nb)
+                            dq.append(nb)
+                if len(comp) >= a6_min_cluster_size:
+                    clusters.append(sorted(comp))
+
+            if not clusters:
+                st.info("Es wurden keine Cluster mit der gewählten minimalen Clustergröße gefunden.")
+            else:
+                links_set = st.session_state.get("_content_links", set()) if a6_only_content else st.session_state.get("_all_links", set())
+
+
+                overview_rows = []
+                missing_rows = []
+
+                for cid, nodes in enumerate(clusters, start=1):
+                    n = len(nodes)
+                    existing_links = 0
+                    missing_links = 0
+                    sim_sum = 0.0
+                    sim_count = 0
+
+                    for i, u in enumerate(nodes):
+                        for j, v in enumerate(nodes):
+                            if i == j:
+                                continue
+
+                            sim_val = sim_map.get((u, v))
+                            if isinstance(sim_val, float) and np.isfinite(sim_val):
+                                sim_sum += sim_val
+                                sim_count += 1
+
+                            has_link = (u, v) in links_set
+                            if has_link:
+                                existing_links += 1
+                            else:
+                                missing_links += 1
+                                missing_rows.append(
+                                    [
+                                        cid,
+                                        disp(u),
+                                        disp(v),
+                                        round(sim_val, 3)
+                                        if isinstance(sim_val, float) and np.isfinite(sim_val)
+                                        else np.nan,
+                                    ]
+                                )
+
+                    possible_links = n * (n - 1)
+                    cov = existing_links / possible_links if possible_links > 0 else 0.0
+                    avg_sim = sim_sum / sim_count if sim_count > 0 else np.nan
+
+                    overview_rows.append(
+                        [
+                            cid,
+                            n,
+                            existing_links,
+                            missing_links,
+                            round(cov, 3),
+                            round(avg_sim, 3) if np.isfinite(avg_sim) else np.nan,
+                        ]
+                    )
+
+                overview_df = pd.DataFrame(
+                    overview_rows,
+                    columns=[
+                        "Cluster-ID",
+                        "Anzahl URLs",
+                        "Bestehende Links im Cluster",
+                        "Fehlende Links im Cluster",
+                        "Link-Coverage (Anteil vorhandener Links)",
+                        "Ø Similarity im Cluster",
+                    ],
+                ).sort_values("Anzahl URLs", ascending=False)
+
+                st.markdown("### Analyse 6: Cluster-Übersicht")
+                st.dataframe(overview_df, use_container_width=True, hide_index=True)
+
+                st.download_button(
+                    "Download Analyse 6 – Cluster-Übersicht (CSV)",
+                    data=overview_df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name="analyse6_cluster_uebersicht.csv",
+                    mime="text/csv",
+                    key="a6_dl_overview_csv",
+                )
+
+                if missing_rows:
+                    missing_df = pd.DataFrame(
+                        missing_rows,
+                        columns=[
+                            "Cluster-ID",
+                            "Quell-URL",
+                            "Ziel-URL",
+                            "Similarity (Cosinus)",
+                        ],
+                    ).sort_values(
+                        ["Cluster-ID", "Similarity (Cosinus)"],
+                        ascending=[True, False],
+                    )
+
+                    st.markdown("### Analyse 6: Empfohlene zusätzliche Links innerhalb der Cluster")
+                    st.dataframe(missing_df, use_container_width=True, hide_index=True)
+
+                    st.download_button(
+                        "Download Analyse 6 – Empfohlene Links (CSV)",
+                        data=missing_df.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="analyse6_empfehlungen_im_cluster.csv",
+                        mime="text/csv",
+                        key="a6_dl_missing_csv",
+                    )
+                else:
+                    st.info("Innerhalb der gefundenen Cluster wurden keine fehlenden Links gefunden.")
+
+
+# =========================================================
+# Analyse 8: Semantische Duplikate ohne Verlinkung
+# =========================================================
+if A8_NAME in selected_analyses and st.session_state.get("__show_a8__", False):
+
+    st.markdown("## Analyse 8: Semantische Duplikate ohne Verlinkung")
+    st.caption("Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen noch keine interne Verlinkung existiert.")
+
+    if inlinks_df is None:
+        st.error("Für Analyse 8 wird die Datei 'All Inlinks' benötigt.")
+        st.stop()
+
+    a8_sim_thresh = float(st.session_state.get("a8_sim_thresh", 0.95))
+    a8_only_content = bool(st.session_state.get("a8_only_content", True))
+
+    backend_pref = locals().get("backend", "Exakt (NumPy)")
+    top_k_for_a8 = int(locals().get("max_related", 50))
+
+    rel_df_a8 = build_related_for_custom_analysis(
+        emb_df,
+        related_df,
+        top_k=top_k_for_a8,
+        sim_threshold=a8_sim_thresh,
+        prefer_backend=backend_pref,
+    )
+
+    if rel_df_a8 is None or rel_df_a8.empty:
+        st.info("Keine Related-URL-Daten für Analyse 8 verfügbar.")
+    else:
+        rel_df = rel_df_a8.copy()
+        rel_df.columns = [str(c).strip() for c in rel_df.columns]
+        hdr_rel = [str(c).strip() for c in rel_df.columns]
+
+        src_idx_rel = find_column_index(hdr_rel, POSSIBLE_SOURCE)
+        dst_idx_rel = find_column_index(hdr_rel, POSSIBLE_TARGET)
+        sim_idx_rel = find_column_index(
+            hdr_rel,
+            ["similarity", "similarität", "similarity score", "score", "cosine similarity", "cosinus ähnlichkeit"],
+        )
+
+        if -1 in (src_idx_rel, dst_idx_rel, sim_idx_rel):
+            if rel_df.shape[1] >= 3:
+                if src_idx_rel == -1:
+                    src_idx_rel = 0
+                if dst_idx_rel == -1:
+                    dst_idx_rel = 1
+                if sim_idx_rel == -1:
+                    sim_idx_rel = 2
+                st.warning(
+                    "Related-URL-Tabelle für Analyse 8: Header nicht vollständig erkannt "
+                    "Fallback auf Spaltenpositionen (1–3)."
+                )
+            else:
+                st.error("Related-URL-Tabelle für Analyse 8 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
+                st.stop()
+
+        links_set = st.session_state.get("_content_links", set()) if a8_only_content else st.session_state.get("_all_links", set())
+
+        seen_pairs = set()
+        dup_rows = []
+
+        for row in rel_df.itertuples(index=False, name=None):
+            src_raw = row[src_idx_rel]
+            dst_raw = row[dst_idx_rel]
+            try:
+                sim_val = float(str(row[sim_idx_rel]).replace(",", "."))
+            except Exception:
+                continue
+            if not np.isfinite(sim_val):
+                continue
+            if sim_val < a8_sim_thresh:
+                continue
+
+            u = remember_original(src_raw)
+            v = remember_original(dst_raw)
+            if not u or not v or u == v:
+                continue
+
+            key = tuple(sorted([u, v]))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+
+            has_link = ((u, v) in links_set) or ((v, u) in links_set)
+            if has_link:
+                continue
+
+            dup_rows.append(
+                [
+                    disp(u),
+                    disp(v),
+                    round(float(sim_val), 3),
+                ]
+            )
+
+        if not dup_rows:
+            st.info("Keine semantischen Duplikate ohne Verlinkung nach der gewählten Schwelle gefunden.")
+        else:
+            dup_df = pd.DataFrame(
+                dup_rows,
+                columns=[
+                    "URL 1",
+                    "URL 2",
+                    "Similarity (Cosinus)",
+                ],
+            ).sort_values("Similarity (Cosinus)", ascending=False)
+
+            st.dataframe(dup_df, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                "Download Analyse 8 – Semantische Duplikate ohne Verlinkung (CSV)",
+                data=dup_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="analyse8_semantische_duplikate_ohne_verlinkung.csv",
+                mime="text/csv",
+                key="a8_dl_csv",
+            )
+
+
