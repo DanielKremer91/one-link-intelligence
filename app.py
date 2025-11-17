@@ -538,7 +538,7 @@ A2_NAME = "Unpassende interne Links entfernen (A2)"
 A3_NAME = "SEO-Potenziallinks finden (A3)"
 A4_NAME = "Ankertexte analysieren (A4)"
 A5_NAME = "Interne Verlinkung innerhalb semantischer Cluster (A5)"
-A5_NAME = "Semantische Duplikate ohne Verlinkung (A6)"
+A6_NAME = "Semantische Duplikate ohne Verlinkung (A6)"
 
 
 
