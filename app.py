@@ -1369,14 +1369,23 @@ if needs_embeddings_or_related:
         ),
     )
 else:
-    mode = "Related URLs"
+    # Wenn der Radio nicht angezeigt wird (weil gerade keine Analyse Embeddings/Related braucht),
+    # alten Wert weiterverwenden oder Default setzen
+    mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
 
-# Für spätere Abschnitte verfügbar machen
-st.session_state["emb_rel_mode_global"] = mode
+# ❗ WICHTIG:
+# KEIN st.session_state["emb_rel_mode_global"] = mode mehr!
+# Der Wert wird vom Radio-Widget selbst in den Session State geschrieben.
 
 # Gemeinsame Sektion (falls mehrfach benötigt)
 if shared_uploads:
     st.markdown("### Für mehrere Analysen benötigt")
+
+# Spalten IMMER anlegen, damit colA/colB existieren
+colA, colB = st.columns(2)
+
+# mode ist jetzt schon gesetzt – falls du später woanders nochmal drauf zugreifen willst,
+# kannst du dort einfach st.session_state.get("emb_rel_mode_global", "Related URLs") verwenden.
 
 # Spalten IMMER anlegen, damit colA/colB existieren
 colA, colB = st.columns(2)
