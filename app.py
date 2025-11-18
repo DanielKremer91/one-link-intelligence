@@ -2925,10 +2925,16 @@ if enable_over_anchor and not anchor_inv_internal.empty:
             # -------------------------------
             # Brand-Liste nur für GSC-Coverage bauen
             # -------------------------------
-            
+            # Werte robust aus dem Session-State holen (falls A4-UI noch nicht genutzt wurde)
+            brand_text = st.session_state.get("a4_brand_text", "")
+            brand_file = st.session_state.get("a4_brand_file", None)
+
             brand_list = split_list_text(brand_text)
-            brand_list += read_single_col_file_obj(brand_file)
-            brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
+            if brand_file is not None:
+                brand_list += read_single_col_file_obj(brand_file)
+
+            brand_list = sorted({str(b).strip().lower() for b in brand_list if str(b).strip()})
+
 
             # -------------------------------
             # Normalisierung & Basisfilter
