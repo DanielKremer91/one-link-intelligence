@@ -4049,15 +4049,27 @@ def is_brand_query(q: str) -> bool:
         pass
 
 # =========================================================
-# Analyse 6: Interne Verlinkung innerhalb semantischer Cluster
+# Analyse 5: Interne Verlinkung innerhalb semantischer Cluster
 # =========================================================
 if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
-    st.markdown("## Analyse 6: Interne Verlinkung innerhalb semantischer Cluster")
+    st.markdown("## Analyse 5: Interne Verlinkung innerhalb semantischer Cluster")
     st.caption("URLs werden in semantische Cluster gruppiert und die interne Verlinkung innerhalb dieser Cluster analysiert.")
 
     if inlinks_df is None:
-        st.error("Für Analyse 6 wird die Datei 'All Inlinks' benötigt.")
+        st.error("Für Analyse 5 wird die Datei 'All Inlinks' benötigt.")
+        st.stop()
+
+    # NEU: Entweder Related-URLs ODER Embeddings müssen vorhanden sein
+    has_related = related_df is not None and not related_df.empty
+    has_embeds  = emb_df is not None and not emb_df.empty
+
+    if not has_related and not has_embeds:
+        st.error(
+            "Für Analyse 5 brauchst du entweder eine Datei **Related URLs** "
+            "oder eine Datei **Embeddings (URL + Vektor)**. "
+            "Bitte eine der beiden im Upload-Center bereitstellen."
+        )
         st.stop()
 
     A5_sim_thresh = float(st.session_state.get("A5_sim_thresh", 0.80))
@@ -4075,7 +4087,7 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
     )
 
     if rel_df_A5 is None or rel_df_A5.empty:
-        st.info("Keine Related-URL-Daten für Analyse 6 verfügbar.")
+        st.info("Keine Related-URL-Daten für Analyse 5 verfügbar.")
     else:
         rel_df = rel_df_A5.copy()
         rel_df.columns = [str(c).strip() for c in rel_df.columns]
@@ -4097,7 +4109,7 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
                 if sim_idx_rel == -1:
                     sim_idx_rel = 2
                 st.warning(
-                    "Related-URL-Tabelle für Analyse 6: Header nicht vollständig erkannt "
+                    "Related-URL-Tabelle für Analyse 5: Header nicht vollständig erkannt "
                     "Fallback auf Spaltenpositionen (1–3)."
                 )
             else:
@@ -4222,13 +4234,13 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
                     ],
                 ).sort_values("Anzahl URLs", ascending=False)
 
-                st.markdown("### Analyse 6: Cluster-Übersicht")
+                st.markdown("### Analyse 5: Cluster-Übersicht")
                 st.dataframe(overview_df, use_container_width=True, hide_index=True)
 
                 st.download_button(
-                    "Download Analyse 6 – Cluster-Übersicht (CSV)",
+                    "Download Analyse 5 – Cluster-Übersicht (CSV)",
                     data=overview_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="analyse6_cluster_uebersicht.csv",
+                    file_name="analyse5_cluster_uebersicht.csv",
                     mime="text/csv",
                     key="A5_dl_overview_csv",
                 )
@@ -4247,13 +4259,13 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
                         ascending=[True, False],
                     )
 
-                    st.markdown("### Analyse 6: Empfohlene zusätzliche Links innerhalb der Cluster")
+                    st.markdown("### Analyse 5: Empfohlene zusätzliche Links innerhalb der Cluster")
                     st.dataframe(missing_df, use_container_width=True, hide_index=True)
 
                     st.download_button(
-                        "Download Analyse 6 – Empfohlene Links (CSV)",
+                        "Download Analyse 5 – Empfohlene Links (CSV)",
                         data=missing_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="analyse6_empfehlungen_im_cluster.csv",
+                        file_name="analyse5_empfehlungen_im_cluster.csv",
                         mime="text/csv",
                         key="A5_dl_missing_csv",
                     )
@@ -4262,16 +4274,29 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
 
 # =========================================================
-# Analyse 8: Semantische Duplikate ohne Verlinkung
+# Analyse 6: Semantische Duplikate ohne Verlinkung
 # =========================================================
 if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
 
-    st.markdown("## Analyse 8: Semantische Duplikate ohne Verlinkung")
+    st.markdown("## Analyse 6: Semantische Duplikate ohne Verlinkung")
     st.caption("Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen noch keine interne Verlinkung existiert.")
 
     if inlinks_df is None:
-        st.error("Für Analyse 8 wird die Datei 'All Inlinks' benötigt.")
+        st.error("Für Analyse 6 wird die Datei 'All Inlinks' benötigt.")
         st.stop()
+
+    # NEU: Entweder Related-URLs ODER Embeddings müssen vorhanden sein
+    has_related = related_df is not None and not related_df.empty
+    has_embeds  = emb_df is not None and not emb_df.empty
+
+    if not has_related and not has_embeds:
+        st.error(
+            "Für Analyse 6 brauchst du entweder eine Datei **Related URLs** "
+            "oder eine Datei **Embeddings (URL + Vektor)**. "
+            "Bitte eine der beiden im Upload-Center bereitstellen."
+        )
+        st.stop()
+
 
     A6_sim_thresh = float(st.session_state.get("A6_sim_thresh", 0.95))
     A6_only_content = bool(st.session_state.get("A6_only_content", True))
@@ -4310,7 +4335,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
                 if sim_idx_rel == -1:
                     sim_idx_rel = 2
                 st.warning(
-                    "Related-URL-Tabelle für Analyse 8: Header nicht vollständig erkannt "
+                    "Related-URL-Tabelle für Analyse 6: Header nicht vollständig erkannt "
                     "Fallback auf Spaltenpositionen (1–3)."
                 )
             else:
@@ -4371,9 +4396,9 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
             st.dataframe(dup_df, use_container_width=True, hide_index=True)
 
             st.download_button(
-                "Download Analyse 8 – Semantische Duplikate ohne Verlinkung (CSV)",
+                "Download Analyse 6 – Semantische Duplikate ohne Verlinkung (CSV)",
                 data=dup_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name="analyse8_semantische_duplikate_ohne_verlinkung.csv",
+                file_name="analyse6_semantische_duplikate_ohne_verlinkung.csv",
                 mime="text/csv",
                 key="A6_dl_csv",
             )
