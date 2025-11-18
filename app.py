@@ -562,8 +562,6 @@ A1_NAME = "Interne Verlinkungsmöglichkeiten finden (A1)"
 A2_NAME = "Unpassende interne Links entfernen (A2)"
 A3_NAME = "SEO-Potenziallinks finden (A3)"
 A4_NAME = "Ankertexte analysieren (A4)"
-A5_NAME = "Interne Verlinkung innerhalb semantischer Cluster (A5)"
-A6_NAME = "Semantische Duplikate ohne Verlinkung (A6)"
 
 
 
@@ -571,7 +569,7 @@ st.markdown("---")
 st.header("Welche Analysen möchtest du durchführen?")
 selected_analyses = st.multiselect(
     "Mehrfachauswahl möglich",
-    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME, A5_NAME, A6_NAME],
+    options=[A1_NAME, A2_NAME, A3_NAME, A4_NAME],
     default=[],
 )
 
@@ -1162,59 +1160,9 @@ with st.sidebar:
                 # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
                 st.session_state["a4_treemap_selected_urls"] = []                                
             
-                                      
-        # ----------------
-        # A5 – Interne Verlinkung innerhalb semantischer Cluster
-        # ----------------
-        if A5_NAME in selected_analyses:
-            if len(selected_analyses) > 1:
-                st.markdown("---")
-
-            st.subheader("Interne Verlinkung innerhalb semantischer Cluster (A5)")
-            st.caption(
-                "URLs werden automatisch in semantische Cluster gruppiert (auf Basis von Similarity/Embeddings). "
-                "Die internen Links innerhalb dieser Cluster werden analysiert – alle Schwellen werden "
-                "aus den Daten abgeleitet, du musst hier nichts einstellen."
-            )
-
-            st.checkbox(
-                "Nur Content-Links berücksichtigen (z. B. Body, nicht Navigation)",
-                value=bool(st.session_state.get("A5_only_content", True)),
-                key="A5_only_content",
-            )
-
-
 
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
-
-
-        # ----------------
-        # A6 – Semantische Duplikate ohne Verlinkung
-        # ----------------
-        if A6_NAME in selected_analyses:
-            if len(selected_analyses) > 1:
-                st.markdown("---")
-            st.subheader("Einstellungen – Semantische Duplikate ohne Verlinkung (A6)")
-            st.caption(
-                "Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen (noch) keine "
-                "interne Verlinkung existiert."
-            )
-
-            A6_sim_thresh = st.slider(
-                "Ähnlichkeitsschwelle für Duplikate",
-                0.80, 1.0, 0.95, 0.01,
-                key="A6_sim_thresh",
-                help="Nur Paare mit Similarity ≥ dieser Schwelle gelten als (Near-)Duplicates."
-            )
-            A6_only_content = st.checkbox(
-                "Nur Content-Links als 'Verlinkung' werten",
-                value=True,
-                key="A6_only_content",
-                help="Wenn aktiv, wird geprüft, ob sich die Seiten über Content-Links verlinken. "
-                     "Wenn deaktiviert, zählt jeder interne Link."
-            )
-
 
 
 # ===============================
@@ -1222,23 +1170,19 @@ with st.sidebar:
 # ===============================
 # Embeddings / Related werden jetzt auch für A5 & A6 genutzt
 needs_embeddings_or_related = any(
-    a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
+    a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]
 )
 
 needs_inlinks_a1 = A1_NAME in selected_analyses
 needs_inlinks_a2 = A2_NAME in selected_analyses
 needs_inlinks_a3 = A3_NAME in selected_analyses
 needs_inlinks_a4 = A4_NAME in selected_analyses
-needs_inlinks_A5 = A5_NAME in selected_analyses
-needs_inlinks_A6 = A6_NAME in selected_analyses  # für "ohne Verlinkung" brauchen wir die Linkliste
 
 needs_inlinks = any([
     needs_inlinks_a1,
     needs_inlinks_a2,
     needs_inlinks_a3,
     needs_inlinks_a4,
-    needs_inlinks_A5,
-    needs_inlinks_A6,
 ])
 
 needs_metrics_a1 = A1_NAME in selected_analyses
@@ -1267,19 +1211,19 @@ st.subheader("Benötigte Dateien hochladen")
 required_sets = {
     "URLs + Embeddings": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME]
             if a in selected_analyses and needs_embeddings_or_related
         ]
     },
     "Related URLs": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A5_NAME, A6_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME]
             if a in selected_analyses and needs_embeddings_or_related
         ]
     },
     "All Inlinks": {
         "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME, A5_NAME, A6_NAME]
+            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME]
             if a in selected_analyses and needs_inlinks
         ]
     },
