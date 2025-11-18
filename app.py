@@ -4053,6 +4053,11 @@ if 'inlinks_df' not in locals() or inlinks_df is None:
 # =========================================================
 # Analyse 5 – Semantische Cluster & interne Verlinkung
 # =========================================================
+
+# interne Defaults / Heuristik für A5
+A5_DEFAULT_SIM = 0.80    # Basisschwelle für Similarity
+A5_DEFAULT_TOPK = 25     # Anzahl Nachbarn aus Embeddings
+
 if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
     # ---------------------------
@@ -4061,15 +4066,6 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
     if emb_df is None and related_df is None:
         st.error("Analyse 5: Bitte entweder 'URLs + Embeddings' oder 'Related URLs' hochladen.")
         st.stop()
-
-# interne Defaults / Heuristik für A5
-A5_DEFAULT_SIM = 0.80    # Basisschwelle für Similarity
-A5_DEFAULT_TOPK = 25     # Anzahl Nachbarn aus Embeddings
-
-# hier NICHT nochmal neu lesen, nur verwenden:
-link_set = st.session_state.get("_content_links") if only_content_A5 else st.session_state.get("_all_links")
-
-
 
     # Welcher Eingabemodus ist global gewählt?
     emb_rel_mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
@@ -4081,7 +4077,6 @@ link_set = st.session_state.get("_content_links") if only_content_A5 else st.ses
         sim_threshold=A5_DEFAULT_SIM,
         prefer_backend="Exakt (NumPy)",  # für A5 immer der robuste Pfad
     )
-
 
     if rel_df_A5 is None or rel_df_A5.empty:
         st.error("Analyse 5: Aus den vorliegenden Daten konnten keine 'Related URLs' erzeugt werden.")
@@ -4101,7 +4096,10 @@ link_set = st.session_state.get("_content_links") if only_content_A5 else st.ses
     if rel_src_idx_A5 == -1 or rel_dst_idx_A5 == -1:
         if rel_df_A5.shape[1] >= 2:
             rel_src_idx_A5, rel_dst_idx_A5 = 0, 1
-            st.warning("Analyse 5: Quelle/Ziel in 'Related URLs' nicht eindeutig erkannt – nutze erste zwei Spalten als Quelle/Ziel.")
+            st.warning(
+                "Analyse 5: Quelle/Ziel in 'Related URLs' nicht eindeutig erkannt – "
+                "nutze erste zwei Spalten als Quelle/Ziel."
+            )
         else:
             st.error("Analyse 5: 'Related URLs' brauchen mindestens zwei Spalten (Quelle/Ziel).")
             st.stop()
@@ -4149,12 +4147,11 @@ link_set = st.session_state.get("_content_links") if only_content_A5 else st.ses
         if n_nodes <= 1000:
             return 4
         return 5
-    
+
     n_nodes_A5 = len(graph_A5)
     min_size_A5 = _auto_min_cluster_size(n_nodes_A5)
-    
-    clusters = [c for c in clusters if len(c) >= min_size_A5]
 
+    clusters = [c for c in clusters if len(c) >= min_size_A5]
 
     # ---------------------------
     # 3) URL → Cluster-ID + Link-Coverage
@@ -4182,7 +4179,6 @@ link_set = st.session_state.get("_content_links") if only_content_A5 else st.ses
         f"automatische minimale Clustergröße von {min_size_A5} (abhängig von der Gesamtanzahl der URLs) verwendet. "
         "Unten siehst du, welche URL welchem Cluster zugeordnet wurde und wie stark sie im Cluster verlinkt ist."
     )
-
 
     if cluster_df_A5.empty:
         st.info("Analyse 5: Es wurden keine Cluster mit der aktuellen Similarity-Schwelle und Mindestgröße gefunden.")
@@ -4226,8 +4222,6 @@ link_set = st.session_state.get("_content_links") if only_content_A5 else st.ses
             mime="text/csv",
             key="dl_a5_clusters",
         )
-
-
 
 # =========================================================
 # Analyse 6: Semantische Duplikate ohne Verlinkung
