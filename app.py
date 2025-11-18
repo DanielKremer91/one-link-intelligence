@@ -2929,11 +2929,31 @@ if enable_over_anchor and not anchor_inv_internal.empty:
             brand_text = st.session_state.get("a4_brand_text", "")
             brand_file = st.session_state.get("a4_brand_file", None)
 
-            brand_list = split_list_text(brand_text)
-            if brand_file is not None:
-                brand_list += read_single_col_file_obj(brand_file)
+            # 1) Brand-Begriffe aus dem Freitext-Feld
+            raw = str(brand_text or "")
+            # Split an Komma, Zeilenumbruch, Semikolon
+            tokens = re.split(r"[,\n;]+", raw)
+            brand_list = [t.strip().lower() for t in tokens if t.strip()]
 
-            brand_list = sorted({str(b).strip().lower() for b in brand_list if str(b).strip()})
+            # 2) Optional: Brand-Begriffe aus Datei (erste Spalte)
+            if brand_file is not None:
+                try:
+                    import io
+                    df_br = pd.read_csv(io.BytesIO(brand_file.getvalue()), header=None)
+                    extra = [
+                        str(v).strip().lower()
+                        for v in df_br.iloc[:, 0].dropna().tolist()
+                        if str(v).strip()
+                    ]
+                    brand_list.extend(extra)
+                except Exception as e:
+                    st.warning(
+                        f"Konnte Brand-Datei nicht lesen ({e}) – Brand-Liste wird nur aus dem Textfeld gebaut."
+                    )
+
+            # 3) Duplikate entfernen
+            brand_list = sorted(set(brand_list))
+
 
 
             # -------------------------------
