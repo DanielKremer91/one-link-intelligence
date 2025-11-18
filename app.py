@@ -2838,6 +2838,10 @@ if A4_NAME in selected_analyses:
 # --------------------------------------------------------
 # Over-Anchor ≥ Schwellen (absolut / share)
 # --------------------------------------------------------
+
+# Sicherstellen, dass anchor_inv_internal existiert (auch wenn A4 noch nicht gelaufen ist)
+anchor_inv_internal = st.session_state.get("_anchor_inv_internal", pd.DataFrame())
+
 enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
 over_anchor_df = pd.DataFrame(columns=["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"])
 
@@ -2865,6 +2869,7 @@ if enable_over_anchor and not anchor_inv_internal.empty:
     # Reihenfolge der Spalten neu setzen
     over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
     over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
+
 
 
     # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
