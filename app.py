@@ -3458,7 +3458,8 @@ def is_brand_query(q: str) -> bool:
                             urls_norm: List[str] = []
                 
                             for _, r in df_c.iterrows():
-                                url_norm = remember_original(r[url_c_col])
+                                url_raw = remember_original(r[url_c_col])
+                                url_norm = normalize_url(url_raw)
                                 if not url_norm:
                                     continue
                 
@@ -3509,7 +3510,8 @@ def is_brand_query(q: str) -> bool:
                             urls_norm: List[str] = []
                 
                             for _, r in df_c.iterrows():
-                                url_norm = remember_original(r[url_c_col])
+                                url_raw = remember_original(r[url_c_col])
+                                url_norm = normalize_url(url_raw)
                                 if not url_norm:
                                     continue
                                 v = parse_vec(r.get(emb_col, ""))
@@ -3583,7 +3585,8 @@ def is_brand_query(q: str) -> bool:
                         vecs: List[np.ndarray] = []
                         urls_norm: List[str] = []
                         for _, row in df_e.iterrows():
-                            url_norm = remember_original(row.iloc[e_url_idx])
+                            url_raw = remember_original(row.iloc[e_url_idx])
+                            url_norm = normalize_url(url_raw)
                             if not url_norm:
                                 continue
                             v = parse_vec(row.iloc[e_emb_idx])
