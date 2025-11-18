@@ -3096,22 +3096,7 @@ if A4_NAME in selected_analyses:
                         if not q:
                             continue
 
-                        # ----------------------------------------------------
-                        # DEBUG BLOCK HIER EINFÜGEN
-                        # ----------------------------------------------------
-                        if "merinojacke damen" in q.lower() and "damen/jacken/" in url_norm:
-                            st.write("DEBUG Q/URL:", url_norm, q)
-                            st.write("Anchors:", a_names)
-                            st.write("Exact hit?:", any(a.lower() == q.lower() for a in a_names))
-                    
-                            if check_embed and model is not None and a_emb is not None:
-                                q_norm = _norm_text_for_emb(q)
-                                q_emb = model.encode([q_norm], show_progress_bar=False)
-                                S = cosine_sim_matrix(q_emb, a_emb)[0]
-                                st.write("Embedding-Scores:", list(zip(a_names, S)))
-                                st.write("Threshold:", embed_thresh)
-                        # ----------------------------------------------------
-    
+                          
                         found = False
                         found_cnt = 0
                         match_type_parts = []
