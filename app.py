@@ -1163,8 +1163,6 @@ with st.sidebar:
                 st.session_state["a4_treemap_selected_urls"] = []                                
             
                                       
-
-
         # ----------------
         # A5 – Interne Verlinkung innerhalb semantischer Cluster
         # ----------------
@@ -1172,53 +1170,18 @@ with st.sidebar:
             if len(selected_analyses) > 1:
                 st.markdown("---")
 
-            with st.expander("Analyse 5 – Cluster & Similarity", expanded=False):
-                st.markdown("**Backend für Similarity-Berechnung**")
-                st.radio(
-                    "Backend für Analyse 5",
-                    options=["Exakt (NumPy)", "FAISS (schnell)"],
-                    index=0,
-                    key="A5_backend",
-                    help=(
-                        "Exakt (NumPy): vollständige O(n²)-Berechnung, maximal genau – bei kleineren Projekten.\n"
-                        "FAISS (schnell): Approximierte NN-Suche, deutlich schneller bei vielen URLs."
-                    ),
-                )
+            st.subheader("Interne Verlinkung innerhalb semantischer Cluster (A5)")
+            st.caption(
+                "URLs werden automatisch in semantische Cluster gruppiert (auf Basis von Similarity/Embeddings). "
+                "Die internen Links innerhalb dieser Cluster werden analysiert – alle Schwellen werden "
+                "aus den Daten abgeleitet, du musst hier nichts einstellen."
+            )
 
-                st.markdown("---")
-                st.slider(
-                    "Similarity-Schwelle (Cosinus) für Cluster-Kanten",
-                    min_value=0.50,
-                    max_value=0.99,
-                    value=float(st.session_state.get("A5_sim_thresh", 0.80)),
-                    step=0.01,
-                    key="A5_sim_thresh",
-                    help="Nur Paare mit Cosine Similarity ≥ Schwelle werden für die Clusterbildung berücksichtigt.",
-                )
-
-                st.number_input(
-                    "Top-K Nachbarn je URL (für Related-Graph)",
-                    min_value=3,
-                    max_value=200,
-                    value=int(st.session_state.get("A5_top_k", 10)),
-                    step=1,
-                    key="A5_top_k",
-                )
-
-                st.number_input(
-                    "Minimale Clustergröße (Anzahl URLs)",
-                    min_value=2,
-                    max_value=100,
-                    value=int(st.session_state.get("A5_min_cluster_size", 3)),
-                    step=1,
-                    key="A5_min_cluster_size",
-                )
-
-                st.checkbox(
-                    "Nur Content-Links berücksichtigen (z. B. Body, nicht Navigation)",
-                    value=bool(st.session_state.get("A5_only_content", True)),
-                    key="A5_only_content",
-                )
+            st.checkbox(
+                "Nur Content-Links berücksichtigen (z. B. Body, nicht Navigation)",
+                value=bool(st.session_state.get("A5_only_content", True)),
+                key="A5_only_content",
+            )
 
 
 
@@ -1405,67 +1368,60 @@ if needs_embeddings_or_related:
         ),
     )
 
-# 2) Gemeinsame Upload-Sektion nur, wenn wirklich mehrere Analysen dieselbe Datei brauchen
+# Gemeinsame Sektion (falls mehrfach benötigt)
 if shared_uploads:
     st.markdown("### Für mehrere Analysen benötigt")
-    colA, colB = st.columns(2)
+
+# Spalten IMMER anlegen, damit colA/colB existieren
+colA, colB = st.columns(2)
+
+# Embeddings/Related (nur eines sichtbar; Auswahl Modus darunter)
+# Eingabemodus zeigen, sobald irgendeine Analyse Embeddings/Related braucht
+mode = "Related URLs"
+if needs_embeddings_or_related:
+    mode = st.radio(
+        "Eingabemodus (für Analysen 1–3, 5 & 6)",
+        ["URLs + Embeddings", "Related URLs"],
+        horizontal=True,
+        key="emb_rel_mode_global",
+        help=(
+            "URLs + Embeddings: Das Tool berechnet die 'Related URLs' intern "
+            "(NumPy oder FAISS, je nach Einstellung).\n"
+            "Related URLs: Fertige Similarity-Tabelle (Quelle/Ziel/Score) hochladen."
+        ),
+    )
 
     with colA:
         if "URLs + Embeddings" in shared_uploads and mode == "URLs + Embeddings" and needs_embeddings_or_related:
-            up_emb = st.file_uploader(
-                "URLs + Embeddings (CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_emb_shared",
-                help=HELP_EMB
-            )
+            up_emb = st.file_uploader("URLs + Embeddings (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                      key="up_emb_shared", help=HELP_EMB)
             emb_df = _read_up("URLs + Embeddings", up_emb, required=True)
-
         if "Related URLs" in shared_uploads and mode == "Related URLs" and needs_embeddings_or_related:
-            up_related = st.file_uploader(
-                "Related URLs (CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_related_shared",
-                help=HELP_REL
-            )
+            up_related = st.file_uploader("Related URLs (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                          key="up_related_shared", help=HELP_REL)
             related_df = _read_up("Related URLs", up_related, required=True)
 
         if "All Inlinks" in shared_uploads and needs_inlinks:
-            up_inlinks = st.file_uploader(
-                "All Inlinks (CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_inlinks_shared",
-                help=HELP_INL
-            )
+            up_inlinks = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                          key="up_inlinks_shared", help=HELP_INL)
             inlinks_df = _read_up("All Inlinks", up_inlinks, required=True)
 
     with colB:
         if "Linkmetriken" in shared_uploads and needs_metrics:
-            up_metrics = st.file_uploader(
-                "Linkmetriken (CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_metrics_shared",
-                help=HELP_MET
-            )
+            up_metrics = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                          key="up_metrics_shared", help=HELP_MET)
             metrics_df = _read_up("Linkmetriken", up_metrics, required=True)
-
         if "Backlinks" in shared_uploads and needs_backlinks:
-            up_backlinks = st.file_uploader(
-                "Backlinks (CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_backlinks_shared",
-                help=HELP_BL
-            )
+            up_backlinks = st.file_uploader("Backlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                            key="up_backlinks_shared", help=HELP_BL)
             backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
-
         if "Search Console" in shared_uploads and needs_gsc_a3:
-            up_gsc = st.file_uploader(
-                "Search Console Daten (optional, CSV/Excel)",
-                type=["csv","xlsx","xlsm","xls"],
-                key="up_gsc_shared",
-                help=HELP_GSC_A3
-            )
+            up_gsc = st.file_uploader("Search Console Daten (optional, CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
+                                      key="up_gsc_shared", help=HELP_GSC_A3)
+
             if up_gsc is not None:
                 gsc_df_loaded = _read_up("Search Console", up_gsc, required=False)
+
 
 
 # Individuelle Sektionen pro Analyse (nur Uploads, die NICHT in shared gelandet sind)
@@ -4095,241 +4051,186 @@ if 'inlinks_df' not in locals() or inlinks_df is None:
         pass
 
 # =========================================================
-# Analyse 5: Interne Verlinkung innerhalb semantischer Cluster
+# Analyse 5 – Semantische Cluster & interne Verlinkung
 # =========================================================
 if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
-    st.markdown("## Analyse 5: Interne Verlinkung innerhalb semantischer Cluster")
-    st.caption("URLs werden in semantische Cluster gruppiert und die interne Verlinkung innerhalb dieser Cluster analysiert.")
-
-    if inlinks_df is None:
-        st.error("Für Analyse 5 wird die Datei 'All Inlinks' benötigt.")
+    # ---------------------------
+    # 1) Related-Graph für A5 bauen
+    # ---------------------------
+    if emb_df is None and related_df is None:
+        st.error("Analyse 5: Bitte entweder 'URLs + Embeddings' oder 'Related URLs' hochladen.")
         st.stop()
 
-# A5 – Parameter aus Sidebar holen
-A5_sim_thresh = float(st.session_state.get("A5_sim_thresh", 0.80))
-A5_top_k = int(st.session_state.get("A5_top_k", 10))
-A5_min_cluster_size = int(st.session_state.get("A5_min_cluster_size", 3))
-A5_only_content = bool(st.session_state.get("A5_only_content", True))
+# interne Defaults / Heuristik für A5
+A5_DEFAULT_SIM = 0.80    # Basisschwelle für Similarity
+A5_DEFAULT_TOPK = 25     # Anzahl Nachbarn aus Embeddings
 
-# Backend-Auswahl für Similarity (NumPy vs. FAISS)
-backend_pref_A5 = st.session_state.get("A5_backend", "Exakt (NumPy)")
-# An das interne Backend-Schema anpassen (falls du in build_related_from_embeddings mit 'Schnell (FAISS)' arbeitest)
-if "FAISS" in backend_pref_A5:
-    backend_pref_A5 = "Schnell (FAISS)"
+# hier NICHT nochmal neu lesen, nur verwenden:
+link_set = st.session_state.get("_content_links") if only_content_A5 else st.session_state.get("_all_links")
 
-# Related-Datenquelle herstellen:
-# 1) Wenn fertige Related-URLs hochgeladen wurden → direkt verwenden
-# 2) Sonst URLs + Embeddings über build_related_from_embeddings in einen Related-Graph verwandeln
-rel_df_A5 = None
 
-if related_df is not None and not related_df.empty:
-    rel_df_A5 = related_df.copy()
-elif emb_df is not None and not emb_df.empty:
-    rel_df_A5 = build_related_from_embeddings(
-        emb_df=emb_df,
-        top_k=A5_top_k,
-        sim_threshold=A5_sim_thresh,
-        prefer_backend=backend_pref_A5,
+
+    # Welcher Eingabemodus ist global gewählt?
+    emb_rel_mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
+
+    rel_df_A5 = build_related_for_custom_analysis(
+        emb_df=emb_df if emb_rel_mode == "URLs + Embeddings" else None,
+        related_df=related_df if emb_rel_mode == "Related URLs" else None,
+        top_k=A5_DEFAULT_TOPK,
+        sim_threshold=A5_DEFAULT_SIM,
+        prefer_backend="Exakt (NumPy)",  # für A5 immer der robuste Pfad
     )
-else:
-    st.error(
-        "Für Analyse 5 wird entweder eine Datei **URLs + Embeddings (URL + Vektor)** "
-        "oder eine Datei **Related URLs** benötigt."
-    )
-    st.stop()
-
 
 
     if rel_df_A5 is None or rel_df_A5.empty:
-        st.info("Keine Related-URL-Daten für Analyse 5 verfügbar.")
-    else:
-        rel_df = rel_df_A5.copy()
-        rel_df.columns = [str(c).strip() for c in rel_df.columns]
-        hdr_rel = [str(c).strip() for c in rel_df.columns]
+        st.error("Analyse 5: Aus den vorliegenden Daten konnten keine 'Related URLs' erzeugt werden.")
+        st.stop()
 
-        src_idx_rel = find_column_index(hdr_rel, POSSIBLE_SOURCE)
-        dst_idx_rel = find_column_index(hdr_rel, POSSIBLE_TARGET)
-        sim_idx_rel = find_column_index(
-            hdr_rel,
-            ["similarity", "similarität", "similarity score", "score", "cosine similarity", "cosinus ähnlichkeit"],
+    # ---------------------------
+    # 2) Graph & Cluster (verbundene Komponenten)
+    # ---------------------------
+    from collections import defaultdict, deque
+
+    rel_df_A5 = rel_df_A5.copy()
+    rel_cols = [str(c).strip() for c in rel_df_A5.columns]
+
+    rel_src_idx_A5 = find_column_index(rel_cols, POSSIBLE_SOURCE + ["quelle", "source"])
+    rel_dst_idx_A5 = find_column_index(rel_cols, POSSIBLE_TARGET + ["ziel", "destination"])
+
+    if rel_src_idx_A5 == -1 or rel_dst_idx_A5 == -1:
+        if rel_df_A5.shape[1] >= 2:
+            rel_src_idx_A5, rel_dst_idx_A5 = 0, 1
+            st.warning("Analyse 5: Quelle/Ziel in 'Related URLs' nicht eindeutig erkannt – nutze erste zwei Spalten als Quelle/Ziel.")
+        else:
+            st.error("Analyse 5: 'Related URLs' brauchen mindestens zwei Spalten (Quelle/Ziel).")
+            st.stop()
+
+    graph_A5 = defaultdict(set)
+    for row in rel_df_A5.itertuples(index=False, name=None):
+        src_raw = row[rel_src_idx_A5]
+        dst_raw = row[rel_dst_idx_A5]
+        src = remember_original(src_raw)
+        dst = remember_original(dst_raw)
+        if not src or not dst:
+            continue
+        graph_A5[src].add(dst)
+        graph_A5[dst].add(src)
+
+    visited = set()
+    clusters = []
+
+    for node in graph_A5.keys():
+        if node in visited:
+            continue
+        comp = []
+        dq = deque([node])
+        visited.add(node)
+        while dq:
+            u = dq.popleft()
+            comp.append(u)
+            for v in graph_A5[u]:
+                if v not in visited:
+                    visited.add(v)
+                    dq.append(v)
+        clusters.append(comp)
+
+    def _auto_min_cluster_size(n_nodes: int) -> int:
+        """
+        Heuristik:
+        - kleine Seiten: schnell Cluster ab 2
+        - mittlere Seiten: 3
+        - größere Seiten: 4–5
+        """
+        if n_nodes <= 50:
+            return 2
+        if n_nodes <= 200:
+            return 3
+        if n_nodes <= 1000:
+            return 4
+        return 5
+    
+    n_nodes_A5 = len(graph_A5)
+    min_size_A5 = _auto_min_cluster_size(n_nodes_A5)
+    
+    clusters = [c for c in clusters if len(c) >= min_size_A5]
+
+
+    # ---------------------------
+    # 3) URL → Cluster-ID + Link-Coverage
+    # ---------------------------
+    cluster_rows = []
+    cluster_by_url = {}
+
+    for cid, urls_in_cluster in enumerate(clusters, start=1):
+        size = len(urls_in_cluster)
+        for u in urls_in_cluster:
+            cluster_by_url[u] = cid
+            cluster_rows.append({
+                "Cluster-ID": cid,
+                "Cluster-Größe": size,
+                "URL (normalisiert)": u,
+                "URL": disp(u),
+            })
+
+    cluster_df_A5 = pd.DataFrame(cluster_rows)
+
+    st.markdown("## Analyse 5: Semantische Cluster und interne Verlinkung")
+    st.caption(
+        f"Die Clusteranzahl wurde automatisch aus dem Similarity-Graphen (verbundene Komponenten) abgeleitet. "
+        f"Für diese Analyse wurden Kanten mit Similarity ≥ {A5_DEFAULT_SIM:.2f} und eine "
+        f"automatische minimale Clustergröße von {min_size_A5} (abhängig von der Gesamtanzahl der URLs) verwendet. "
+        "Unten siehst du, welche URL welchem Cluster zugeordnet wurde und wie stark sie im Cluster verlinkt ist."
+    )
+
+
+    if cluster_df_A5.empty:
+        st.info("Analyse 5: Es wurden keine Cluster mit der aktuellen Similarity-Schwelle und Mindestgröße gefunden.")
+    else:
+        # Link-Coverage im Cluster berechnen
+        only_content_A5 = bool(st.session_state.get("A5_only_content", True))
+        link_set = st.session_state.get("_content_links") if only_content_A5 else st.session_state.get("_all_links")
+
+        in_counts = defaultdict(int)
+        out_counts = defaultdict(int)
+
+        if isinstance(link_set, set):
+            for (src, dst) in link_set:
+                cid_src = cluster_by_url.get(src)
+                cid_dst = cluster_by_url.get(dst)
+                if cid_src is None or cid_dst is None:
+                    continue
+                if cid_src != cid_dst:
+                    continue  # nur Links innerhalb desselben Clusters zählen
+                out_counts[src] += 1
+                in_counts[dst] += 1
+
+        label_in = "Inlinks im Cluster (Content)" if only_content_A5 else "Inlinks im Cluster (alle Links)"
+        label_out = "Outlinks im Cluster (Content)" if only_content_A5 else "Outlinks im Cluster (alle Links)"
+
+        cluster_df_A5[label_in] = cluster_df_A5["URL (normalisiert)"].map(lambda u: in_counts.get(u, 0)).astype(int)
+        cluster_df_A5[label_out] = cluster_df_A5["URL (normalisiert)"].map(lambda u: out_counts.get(u, 0)).astype(int)
+
+        # Anzeige & Download
+        cluster_view = cluster_df_A5.drop(columns=["URL (normalisiert)"]).sort_values(
+            ["Cluster-ID", label_in, "URL"],
+            ascending=[True, False, True]
         )
 
-        if -1 in (src_idx_rel, dst_idx_rel, sim_idx_rel):
-            if rel_df.shape[1] >= 3:
-                if src_idx_rel == -1:
-                    src_idx_rel = 0
-                if dst_idx_rel == -1:
-                    dst_idx_rel = 1
-                if sim_idx_rel == -1:
-                    sim_idx_rel = 2
-                st.warning(
-                    "Related-URL-Tabelle für Analyse 5: Header nicht vollständig erkannt "
-                    "Fallback auf Spaltenpositionen (1–3)."
-                )
-            else:
-                st.error("Related-URL-Tabelle für Analyse 5 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
-                st.stop()
+        st.dataframe(cluster_view, use_container_width=True, hide_index=True)
 
-        from collections import defaultdict, deque
+        st.download_button(
+            "Download Cluster-Zuordnung (CSV)",
+            data=cluster_view.to_csv(index=False).encode("utf-8-sig"),
+            file_name="analyse5_cluster_mapping.csv",
+            mime="text/csv",
+            key="dl_a5_clusters",
+        )
 
-        adj = defaultdict(set)
-        sim_map = {}
-
-        for row in rel_df.itertuples(index=False, name=None):
-            src_raw = row[src_idx_rel]
-            dst_raw = row[dst_idx_rel]
-            try:
-                sim_val = float(str(row[sim_idx_rel]).replace(",", "."))
-            except Exception:
-                continue
-            if not np.isfinite(sim_val):
-                continue
-            if sim_val < A5_sim_thresh:
-                continue
-
-            u = remember_original(src_raw)
-            v = remember_original(dst_raw)
-            if not u or not v or u == v:
-                continue
-
-            adj[u].add(v)
-            adj[v].add(u)
-            sim_map[(u, v)] = sim_val
-            sim_map[(v, u)] = sim_val
-
-        if not adj:
-            st.info("Keine URL-Paare mit ausreichender Similarity für Analyse 5 gefunden.")
-        else:
-            visited = set()
-            clusters = []
-
-            for node in adj.keys():
-                if node in visited:
-                    continue
-                comp = []
-                dq = deque([node])
-                visited.add(node)
-                while dq:
-                    cur = dq.popleft()
-                    comp.append(cur)
-                    for nb in adj[cur]:
-                        if nb not in visited:
-                            visited.add(nb)
-                            dq.append(nb)
-                if len(comp) >= A5_min_cluster_size:
-                    clusters.append(sorted(comp))
-
-            if not clusters:
-                st.info("Es wurden keine Cluster mit der gewählten minimalen Clustergröße gefunden.")
-            else:
-                links_set = st.session_state.get("_content_links", set()) if A5_only_content else st.session_state.get("_all_links", set())
-
-
-                overview_rows = []
-                missing_rows = []
-
-                for cid, nodes in enumerate(clusters, start=1):
-                    n = len(nodes)
-                    existing_links = 0
-                    missing_links = 0
-                    sim_sum = 0.0
-                    sim_count = 0
-
-                    for i, u in enumerate(nodes):
-                        for j, v in enumerate(nodes):
-                            if i == j:
-                                continue
-
-                            sim_val = sim_map.get((u, v))
-                            if isinstance(sim_val, float) and np.isfinite(sim_val):
-                                sim_sum += sim_val
-                                sim_count += 1
-
-                            has_link = (u, v) in links_set
-                            if has_link:
-                                existing_links += 1
-                            else:
-                                missing_links += 1
-                                missing_rows.append(
-                                    [
-                                        cid,
-                                        disp(u),
-                                        disp(v),
-                                        round(sim_val, 3)
-                                        if isinstance(sim_val, float) and np.isfinite(sim_val)
-                                        else np.nan,
-                                    ]
-                                )
-
-                    possible_links = n * (n - 1)
-                    cov = existing_links / possible_links if possible_links > 0 else 0.0
-                    avg_sim = sim_sum / sim_count if sim_count > 0 else np.nan
-
-                    overview_rows.append(
-                        [
-                            cid,
-                            n,
-                            existing_links,
-                            missing_links,
-                            round(cov, 3),
-                            round(avg_sim, 3) if np.isfinite(avg_sim) else np.nan,
-                        ]
-                    )
-
-                overview_df = pd.DataFrame(
-                    overview_rows,
-                    columns=[
-                        "Cluster-ID",
-                        "Anzahl URLs",
-                        "Bestehende Links im Cluster",
-                        "Fehlende Links im Cluster",
-                        "Link-Coverage (Anteil vorhandener Links)",
-                        "Ø Similarity im Cluster",
-                    ],
-                ).sort_values("Anzahl URLs", ascending=False)
-
-                st.markdown("### Analyse 5: Cluster-Übersicht")
-                st.dataframe(overview_df, use_container_width=True, hide_index=True)
-
-                st.download_button(
-                    "Download Analyse 5 – Cluster-Übersicht (CSV)",
-                    data=overview_df.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="analyse5_cluster_uebersicht.csv",
-                    mime="text/csv",
-                    key="A5_dl_overview_csv",
-                )
-
-                if missing_rows:
-                    missing_df = pd.DataFrame(
-                        missing_rows,
-                        columns=[
-                            "Cluster-ID",
-                            "Quell-URL",
-                            "Ziel-URL",
-                            "Similarity (Cosinus)",
-                        ],
-                    ).sort_values(
-                        ["Cluster-ID", "Similarity (Cosinus)"],
-                        ascending=[True, False],
-                    )
-
-                    st.markdown("### Analyse 5: Empfohlene zusätzliche Links innerhalb der Cluster")
-                    st.dataframe(missing_df, use_container_width=True, hide_index=True)
-
-                    st.download_button(
-                        "Download Analyse 5 – Empfohlene Links (CSV)",
-                        data=missing_df.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="analyse5_empfehlungen_im_cluster.csv",
-                        mime="text/csv",
-                        key="A5_dl_missing_csv",
-                    )
-                else:
-                    st.info("Innerhalb der gefundenen Cluster wurden keine fehlenden Links gefunden.")
 
 
 # =========================================================
-# Analyse 5: Semantische Duplikate ohne Verlinkung
+# Analyse 6: Semantische Duplikate ohne Verlinkung
 # =========================================================
 if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
 
