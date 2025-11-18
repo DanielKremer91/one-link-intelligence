@@ -1389,12 +1389,8 @@ HELP_CRAWL_A4 = (
 
 
 # Gemeinsame Sektion (falls mehrfach benötigt)
-if shared_uploads:
-    st.markdown("### Für mehrere Analysen benötigt")
-    colA, colB = st.columns(2)
 
-# Embeddings/Related (nur eines sichtbar; Auswahl Modus darunter)
-# Eingabemodus zeigen, sobald irgendeine Analyse Embeddings/Related braucht
+# 1) Globaler Eingabemodus: URLs + Embeddings vs. Related URLs
 mode = "Related URLs"
 if needs_embeddings_or_related:
     mode = st.radio(
@@ -1409,37 +1405,68 @@ if needs_embeddings_or_related:
         ),
     )
 
+# 2) Gemeinsame Upload-Sektion nur, wenn wirklich mehrere Analysen dieselbe Datei brauchen
+if shared_uploads:
+    st.markdown("### Für mehrere Analysen benötigt")
+    colA, colB = st.columns(2)
 
     with colA:
         if "URLs + Embeddings" in shared_uploads and mode == "URLs + Embeddings" and needs_embeddings_or_related:
-            up_emb = st.file_uploader("URLs + Embeddings (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                      key="up_emb_shared", help=HELP_EMB)
+            up_emb = st.file_uploader(
+                "URLs + Embeddings (CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_emb_shared",
+                help=HELP_EMB
+            )
             emb_df = _read_up("URLs + Embeddings", up_emb, required=True)
+
         if "Related URLs" in shared_uploads and mode == "Related URLs" and needs_embeddings_or_related:
-            up_related = st.file_uploader("Related URLs (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                          key="up_related_shared", help=HELP_REL)
+            up_related = st.file_uploader(
+                "Related URLs (CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_related_shared",
+                help=HELP_REL
+            )
             related_df = _read_up("Related URLs", up_related, required=True)
 
         if "All Inlinks" in shared_uploads and needs_inlinks:
-            up_inlinks = st.file_uploader("All Inlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                          key="up_inlinks_shared", help=HELP_INL)
+            up_inlinks = st.file_uploader(
+                "All Inlinks (CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_inlinks_shared",
+                help=HELP_INL
+            )
             inlinks_df = _read_up("All Inlinks", up_inlinks, required=True)
 
     with colB:
         if "Linkmetriken" in shared_uploads and needs_metrics:
-            up_metrics = st.file_uploader("Linkmetriken (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                          key="up_metrics_shared", help=HELP_MET)
+            up_metrics = st.file_uploader(
+                "Linkmetriken (CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_metrics_shared",
+                help=HELP_MET
+            )
             metrics_df = _read_up("Linkmetriken", up_metrics, required=True)
-        if "Backlinks" in shared_uploads and needs_backlinks:
-            up_backlinks = st.file_uploader("Backlinks (CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                            key="up_backlinks_shared", help=HELP_BL)
-            backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
-        if "Search Console" in shared_uploads and needs_gsc_a3:
-            up_gsc = st.file_uploader("Search Console Daten (optional, CSV/Excel)", type=["csv","xlsx","xlsm","xls"],
-                                      key="up_gsc_shared", help=HELP_GSC_A3)
 
+        if "Backlinks" in shared_uploads and needs_backlinks:
+            up_backlinks = st.file_uploader(
+                "Backlinks (CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_backlinks_shared",
+                help=HELP_BL
+            )
+            backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
+
+        if "Search Console" in shared_uploads and needs_gsc_a3:
+            up_gsc = st.file_uploader(
+                "Search Console Daten (optional, CSV/Excel)",
+                type=["csv","xlsx","xlsm","xls"],
+                key="up_gsc_shared",
+                help=HELP_GSC_A3
+            )
             if up_gsc is not None:
                 gsc_df_loaded = _read_up("Search Console", up_gsc, required=False)
+
 
 # Individuelle Sektionen pro Analyse (nur Uploads, die NICHT in shared gelandet sind)
 def upload_for_analysis(title: str, needs: List[Tuple[str, str, str]]):
