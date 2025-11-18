@@ -2658,7 +2658,6 @@ if A4_NAME in selected_analyses:
     brand_text = st.session_state.get("a4_brand_text", "")
     brand_file = st.session_state.get("a4_brand_file", None)
     auto_variants = st.session_state.get("a4_auto_variants", True)
-    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
 
     metric_choice = st.session_state.get("a4_metric_choice", "Impressions")
     check_exact = bool(st.session_state.get("a4_check_exact", True))
@@ -2674,6 +2673,11 @@ if A4_NAME in selected_analyses:
 
     show_treemap = bool(st.session_state.get("a4_show_treemap", True))
     treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
+
+    # Brand-Mode global für A4 setzen (wird nur in GSC-Coverage wirklich genutzt)
+    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+    brand_list: List[str] = []
+
 
     # ---- Helper: Brand-Liste bauen ----
     def split_list_text(s: str) -> List[str]:
@@ -2705,33 +2709,34 @@ brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
 
 
     
-    # 2) Brand-Erkennung abhängig von der Checkbox:
-    #    - auto_variants = True  → Marke irgendwo im String reicht (inkl. Bindestrich-Fälle)
-    #    - auto_variants = False → Nur exakt die Marke allein als Query
-    def is_brand_query(q: str) -> bool:
-        s = (q or "").lower().strip()
-        if not s:
-            return False
+# 2) Brand-Erkennung abhängig von der Checkbox:
+#    - auto_variants = True  → Marke irgendwo im String reicht (inkl. Bindestrich-Fälle)
+#    - auto_variants = False → Nur exakt die Marke allein als Query
+def is_brand_query(q: str) -> bool:
+    s = (q or "").lower().strip()
+    if not s:
+        return False
 
-        auto_variants = bool(st.session_state.get("a4_auto_variants", True))
+    auto_variants = bool(st.session_state.get("a4_auto_variants", True))
 
-        # Wenn keine Brandliste vorhanden ist, ist nichts eine Brand-Query
-        if not brand_list:
-            return False
+    # Wenn keine Brandliste vorhanden ist, ist nichts eine Brand-Query
+    if not brand_list:
+        return False
 
-        # simple Tokenisierung (Leerzeichen + Bindestrich)
-        tokens = [t for t in re.split(r"[\s\-]+", s) if t]
+    # simple Tokenisierung (Leerzeichen + Bindestrich)
+    tokens = [t for t in re.split(r"[\s\-]+", s) if t]
 
-        has_brand_token = any(t in brand_list for t in tokens)
-        if not has_brand_token:
-            return False
+    has_brand_token = any(t in brand_list for t in tokens)
+    if not has_brand_token:
+        return False
 
-        if auto_variants:
-            # Marke irgendwo im String reicht
-            return True
-        else:
-            # nur reine Brand-Query (ein Token)
-            return len(tokens) == 1 and tokens[0] in brand_list
+    if auto_variants:
+        # Marke irgendwo im String reicht
+        return True
+    else:
+        # nur reine Brand-Query (ein Token)
+        return len(tokens) == 1 and tokens[0] in brand_list
+
 
 
 
