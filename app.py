@@ -33,6 +33,31 @@ def bordered_container():
 # ===============================
 st.set_page_config(page_title="ONE Link Intelligence", layout="wide")
 
+st.markdown("""
+<style>
+/* Download-Buttons rot einfärben */
+.stDownloadButton > button {
+    background-color: #e60000 !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 6px !important;
+}
+
+/* Hover-Effekt optional */
+.stDownloadButton > button:hover {
+    background-color: #cc0000 !important;
+}
+
+/* Disabled-State sauber */
+.stDownloadButton > button:disabled {
+    background-color: #ff9999 !important;
+    color: #ffffff !important;
+    opacity: 0.6 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # Session-State init
 if "ready" not in st.session_state:
     st.session_state.ready = False
@@ -2246,20 +2271,21 @@ if A3_NAME in selected_analyses:
         st.session_state["__ready_gems__"] = False
         st.rerun()
 
-    # Loader
-    if st.session_state.get("__gems_loading__", False):
-        ph3 = st.session_state.get("__gems_ph__")
-        if ph3 is None:
-            ph3 = st.empty()
-            st.session_state["__gems_ph__"] = ph3
-        with ph3.container():
-            c1, c2, c3 = st.columns([1, 2, 1])
-            with c2:
-                try:
-                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExcnY0amo3NThxZnpnb3I4dDB6NWF2a2RkZm9uaXJ0bml1bG5lYm1mciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6HypNJJjcfnZ1bzWDs/giphy.gif", width=280)
-                except Exception:
-                    st.write("⏳")
-                st.caption("Analyse 3 läuft … Wir geben Gas – versprochen!")
+        # Loader (ohne GIF, mit statischem Hinweis)
+        if st.session_state.get("__gems_loading__", False):
+            ph3 = st.session_state.get("__gems_ph__")
+            if ph3 is None:
+                ph3 = st.empty()
+                st.session_state["__gems_ph__"] = ph3
+            with ph3.container():
+                c1, c2, c3 = st.columns([1, 2, 1])
+                with c2:
+                    st.markdown("""
+                    <div style='padding: 12px; border-radius: 6px; background-color:#fff0f0; color:#b30000; border:1px solid #b30000; text-align:center;'>
+                        ⏳ Analyse 3 läuft – bitte einen Moment warten…
+                    </div>
+                    """, unsafe_allow_html=True)
+
 
     # ====== Analyse 3: Berechnung & Ausgabe ======
     # Datenabhängigkeiten prüfen
@@ -2300,7 +2326,7 @@ if A3_NAME in selected_analyses:
             pos_idx   = _fidx({"position","avg position","durchschn. position"}, None)
 
             if url_idx is not None:
-                df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(normalize_url)
+                df.iloc[:, url_idx] = df.iloc[:, url_idx].astype(str).map(remember_original)
                 if impr_idx is not None:
                     df.iloc[:, impr_idx] = pd.to_numeric(df.iloc[:, impr_idx], errors="coerce").fillna(0)
                 if clicks_idx is not None:
@@ -2608,7 +2634,7 @@ if A4_NAME in selected_analyses:
     
     # Uploads werden aus dem Upload-Center geladen (siehe oben)
 
-    # Loader-Anzeige (wenn Analyse 4 läuft)
+    # Loader-Anzeige (wenn Analyse 4 läuft, ohne GIF)
     if st.session_state.get("__a4_loading__", False):
         ph4 = st.session_state.get("__a4_ph__")
         if ph4 is None:
@@ -2617,11 +2643,12 @@ if A4_NAME in selected_analyses:
         with ph4.container():
             c1, c2, c3 = st.columns([1, 2, 1])
             with c2:
-                try:
-                    st.image("https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExczFvdm16cHZsd3J2NGZ2eDVvOWE1b3k2OXJpajZodDliamxjdzVybCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/WS6C15O7L8Oqk/giphy.gif", width=280)
-                except Exception:
-                    st.write("⏳")
-                st.caption("Analyse 4 läuft … gleich geht’s los!")
+                st.markdown("""
+                <div style='padding: 12px; border-radius: 6px; background-color:#fff0f0; color:#b30000; border:1px solid #b30000; text-align:center;'>
+                    ⏳ Analyse 4 läuft – bitte einen Moment warten…
+                </div>
+                """, unsafe_allow_html=True)
+
 
     # -------------------------------------------------
     # Ab hier: komplette A4-Auswertung
@@ -2959,7 +2986,7 @@ if A4_NAME in selected_analyses:
             st.warning("GSC-Datei für A4 benötigt: **URL + Query + (Clicks oder Impressions)**. Bitte Datei prüfen.")
         else:
             # Normalisierung & Filter
-            df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(normalize_url)
+            df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(remember_original)
             df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
             if c_i is not None:
                 df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
@@ -3067,11 +3094,15 @@ if A4_NAME in selected_analyses:
 
                 coverage_rows = []  # eine Zeile pro URL+Query
 
-                for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
-                    url_norm = str(u)
+                for u, grp in df_top.groupby(df.columns[url_i], sort=False):
+                    # u = Original-URL aus GSC
+                    url_raw = str(u)
+                    url_norm = normalize_url(url_raw)
                     inv = inv_map.get(url_norm, {})
-                    a_names = list(inv.keys())  # originale Ankertexte
-                    a_emb: Optional[np.ndarray] = None
+                
+                    # Ankernamen für diese URL
+                    a_names = list(inv.keys())
+                    a_emb = None
                     a_names_norm: List[str] = []
 
                     # Embeddings je URL vorbereiten
@@ -3089,18 +3120,16 @@ if A4_NAME in selected_analyses:
                                 a_emb = None
                         else:
                             a_names, a_names_norm, a_emb = anchor_emb_cache[url_norm]
-
-    
+                
                     for _, rr in grp.iterrows():
                         q = str(rr.iloc[q_i]).strip()
                         if not q:
                             continue
-
-                          
+                
                         found = False
                         found_cnt = 0
                         match_type_parts = []
-    
+                
                         # Exact Match
                         if check_exact:
                             cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
@@ -3108,14 +3137,14 @@ if A4_NAME in selected_analyses:
                                 found = True
                                 found_cnt = max(found_cnt, cnt)
                                 match_type_parts.append("Exact")
-    
+                
                         # Embedding Match
                         if (not found) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
                             try:
                                 q_norm = _norm_text_for_emb(q)
                                 q_emb = model.encode([q_norm], show_progress_bar=False)
                                 q_emb = np.asarray(q_emb)
-
+                
                                 S = cosine_sim_matrix(q_emb, a_emb)[0]
                                 idxs = np.where(S >= float(embed_thresh))[0]
                                 if idxs.size > 0:
@@ -3126,12 +3155,11 @@ if A4_NAME in selected_analyses:
                                     match_type_parts.append("Embedding")
                             except Exception:
                                 pass
-
-    
+                
                         match_type = "+".join(match_type_parts) if match_type_parts else "—"
-    
+                
                         coverage_rows.append([
-                            disp(url_norm),  # Original-URL ausgeben
+                            disp(url_norm),  # oder disp(url_raw), beide ok
                             q,
                             match_type,
                             bool(found),
