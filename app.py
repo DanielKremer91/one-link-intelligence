@@ -1163,10 +1163,6 @@ with st.sidebar:
                 st.session_state["a4_treemap_selected_urls"] = []                                
             
                                       
-    else:
-        st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
-
-
 
 
         # ----------------
@@ -1175,36 +1171,60 @@ with st.sidebar:
         if A5_NAME in selected_analyses:
             if len(selected_analyses) > 1:
                 st.markdown("---")
-            st.subheader("Einstellungen – Interne Verlinkung innerhalb semantischer Cluster (A5)")
-            st.caption(
-                "URLs werden in semantische Cluster gruppiert (auf Basis von Similarity/Embeddings) und "
-                "die interne Verlinkung innerhalb dieser Cluster analysiert."
-            )
 
-            A5_sim_thresh = st.slider(
-                "Ähnlichkeitsschwelle für Cluster-Kanten",
-                0.0, 1.0, 0.80, 0.01,
-                key="A5_sim_thresh",
-                help="Nur Paare mit Similarity ≥ dieser Schwelle fließen in den Cluster-Graphen ein."
-            )
-            A5_top_k = st.number_input(
-                "Max. Nachbarn pro URL (für Cluster-Graph)",
-                min_value=1, max_value=50, value=10, step=1,
-                key="A5_top_k",
-                help="Begrenzt, wie viele stärkste Nachbarn je URL beim Clustern berücksichtigt werden."
-            )
-            A5_min_cluster_size = st.number_input(
-                "Minimale Clustergröße",
-                min_value=2, max_value=100, value=3, step=1,
-                key="A5_min_cluster_size",
-                help="Cluster mit weniger URLs werden ignoriert."
-            )
-            A5_only_content = st.checkbox(
-                "Nur Content-Links für die Verlinkungsanalyse berücksichtigen",
-                value=True,
-                key="A5_only_content",
-                help="Wenn aktiv, werden nur Links aus dem Content (nicht Navigation/Footer) gezählt."
-            )
+            with st.expander("Analyse 5 – Cluster & Similarity", expanded=False):
+                st.markdown("**Backend für Similarity-Berechnung**")
+                st.radio(
+                    "Backend für Analyse 5",
+                    options=["Exakt (NumPy)", "FAISS (schnell)"],
+                    index=0,
+                    key="A5_backend",
+                    help=(
+                        "Exakt (NumPy): vollständige O(n²)-Berechnung, maximal genau – bei kleineren Projekten.\n"
+                        "FAISS (schnell): Approximierte NN-Suche, deutlich schneller bei vielen URLs."
+                    ),
+                )
+
+                st.markdown("---")
+                st.slider(
+                    "Similarity-Schwelle (Cosinus) für Cluster-Kanten",
+                    min_value=0.50,
+                    max_value=0.99,
+                    value=float(st.session_state.get("A5_sim_thresh", 0.80)),
+                    step=0.01,
+                    key="A5_sim_thresh",
+                    help="Nur Paare mit Cosine Similarity ≥ Schwelle werden für die Clusterbildung berücksichtigt.",
+                )
+
+                st.number_input(
+                    "Top-K Nachbarn je URL (für Related-Graph)",
+                    min_value=3,
+                    max_value=200,
+                    value=int(st.session_state.get("A5_top_k", 10)),
+                    step=1,
+                    key="A5_top_k",
+                )
+
+                st.number_input(
+                    "Minimale Clustergröße (Anzahl URLs)",
+                    min_value=2,
+                    max_value=100,
+                    value=int(st.session_state.get("A5_min_cluster_size", 3)),
+                    step=1,
+                    key="A5_min_cluster_size",
+                )
+
+                st.checkbox(
+                    "Nur Content-Links berücksichtigen (z. B. Body, nicht Navigation)",
+                    value=bool(st.session_state.get("A5_only_content", True)),
+                    key="A5_only_content",
+                )
+
+
+
+    else:
+        st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
+
 
         # ----------------
         # A6 – Semantische Duplikate ohne Verlinkung
@@ -1373,16 +1393,22 @@ if shared_uploads:
     st.markdown("### Für mehrere Analysen benötigt")
     colA, colB = st.columns(2)
 
-    # Embeddings/Related (nur eines sichtbar; Auswahl Modus darunter)
-    # Eingabemodus nur zeigen, wenn A1/A2/A3 aktiv
-    mode = "Related URLs"
-    if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]):
-        mode = st.radio(
-            "Eingabemodus (für Analysen 1–3)",
-            ["URLs + Embeddings", "Related URLs"],
-            horizontal=True,
-            help="Bei Embeddings berechnet das Tool die 'Related URLs' selbst. Oder fertige 'Related URLs' hochladen."
-        )
+# Embeddings/Related (nur eines sichtbar; Auswahl Modus darunter)
+# Eingabemodus zeigen, sobald irgendeine Analyse Embeddings/Related braucht
+mode = "Related URLs"
+if needs_embeddings_or_related:
+    mode = st.radio(
+        "Eingabemodus (für Analysen 1–3, 5 & 6)",
+        ["URLs + Embeddings", "Related URLs"],
+        horizontal=True,
+        key="emb_rel_mode_global",
+        help=(
+            "URLs + Embeddings: Das Tool berechnet die 'Related URLs' intern "
+            "(NumPy oder FAISS, je nach Einstellung).\n"
+            "Related URLs: Fertige Similarity-Tabelle (Quelle/Ziel/Score) hochladen."
+        ),
+    )
+
 
     with colA:
         if "URLs + Embeddings" in shared_uploads and mode == "URLs + Embeddings" and needs_embeddings_or_related:
@@ -1568,8 +1594,6 @@ if A5_NAME in selected_analyses:
     needs = []
     # Embeddings oder Related – je nach globalem Modus / shared Upload
     if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
-        if 'mode' not in locals():
-            mode = "Related URLs"
         if mode == "URLs + Embeddings":
             needs.append(("URLs + Embeddings (CSV/Excel)", "up_emb_A5", HELP_EMB))
         else:
@@ -1579,7 +1603,7 @@ if A5_NAME in selected_analyses:
         needs.append(("All Inlinks (CSV/Excel)", "up_inlinks_A5", HELP_INL))
 
     for (label, df) in upload_for_analysis(
-        "Analyse 6 Interne Verlinkung innerhalb semantischer Cluster – erforderliche Dateien",
+        "Analyse 5 Interne Verlinkung innerhalb semantischer Cluster – erforderliche Dateien",
         needs
     ):
         if "Embeddings" in label:
@@ -1681,7 +1705,7 @@ if A4_NAME in selected_analyses:
 
 if A5_NAME in selected_analyses:
     with start_cols[4]:
-        run_clicked_A5 = st.button("Let's Go (Analyse 6)", type="primary", key="btn_A5", use_container_width=True)
+        run_clicked_A5 = st.button("Let's Go (Analyse 5)", type="primary", key="btn_A5", use_container_width=True)
 
 if A6_NAME in selected_analyses:
     with start_cols[5]:
@@ -2674,41 +2698,37 @@ if A4_NAME in selected_analyses:
     show_treemap = bool(st.session_state.get("a4_show_treemap", True))
     treemap_topK = int(st.session_state.get("a4_treemap_topk", 12))
 
-    # Brand-Mode global für A4 setzen (wird nur in GSC-Coverage wirklich genutzt)
-    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
-    brand_list: List[str] = []
-
-
-    # ---- Helper: Brand-Liste bauen ----
-    def split_list_text(s: str) -> List[str]:
-        if not s:
-            return []
-        arr = []
-        for line in s.replace(";", ",").splitlines():
-            for tok in line.split(","):
-                v = tok.strip()
-                if v:
-                    arr.append(v)
-        return arr
-
-    def read_single_col_file_obj(up_obj) -> List[str]:
-        if up_obj is None:
-            return []
-        try:
-            df = read_any_file_cached(getattr(up_obj, "name", ""), up_obj.getvalue())
-        except Exception:
-            return []
-        if df is None or df.empty:
-            return []
-        col = df.columns[0]
-        vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
-        return vals
-
-brand_list = []
+# ---- Brand-Mode & Brand-Liste (global für A4) ----
 brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+brand_list: List[str] = []
 
 
-    
+def split_list_text(s: str) -> List[str]:
+    if not s:
+        return []
+    arr = []
+    for line in s.replace(";", ",").splitlines():
+        for tok in line.split(","):
+            v = tok.strip()
+            if v:
+                arr.append(v)
+    return arr
+
+
+def read_single_col_file_obj(up_obj) -> List[str]:
+    if up_obj is None:
+        return []
+    try:
+        df = read_any_file_cached(getattr(up_obj, "name", ""), up_obj.getvalue())
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+    col = df.columns[0]
+    vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
+    return vals
+
+
 # 2) Brand-Erkennung abhängig von der Checkbox:
 #    - auto_variants = True  → Marke irgendwo im String reicht (inkl. Bindestrich-Fälle)
 #    - auto_variants = False → Nur exakt die Marke allein als Query
@@ -2738,16 +2758,15 @@ def is_brand_query(q: str) -> bool:
         return len(tokens) == 1 and tokens[0] in brand_list
 
 
+# Navigative/generische Anchors ausschließen (für Konflikte)
+def is_navigational(anchor: str) -> bool:
+    return (anchor or "").strip().lower() in NAVIGATIONAL_ANCHORS
 
 
-    # Navigative/generische Anchors ausschließen (für Konflikte)
-    def is_navigational(anchor: str) -> bool:
-        return (anchor or "").strip().lower() in NAVIGATIONAL_ANCHORS
-
-    # ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
-    if 'inlinks_df' not in locals() or inlinks_df is None:
-        st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
-        st.stop()
+# ---- Anchor-Inventar aus All Inlinks (inkl. ALT als Fallback) ----
+if 'inlinks_df' not in locals() or inlinks_df is None:
+    st.error("Für Analyse 4 wird die Datei **All Inlinks** benötigt.")
+    st.stop()
 
     header = [str(c).strip() for c in inlinks_df.columns]
     src_idx = find_column_index(header, POSSIBLE_SOURCE)
@@ -4060,31 +4079,40 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
         st.error("Für Analyse 5 wird die Datei 'All Inlinks' benötigt.")
         st.stop()
 
-    # NEU: Entweder Related-URLs ODER Embeddings müssen vorhanden sein
-    has_related = related_df is not None and not related_df.empty
-    has_embeds  = emb_df is not None and not emb_df.empty
+# A5 – Parameter aus Sidebar holen
+A5_sim_thresh = float(st.session_state.get("A5_sim_thresh", 0.80))
+A5_top_k = int(st.session_state.get("A5_top_k", 10))
+A5_min_cluster_size = int(st.session_state.get("A5_min_cluster_size", 3))
+A5_only_content = bool(st.session_state.get("A5_only_content", True))
 
-    if not has_related and not has_embeds:
-        st.error(
-            "Für Analyse 5 brauchst du entweder eine Datei **Related URLs** "
-            "oder eine Datei **Embeddings (URL + Vektor)**. "
-            "Bitte eine der beiden im Upload-Center bereitstellen."
-        )
-        st.stop()
+# Backend-Auswahl für Similarity (NumPy vs. FAISS)
+backend_pref_A5 = st.session_state.get("A5_backend", "Exakt (NumPy)")
+# An das interne Backend-Schema anpassen (falls du in build_related_from_embeddings mit 'Schnell (FAISS)' arbeitest)
+if "FAISS" in backend_pref_A5:
+    backend_pref_A5 = "Schnell (FAISS)"
 
-    A5_sim_thresh = float(st.session_state.get("A5_sim_thresh", 0.80))
-    A5_top_k = int(st.session_state.get("A5_top_k", 10))
-    A5_min_cluster_size = int(st.session_state.get("A5_min_cluster_size", 3))
-    A5_only_content = bool(st.session_state.get("A5_only_content", True))
+# Related-Datenquelle herstellen:
+# 1) Wenn fertige Related-URLs hochgeladen wurden → direkt verwenden
+# 2) Sonst URLs + Embeddings über build_related_from_embeddings in einen Related-Graph verwandeln
+rel_df_A5 = None
 
-    backend_pref = locals().get("backend", "Exakt (NumPy)")
-    rel_df_A5 = build_related_for_custom_analysis(
-        emb_df,
-        related_df,
+if related_df is not None and not related_df.empty:
+    rel_df_A5 = related_df.copy()
+elif emb_df is not None and not emb_df.empty:
+    rel_df_A5 = build_related_from_embeddings(
+        emb_df=emb_df,
         top_k=A5_top_k,
         sim_threshold=A5_sim_thresh,
-        prefer_backend=backend_pref,
+        prefer_backend=backend_pref_A5,
     )
+else:
+    st.error(
+        "Für Analyse 5 wird entweder eine Datei **URLs + Embeddings (URL + Vektor)** "
+        "oder eine Datei **Related URLs** benötigt."
+    )
+    st.stop()
+
+
 
     if rel_df_A5 is None or rel_df_A5.empty:
         st.info("Keine Related-URL-Daten für Analyse 5 verfügbar.")
@@ -4113,7 +4141,7 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
                     "Fallback auf Spaltenpositionen (1–3)."
                 )
             else:
-                st.error("Related-URL-Tabelle für Analyse 6 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
+                st.error("Related-URL-Tabelle für Analyse 5 braucht mindestens 3 Spalten (Quelle, Ziel, Similarity).")
                 st.stop()
 
         from collections import defaultdict, deque
@@ -4144,7 +4172,7 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
             sim_map[(v, u)] = sim_val
 
         if not adj:
-            st.info("Keine URL-Paare mit ausreichender Similarity für Analyse 6 gefunden.")
+            st.info("Keine URL-Paare mit ausreichender Similarity für Analyse 5 gefunden.")
         else:
             visited = set()
             clusters = []
@@ -4274,15 +4302,15 @@ if A5_NAME in selected_analyses and st.session_state.get("__show_A5__", False):
 
 
 # =========================================================
-# Analyse 6: Semantische Duplikate ohne Verlinkung
+# Analyse 5: Semantische Duplikate ohne Verlinkung
 # =========================================================
 if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
 
-    st.markdown("## Analyse 6: Semantische Duplikate ohne Verlinkung")
+    st.markdown("## Analyse 5: Semantische Duplikate ohne Verlinkung")
     st.caption("Findet URL-Paare mit sehr hoher semantischer Ähnlichkeit, zwischen denen noch keine interne Verlinkung existiert.")
 
     if inlinks_df is None:
-        st.error("Für Analyse 6 wird die Datei 'All Inlinks' benötigt.")
+        st.error("Für Analyse 5 wird die Datei 'All Inlinks' benötigt.")
         st.stop()
 
     # NEU: Entweder Related-URLs ODER Embeddings müssen vorhanden sein
@@ -4291,7 +4319,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
 
     if not has_related and not has_embeds:
         st.error(
-            "Für Analyse 6 brauchst du entweder eine Datei **Related URLs** "
+            "Für Analyse 5 brauchst du entweder eine Datei **Related URLs** "
             "oder eine Datei **Embeddings (URL + Vektor)**. "
             "Bitte eine der beiden im Upload-Center bereitstellen."
         )
@@ -4335,7 +4363,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
                 if sim_idx_rel == -1:
                     sim_idx_rel = 2
                 st.warning(
-                    "Related-URL-Tabelle für Analyse 6: Header nicht vollständig erkannt "
+                    "Related-URL-Tabelle für Analyse 5: Header nicht vollständig erkannt "
                     "Fallback auf Spaltenpositionen (1–3)."
                 )
             else:
@@ -4396,7 +4424,7 @@ if A6_NAME in selected_analyses and st.session_state.get("__show_A6__", False):
             st.dataframe(dup_df, use_container_width=True, hide_index=True)
 
             st.download_button(
-                "Download Analyse 6 – Semantische Duplikate ohne Verlinkung (CSV)",
+                "Download Analyse 5 – Semantische Duplikate ohne Verlinkung (CSV)",
                 data=dup_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name="analyse6_semantische_duplikate_ohne_verlinkung.csv",
                 mime="text/csv",
