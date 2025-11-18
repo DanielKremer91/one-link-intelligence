@@ -2637,7 +2637,7 @@ if A4_NAME in selected_analyses:
     check_exact = bool(st.session_state.get("a4_check_exact", True))
     check_embed = bool(st.session_state.get("a4_check_embed", True))
     embed_model_name = st.session_state.get("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
-    embed_thresh = float(st.session_state.get("a4_embed_thresh", 0.75))
+    embed_thresh = float(st.session_state.get("a4_embed_thresh", 0.70))
 
     min_clicks = int(st.session_state.get("a4_min_clicks", 50))
     min_impr = int(st.session_state.get("a4_min_impr", 500))
@@ -2990,7 +2990,27 @@ if A4_NAME in selected_analyses:
             else:
                 # Top-20 % je URL (mind. 1) + Top-N-Limit
                 metric_col = c_i if metric_choice == "Clicks" else im_i
-                df = df.sort_values(by=[df.columns[url_i], df.columns[metric_col]], ascending=[True, False])
+
+                # Sortierung je nach gewählter Metric:
+                # - Basis: gewählte Metrik (Clicks oder Impressions) absteigend
+                # - Tie-Breaker: andere Metrik (falls vorhanden) ebenfalls absteigend
+                if metric_choice == "Clicks" and im_i is not None:
+                    df = df.sort_values(
+                        by=[df.columns[url_i], df.columns[c_i], df.columns[im_i]],
+                        ascending=[True, False, False],
+                    )
+                elif metric_choice == "Impressions" and c_i is not None:
+                    df = df.sort_values(
+                        by=[df.columns[url_i], df.columns[im_i], df.columns[c_i]],
+                        ascending=[True, False, False],
+                    )
+                else:
+                    # Fallback, falls nur eine der beiden Metriken vorhanden ist
+                    df = df.sort_values(
+                        by=[df.columns[url_i], df.columns[metric_col]],
+                        ascending=[True, False],
+                    )
+
     
                 top_rows = []
                 for u, grp in df.groupby(df.columns[url_i], sort=False):
@@ -3022,37 +3042,54 @@ if A4_NAME in selected_analyses:
                         st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
                         check_embed = False
     
-                def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-                    A = A.astype(np.float32, copy=False)
-                    B = B.astype(np.float32, copy=False)
-                    A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
-                    B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
-                    return A @ B.T
+                    def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
+                        A = A.astype(np.float32, copy=False)
+                        B = B.astype(np.float32, copy=False)
+                        A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
+                        B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
+                        return A @ B.T
+    
+                    def _norm_text_for_emb(s: str) -> str:
+                        """
+                        Vereinheitlicht Text für Embeddings:
+                        - None / NaN -> ""
+                        - trim
+                        - lowercase
+                        - Mehrfach-Leerzeichen auf eins reduzieren
+                        """
+                        s = str(s or "").strip().lower()
+                        s = re.sub(r"\s+", " ", s)
+                        return s
     
                 # Cache Anchor-Embeddings je Ziel-URL
-                anchor_emb_cache: Dict[str, Tuple[List[str], Optional[np.ndarray]]] = {}
-    
+                # Struktur: url -> (a_names_original, a_names_norm, a_emb_matrix)
+                anchor_emb_cache: Dict[str, Tuple[List[str], List[str], Optional[np.ndarray]]] = {}
+
                 coverage_rows = []  # eine Zeile pro URL+Query
-    
+
                 for u, grp in df_top.groupby(df_top.columns[url_i], sort=False):
                     url_norm = str(u)
                     inv = inv_map.get(url_norm, {})
-                    a_names = list(inv.keys())
-                    a_emb = None
-    
+                    a_names = list(inv.keys())  # originale Ankertexte
+                    a_emb: Optional[np.ndarray] = None
+                    a_names_norm: List[str] = []
+
                     # Embeddings je URL vorbereiten
                     if check_embed and model is not None and len(a_names) > 0:
                         if url_norm not in anchor_emb_cache:
                             try:
+                                # Normalisierte Versionen für das Embedding
+                                a_names_norm = [_norm_text_for_emb(a) for a in a_names]
                                 a_emb = np.asarray(
-                                    model.encode(a_names, batch_size=64, show_progress_bar=False)
+                                    model.encode(a_names_norm, batch_size=64, show_progress_bar=False)
                                 )
-                                anchor_emb_cache[url_norm] = (a_names, a_emb)
+                                anchor_emb_cache[url_norm] = (a_names, a_names_norm, a_emb)
                             except Exception:
-                                anchor_emb_cache[url_norm] = (a_names, None)
+                                anchor_emb_cache[url_norm] = (a_names, [], None)
                                 a_emb = None
                         else:
-                            a_names, a_emb = anchor_emb_cache[url_norm]
+                            a_names, a_names_norm, a_emb = anchor_emb_cache[url_norm]
+
     
                     for _, rr in grp.iterrows():
                         q = str(rr.iloc[q_i]).strip()
@@ -3074,16 +3111,21 @@ if A4_NAME in selected_analyses:
                         # Embedding Match
                         if (not found) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
                             try:
-                                q_emb = model.encode([q], show_progress_bar=False)
-                                S = cosine_sim_matrix(np.asarray(q_emb), a_emb)[0]
+                                q_norm = _norm_text_for_emb(q)
+                                q_emb = model.encode([q_norm], show_progress_bar=False)
+                                q_emb = np.asarray(q_emb)
+
+                                S = cosine_sim_matrix(q_emb, a_emb)[0]
                                 idxs = np.where(S >= float(embed_thresh))[0]
                                 if idxs.size > 0:
                                     found = True
+                                    # Counts kommen weiterhin aus den ORIGINAL-Ankernamen
                                     cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
                                     found_cnt = max(found_cnt, cnt)
                                     match_type_parts.append("Embedding")
                             except Exception:
                                 pass
+
     
                         match_type = "+".join(match_type_parts) if match_type_parts else "—"
     
