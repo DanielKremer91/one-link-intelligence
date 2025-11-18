@@ -2705,15 +2705,18 @@ if A4_NAME in selected_analyses:
     brand_list += read_single_col_file_obj(brand_file)
     brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
     brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+    
+    # Wenn Brand-Filter gewählt, aber keine Brand-Schreibweisen hinterlegt:
+    # → nur Warnen und Brand-Filter deaktivieren, NICHT die ganze Analyse stoppen.
     if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
         st.warning(
             f"Du hast einen Brand-Filter gewählt (**{brand_mode}**), "
             "aber keine Brand-Schreibweisen hinterlegt. "
-            "Brand/Non-Brand-Queries können so nicht zuverlässig getrennt werden."
+            "Brand/Non-Brand-Filter wird für diese Analyse ignoriert."
         )
+        brand_mode = "Alles"
 
-    if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
-        st.stop()
+
 
 
 
