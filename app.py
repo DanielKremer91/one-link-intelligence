@@ -2974,7 +2974,7 @@ def is_brand_query(q: str) -> bool:
             # -------------------------------
             # Brand-Liste nur für GSC-Coverage bauen
             # -------------------------------
-            global brand_list  # nutzt die oben deklarierte Variable
+            
             brand_list = split_list_text(brand_text)
             brand_list += read_single_col_file_obj(brand_file)
             brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
