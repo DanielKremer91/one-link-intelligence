@@ -2700,26 +2700,8 @@ if A4_NAME in selected_analyses:
         vals = [str(x).strip() for x in df[col].tolist() if str(x).strip()]
         return vals
 
-    # 1) Brand-Liste aus Text + Datei zusammenführen (alles lowercase, ohne Duplikate)
-    brand_list = split_list_text(brand_text)
-    brand_list += read_single_col_file_obj(brand_file)
-    brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
-    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
-    
-    # Wenn Brand-Filter gewählt, aber keine Brand-Schreibweisen hinterlegt:
-    # → nur Warnen und Brand-Filter deaktivieren, NICHT die ganze Analyse stoppen.
-    if brand_mode in ("Nur Brand", "Nur Non-Brand") and not brand_list:
-        st.warning(
-            f"Du hast einen Brand-Filter gewählt (**{brand_mode}**), "
-            "aber keine Brand-Schreibweisen hinterlegt. "
-            "Brand/Non-Brand-Filter wird für diese Analyse ignoriert."
-        )
-        brand_mode = "Alles"
-
-
-
-
-
+brand_list = []
+brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
 
 
     
@@ -2730,29 +2712,25 @@ if A4_NAME in selected_analyses:
         s = (q or "").lower().strip()
         if not s:
             return False
-    
+
         auto_variants = bool(st.session_state.get("a4_auto_variants", True))
-    
-        # brand_list wurde weiter oben bereits gebaut:
-        # brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
-        # Falls du sie NICHT mehr global hast, dann baue sie hier wie zuvor (split_list_text + read_single_col_file_obj).
+
+        # Wenn keine Brandliste vorhanden ist, ist nichts eine Brand-Query
         if not brand_list:
             return False
-    
+
         # simple Tokenisierung (Leerzeichen + Bindestrich)
         tokens = [t for t in re.split(r"[\s\-]+", s) if t]
-    
-        # enthält die Query überhaupt eine Brand?
+
         has_brand_token = any(t in brand_list for t in tokens)
         if not has_brand_token:
             return False
-    
+
         if auto_variants:
-            # ✅ Regel: Sobald eine Brand auftaucht, gilt die Query als Brand – auch in Kombinationen
-            # (z. B. "marke test", "test marke", "marke-test").
+            # Marke irgendwo im String reicht
             return True
         else:
-            # Enge Erkennung: nur die reine Brand (ein Token, exakt in Brandliste)
+            # nur reine Brand-Query (ein Token)
             return len(tokens) == 1 and tokens[0] in brand_list
 
 
@@ -2988,25 +2966,40 @@ if A4_NAME in selected_analyses:
         if url_i is None or q_i is None or (c_i is None and im_i is None):
             st.warning("GSC-Datei für A4 benötigt: **URL + Query + (Clicks oder Impressions)**. Bitte Datei prüfen.")
         else:
-            # Normalisierung & Filter
+            # -------------------------------
+            # Brand-Liste nur für GSC-Coverage bauen
+            # -------------------------------
+            global brand_list  # nutzt die oben deklarierte Variable
+            brand_list = split_list_text(brand_text)
+            brand_list += read_single_col_file_obj(brand_file)
+            brand_list = sorted({b.strip().lower() for b in brand_list if str(b).strip()})
+
+            # -------------------------------
+            # Normalisierung & Basisfilter
+            # -------------------------------
             df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(remember_original)
             df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
             if c_i is not None:
                 df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
             if im_i is not None:
                 df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
-    
+
             # Brand-Filter
             def brand_filter(row) -> bool:
+                # Wenn keine Brandliste oder Modus "Brand + Non-Brand" → nichts filtern
+                if not brand_list or brand_mode == "Brand + Non-Brand":
+                    return True
+
                 q = str(row.iloc[q_i])
                 is_b = is_brand_query(q)
+
                 if brand_mode == "Nur Non-Brand":
-                    return (not is_b)
+                    return not is_b
                 elif brand_mode == "Nur Brand":
                     return is_b
                 else:
                     return True
-    
+
             df = df[df.apply(brand_filter, axis=1)]
     
             # Mindestschwellen
