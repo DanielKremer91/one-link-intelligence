@@ -772,17 +772,17 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
             
-           # Switch für GSC-Query-Coverage
+            # Switch für GSC-Query-Coverage
             enable_gsc_coverage = st.checkbox(
                 "Search Console Query Coverage bei Ankertexten aktivieren",
                 value=True,
                 key="a4_enable_gsc_coverage",
-                help="Prüft, ob je URL die Top-Queries aus Google Search Console ..."
+                help="Prüft, ob je URL die Top-Queries aus Google Search Console (nach Impressionen oder Klicks) als Ankertexte vorhanden sind."
             )
             
             if enable_gsc_coverage:
                 st.markdown("**Search Console Query Coverage bei Ankertexten**")
-                st.caption("Gleicht die Top 20% der Suchanfragen aus der Search Console – basierend auf Klicks oder Impressionen – ab, ob diese als Ankertext für die URL vorkommen")
+                st.caption("Gleicht die Top 20 % der Suchanfragen einer URL mit den vorhandenen Ankertexten ab.")
 
                 # Brand / Non-Brand
                 brand_mode = st.radio(
@@ -804,11 +804,12 @@ with st.sidebar:
                     key="a4_brand_file",
                 )
                 auto_variants = st.checkbox(
-                    "Branded Keywords auch als Brand-Keywords behandeln?",
+                    "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
                     value=st.session_state.get("a4_auto_variants", True),
                     key="a4_auto_variants",
                 )
 
+                # Relevanzgrundlage
                 metric_choice = st.radio(
                     "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
                     ["Impressions", "Clicks"],
@@ -859,7 +860,7 @@ with st.sidebar:
                         value=50,
                         step=10,
                         key="a4_min_clicks",
-                        help=help_text_schwellen
+                        help=help_text_schwellen,
                     )
                 with col_s2:
                     min_impr = st.number_input(
@@ -868,12 +869,12 @@ with st.sidebar:
                         value=500,
                         step=50,
                         key="a4_min_impr",
-                        help=help_text_schwellen
+                        help=help_text_schwellen,
                     )
                 with col_s3:
                     topN_default = st.number_input(
                         "Top-N Queries pro URL (zusätzliche Bedingung)",
-                        min_value=0,
+                        min_value=0,  # 0 = kein zusätzlicher Deckel
                         value=st.session_state.get("a4_topN", 0),
                         step=1,
                         key="a4_topN",
@@ -893,6 +894,7 @@ with st.sidebar:
                 st.session_state.setdefault("a4_min_impr", 500)
                 st.session_state.setdefault("a4_topN", 0)
                 st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+
 
             
             # Abstand / Trennlinie zur nächsten Unteranalyse
@@ -1599,24 +1601,30 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                 st.caption(f"⚠️ {shorter} Embeddings hatten geringere Dimensionen und wurden auf {max_dim} gepaddet.")
                 with st.expander("Was bedeutet das ‘Padden’ der Embeddings?"):
                     st.markdown(f"""
-- Einige Embeddings sind kürzer als die Ziel-Dimension (**{max_dim}**). Diese werden mit `0` aufgefüllt.
-- Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, sofern alle Embeddings aus **demselben Modell** stammen.
-- Empfehlung: alle Embeddings mit demselben Modell erzeugen.
-""")
-            # Backend aus Sidebar
-            backend_eff = locals().get("backend", "Exakt (NumPy)")
-            related_df = build_related_auto(list(urls), V, int(locals().get("max_related", 10)), float(locals().get("sim_threshold", 0.8)), backend_eff, mem_budget_gb=1.5)
-            try:
-                if isinstance(urls, list) and isinstance(V, np.ndarray) and V.size > 0:
-                    st.session_state["_emb_urls"] = list(urls)
-                    st.session_state["_emb_matrix"] = V.astype("float32", copy=False)
-                    st.session_state["_emb_index_by_url"] = {u: i for i, u in enumerate(urls)}
-                else:
-                    st.session_state.pop("_emb_urls", None)
-                    st.session_state.pop("_emb_matrix", None)
-                    st.session_state.pop("_emb_index_by_url", None)
-            except Exception:
-                pass
+                - Einige Embeddings sind kürzer als die Ziel-Dimension (**{max_dim}**). Diese werden mit `0` aufgefüllt.
+                - Nach L2-Normierung funktionieren Cosine-Ähnlichkeiten wie gewohnt, sofern alle Embeddings aus **demselben Modell** stammen.
+                - Empfehlung: alle Embeddings mit demselben Modell erzeugen.
+                """)
+        # Backend aus Sidebar
+        backend_eff = locals().get("backend", "Exakt (NumPy)")
+        top_k = int(locals().get("max_related", 10))
+        sim_thr = float(locals().get("sim_threshold", 0.80))
+
+        # Related-URLs aus Embeddings berechnen
+        related_df = build_related_from_embeddings(urls, V, top_k, sim_thr, backend_eff)
+
+        try:
+            if isinstance(urls, list) and isinstance(V, np.ndarray) and V.size > 0:
+                st.session_state["_emb_urls"] = list(urls)
+                st.session_state["_emb_matrix"] = V.astype("float32", copy=False)
+                st.session_state["_emb_index_by_url"] = {u: i for i, u in enumerate(urls)}
+            else:
+                st.session_state.pop("_emb_urls", None)
+                st.session_state.pop("_emb_matrix", None)
+                st.session_state.pop("_emb_index_by_url", None)
+        except Exception:
+            pass
+
 
     # Prüfen, ob alles da ist (nur A1/A2 relevant)
     have_all = all(df is not None for df in [related_df, inlinks_df, metrics_df, backlinks_df])
