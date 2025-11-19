@@ -916,20 +916,7 @@ with st.sidebar:
 
 
 
-            else:
-                # Setze Defaults wenn deaktiviert
-                st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
-                st.session_state.setdefault("a4_brand_text", "")
-                st.session_state.setdefault("a4_auto_variants", True)
-                st.session_state.setdefault("a4_metric_choice", "Impressions")
-                st.session_state.setdefault("a4_check_exact", True)
-                st.session_state.setdefault("a4_check_embed", True)
-                st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
-                st.session_state.setdefault("a4_embed_thresh", 0.75)
-                st.session_state.setdefault("a4_min_clicks", 50)
-                st.session_state.setdefault("a4_min_impr", 500)
-                st.session_state.setdefault("a4_topN", 0)
-                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+            
 
             # Abstand / Trennlinie zur nächsten Unteranalyse
             st.markdown(
