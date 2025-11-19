@@ -906,111 +906,6 @@ with st.sidebar:
                 ),
             )
 
-            if enable_semantic_anchor:
-                st.markdown("**Semantische Ankertext-Passung / Drift**")
-                st.caption(
-                    "Wir berechnen Embeddings für Seiteninhalt und Ankertexte und messen die Cosine Similarity. "
-                    "So erkennst du URLs, deren Ankertexte nicht mehr sauber zum Content passen (Anchor-Drift)."
-                )
-
-                a4_emb_mode = st.radio(
-                    "Auf welcher Basis sollen die Embeddings für die URLs berechnet werden?",
-                    [
-                        "Basierend auf einer oder mehreren Spalten der Crawl-Datei",
-                        "Embedding-Spalte in Crawl-Datei nutzen",
-                        "Separate Embedding-Datei (URL + Embedding)",
-                    ],
-                    index=0,
-                    key="a4_emb_mode",
-                    help=(
-                        "• Basierend auf einer oder mehreren Spalten der Crawl-Datei: Embeddings werden aus Content-Spalten des Crawls erzeugt.\n"
-                        "• Embedding-Spalte in Crawl-Datei nutzen: Embeddings liegen im Crawl bereits vor.\n"
-                        "• Separate Embedding-Datei: eigene Datei mit URL + Embedding-Spalte nur für diese Analyse."
-                    ),
-                )
-
-                # 🔥 NEU: Modell-Auswahl NUR für den Modus „Basierend auf einer oder mehreren Spalten der Crawl-Datei“
-                if a4_emb_mode == "Basierend auf einer oder mehreren Spalten der Crawl-Datei":
-                    st.selectbox(
-                        "Sentence Transformer Modell (Embedding-Modell)",
-                        [
-                            "sentence-transformers/all-MiniLM-L6-v2",
-                            "sentence-transformers/all-MiniLM-L12-v2",
-                            "sentence-transformers/all-mpnet-base-v2",
-                        ],
-                        index=0,
-                        key="a4_sem_embed_model",
-                        help="Dieses Modell wird für die Seiten-Embeddings und die Ankertext-Embeddings in der Semantik-Analyse verwendet.",
-                    )
-
-                    st.markdown("**Welche Spalten aus der Crawl-Datei sollen für die Embedding-Berechnung genutzt werden?**")
-                
-                    # Spalten aus Session-State (beim Upload gesetzt)
-                    crawl_cols_for_select = st.session_state.get("a4_crawl_columns", [])
-                
-                    if crawl_cols_for_select:
-                        # Multiselect aus den tatsächlich vorhandenen Crawl-Spalten
-                        default_sel = st.session_state.get("a4_text_cols_list", [])
-                        default_sel = [c for c in default_sel if c in crawl_cols_for_select]
-                
-                        a4_text_cols_list = st.multiselect(
-                            "Spalten aus Crawl wählen",
-                            options=crawl_cols_for_select,
-                            default=default_sel,
-                            help="Diese Spalten werden zu einem Text pro URL kombiniert und für die Seiten-Embeddings genutzt.",
-                            key="a4_text_cols_list",
-                        )
-                
-                        # Optional: Freitext-Fallback zusätzlich anbieten (für spätere Crawls mit anderen Spaltennamen)
-                        st.text_input(
-                            "Zusätzliche Spaltennamen (optional, frei eintragen)",
-                            key="a4_text_cols",
-                            help="Kommagetrennt oder zeilenweise – falls du Spalten per Namen referenzieren möchtest, die im aktuellen Crawl (noch) nicht vorkommen."
-                        )
-                    else:
-                        # Fallback, wenn noch kein Crawl geladen ist
-                        st.text_input(
-                            "Die ausgewählten Spalten werden kombiniert und die Embeddings berechnet – WICHTIG: Zuerst Crawl-Datei hochladen, dann Spalten auswählen",
-                            key="a4_text_cols",
-                            help="Kommagetrennt oder zeilenweise – wird als Textgrundlage für Seiten-Embeddings genutzt."
-                        )
-
-
-                # Embedding-Spalte aus der Crawl-Datei wählen / benennen
-                if a4_emb_mode == "Embedding-Spalte in Crawl-Datei nutzen":
-                    crawl_cols_for_select = st.session_state.get("a4_crawl_columns", [])
-
-                    if crawl_cols_for_select:
-                        st.selectbox(
-                            "Embeddings-Spalte in der Crawl-Datei",
-                            options=crawl_cols_for_select,
-                            key="a4_emb_col",
-                            help="Spalte wählen, die die Embeddings pro URL enthält (z. B. JSON oder Vektor).",
-                        )
-                    else:
-                        st.text_input(
-                            "Name der Embeddings-Spalte in der Crawl-Datei",
-                            key="a4_emb_col",
-                            help="Wird genutzt, um die Embeddings pro URL auszulesen (z. B. 'Embedding', 'Vector').",
-                        )
-
-
-                st.slider(
-                    "Mindest-Cosine-Similarity (Ø Anker → Seite)",
-                    0.0,
-                    1.0,
-                    0.70,
-                    0.01,
-                    key="a4_sem_sim_thresh",
-                    help="URLs unterhalb dieser Ähnlichkeit werden als Drift-Fälle markiert.",
-                )
-
-            # Abstand / Trennlinie zur nächsten Unteranalyse
-            st.markdown(
-                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
-                unsafe_allow_html=True,
-            )
-
 
 
             
@@ -1173,219 +1068,198 @@ needs_backlinks = needs_backlinks_a1 or needs_backlinks_a2 or needs_backlinks_a3
 
 needs_gsc_a3 = A3_NAME in selected_analyses  # optional
 needs_gsc_a4 = A4_NAME in selected_analyses  # benötigt in A4-Teil für Coverage
-needs_crawl_a4_sem = A4_NAME in selected_analyses and st.session_state.get("a4_enable_semantic_anchor", False)
 
 
 
 # ===============================
 # Upload-Center: nach Analysen getrennt + "Für mehrere Analysen benötigt"
 # ===============================
-st.markdown("---")
-st.subheader("Benötigte Dateien hochladen")
+if selected_analyses:
+    st.markdown("---")
+    st.subheader("Benötigte Dateien hochladen")
 
-# Sammle Bedarfe je Upload-Typ
-required_sets = {
-    "URLs + Embeddings": {
-        "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME]
-            if a in selected_analyses and needs_embeddings_or_related
-        ]
-    },
-    "Related URLs": {
-        "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME]
-            if a in selected_analyses and needs_embeddings_or_related
-        ]
-    },
-    "All Inlinks": {
-        "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME]
-            if a in selected_analyses and needs_inlinks
-        ]
-    },
-    "Linkmetriken": {
-        "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME]
-            if a in selected_analyses and needs_metrics
-        ]
-    },
-    "Backlinks": {
-        "analyses": [
-            a for a in [A1_NAME, A2_NAME, A3_NAME]
-            if a in selected_analyses and needs_backlinks
-        ]
-    },
-    "Search Console": {"analyses": [A3_NAME] if needs_gsc_a3 else []},
-}
+    # Sammle Bedarfe je Upload-Typ
+    required_sets = {
+        "URLs + Embeddings": {
+            "analyses": [
+                a for a in [A1_NAME, A2_NAME, A3_NAME]
+                if a in selected_analyses and needs_embeddings_or_related
+            ]
+        },
+        "Related URLs": {
+            "analyses": [
+                a for a in [A1_NAME, A2_NAME, A3_NAME]
+                if a in selected_analyses and needs_embeddings_or_related
+            ]
+        },
+        "All Inlinks": {
+            "analyses": [
+                a for a in [A1_NAME, A2_NAME, A3_NAME, A4_NAME]
+                if a in selected_analyses and needs_inlinks
+            ]
+        },
+        "Linkmetriken": {
+            "analyses": [
+                a for a in [A1_NAME, A2_NAME, A3_NAME]
+                if a in selected_analyses and needs_metrics
+            ]
+        },
+        "Backlinks": {
+            "analyses": [
+                a for a in [A1_NAME, A2_NAME, A3_NAME]
+                if a in selected_analyses and needs_backlinks
+            ]
+        },
+        "Search Console": {"analyses": [A3_NAME] if needs_gsc_a3 else []},
+    }
 
+    # Ermitteln, welche Uploads in ≥ 2 Analysen identisch gebraucht werden
+    shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2]
 
-# Ermitteln, welche Uploads in ≥ 2 Analysen identisch gebraucht werden
-shared_uploads = [k for k, v in required_sets.items() if len(v["analyses"]) >= 2]
+    emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
+    offpage_anchors_df = None  # <– NEU
+    gsc_df_loaded = None
 
-emb_df = related_df = inlinks_df = metrics_df = backlinks_df = None
-offpage_anchors_df = None  # <– NEU
-gsc_df_loaded = None
-crawl_df_a4 = None
-emb_df_a4 = None
+    def _read_up(label: str, uploader, required: bool):
+        df = None
+        if uploader is not None:
+            try:
+                df = read_any_file_cached(getattr(uploader, "name", ""), uploader.getvalue())
+            except Exception as e:
+                st.error(f"Fehler beim Lesen von {getattr(uploader, 'name', 'Datei')}: {e}")
+        if required and df is None:
+            st.info(f"Bitte lade die Datei für **{label}**.")
+        return df
 
-def _read_up(label: str, uploader, required: bool):
-    df = None
-    if uploader is not None:
-        try:
-            df = read_any_file_cached(getattr(uploader, "name", ""), uploader.getvalue())
-        except Exception as e:
-            st.error(f"Fehler beim Lesen von {getattr(uploader, 'name', 'Datei')}: {e}")
-    if required and df is None:
-        st.info(f"Bitte lade die Datei für **{label}**.")
-    return df
+    # Hilfstexte je Upload
+    HELP_EMB = ("Struktur: mindestens **URL** + **Embedding**-Spalte. Embeddings als JSON-Array "
+                "(z. B. `[0.12, 0.03, …]`) oder Zahlenliste (Komma/Whitespace/; / | getrennt). "
+                "Zusätzliche Spalten werden ignoriert. Spaltenerkennung erfolgt automatisch.")
+    HELP_REL = ("Struktur: genau **3 Spalten** – **Ziel-URL**, **Quell-URL**, **Similarity** (0–1). "
+                "Zusätzliche Spalten werden ignoriert. Spaltenerkennung erfolgt automatisch.")
+    HELP_INL = ("Export aus Screaming Frog: **Massenexport → Links → Alle Inlinks**. "
+                "Spalten: Quelle/Source, Ziel/Destination, optional Position und Anchor/ALT. "
+                "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
+    HELP_MET = ("Struktur: mindestens **4 Spalten** – **URL**, **Score (Interner Link Score)**, **Inlinks**, **Outlinks**. "
+                "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
+    HELP_BL = ( "Du kannst hier zwei Arten von Backlink-Dateien hochladen:\n\n"
+                "1) Aggregierte Backlink-Metriken (klassisch)\n"
+                "   – Struktur: mindestens **URL**, **Backlinks**, **Referring Domains**.\n"
+                "   – Typisch: Export aus einem SEO-Tool (z. B. pro URL bereits aggregierte Metriken).\n\n"
+                "2) Offpage-Linkliste (eine Zeile = ein Backlink)\n"
+                "   – Struktur: mindestens **Ziel-URL** und eine Spalte mit verweisender Domain oder Quell-URL\n"
+                "     (z. B. 'Referring Domain', 'Source URL', 'Domain').\n"
+                "   – Das Tool aggregiert daraus automatisch **Backlinks** und **Referring Domains** je Ziel-URL.\n\n"
+                "Spaltennamen werden automatisch erkannt; zusätzliche Spalten werden ignoriert.")
+    HELP_GSC_A3 = ("Struktur: **URL**, **Impressions** · optional **Clicks**, **Position**. "
+                   "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
+    HELP_GSC_A4 = ("Struktur: **URL**, **Query**, **Impressions** oder **Clicks** (mind. eine der beiden). "
+                   "Optional **Position**. Spaltenerkennung erfolgt automatisch.")
+    
 
-# Hilfstexte je Upload
-HELP_EMB = ("Struktur: mindestens **URL** + **Embedding**-Spalte. Embeddings als JSON-Array "
-            "(z. B. `[0.12, 0.03, …]`) oder Zahlenliste (Komma/Whitespace/; / | getrennt). "
-            "Zusätzliche Spalten werden ignoriert. Spaltenerkennung erfolgt automatisch.")
-HELP_REL = ("Struktur: genau **3 Spalten** – **Ziel-URL**, **Quell-URL**, **Similarity** (0–1). "
-            "Zusätzliche Spalten werden ignoriert. Spaltenerkennung erfolgt automatisch.")
-HELP_INL = ("Export aus Screaming Frog: **Massenexport → Links → Alle Inlinks**. "
-            "Spalten: Quelle/Source, Ziel/Destination, optional Position und Anchor/ALT. "
-            "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
-HELP_MET = ("Struktur: mindestens **4 Spalten** – **URL**, **Score (Interner Link Score)**, **Inlinks**, **Outlinks**. "
-            "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
-HELP_BL = ( "Du kannst hier zwei Arten von Backlink-Dateien hochladen:\n\n"
-            "1) Aggregierte Backlink-Metriken (klassisch)\n"
-            "   – Struktur: mindestens **URL**, **Backlinks**, **Referring Domains**.\n"
-            "   – Typisch: Export aus einem SEO-Tool (z. B. pro URL bereits aggregierte Metriken).\n\n"
-            "2) Offpage-Linkliste (eine Zeile = ein Backlink)\n"
-            "   – Struktur: mindestens **Ziel-URL** und eine Spalte mit verweisender Domain oder Quell-URL\n"
-            "     (z. B. 'Referring Domain', 'Source URL', 'Domain').\n"
-            "   – Das Tool aggregiert daraus automatisch **Backlinks** und **Referring Domains** je Ziel-URL.\n\n"
-            "Spaltennamen werden automatisch erkannt; zusätzliche Spalten werden ignoriert.")
-HELP_GSC_A3 = ("Struktur: **URL**, **Impressions** · optional **Clicks**, **Position**. "
-               "Spaltenerkennung erfolgt automatisch; zusätzliche Spalten werden ignoriert.")
-HELP_GSC_A4 = ("Struktur: **URL**, **Query**, **Impressions** oder **Clicks** (mind. eine der beiden). "
-               "Optional **Position**. Spaltenerkennung erfolgt automatisch.")
-HELP_CRAWL_A4 = (
-    "Crawl-Datei mit mindestens einer URL-Spalte und einer oder mehreren Content-Spalten "
-    "(z. B. 'Main Content', 'H1', 'Title'). "
-    "Diese Spalten können in A4 für die Berechnung der Seiten-Embeddings ausgewählt werden."
-)
+    # =====================================================
+    # Gemeinsame Sektion (falls mehrfach benötigt)
+    # =====================================================
 
+    # 1) Globaler Eingabemodus: URLs + Embeddings vs. Related URLs
+    if needs_embeddings_or_related:
+        mode = st.radio(
+            "Eingabemodus (für Analysen 1–3, 5 & 6)",
+            ["URLs + Embeddings", "Related URLs"],
+            horizontal=True,
+            key="emb_rel_mode_global",
+            help=(
+                "URLs + Embeddings: Das Tool berechnet die 'Related URLs' intern "
+                "(NumPy oder FAISS, je nach Einstellung).\n"
+                "Related URLs: Fertige Similarity-Tabelle (Quelle/Ziel/Score) hochladen."
+            ),
+        )
+    else:
+        mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
 
+    if shared_uploads:
+        st.markdown("### Für mehrere Analysen benötigt")
 
-# =====================================================
-# Gemeinsame Sektion (falls mehrfach benötigt)
-# =====================================================
-
-# 1) Globaler Eingabemodus: URLs + Embeddings vs. Related URLs
-if needs_embeddings_or_related:
-    mode = st.radio(
-        "Eingabemodus (für Analysen 1–3, 5 & 6)",
-        ["URLs + Embeddings", "Related URLs"],
-        horizontal=True,
-        key="emb_rel_mode_global",
-        help=(
-            "URLs + Embeddings: Das Tool berechnet die 'Related URLs' intern "
-            "(NumPy oder FAISS, je nach Einstellung).\n"
-            "Related URLs: Fertige Similarity-Tabelle (Quelle/Ziel/Score) hochladen."
-        ),
-    )
-else:
-    # Wenn der Radio nicht angezeigt wird (weil gerade keine Analyse Embeddings/Related braucht),
-    # alten Wert weiterverwenden oder Default setzen
+    colA, colB = st.columns(2)
     mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
 
-# ❗ WICHTIG:
-# KEIN st.session_state["emb_rel_mode_global"] = mode mehr!
-# Der Wert wird vom Radio-Widget selbst in den Session State geschrieben.
+    with colA:
+        if "URLs + Embeddings" in shared_uploads and mode == "URLs + Embeddings" and needs_embeddings_or_related:
+            up_emb = st.file_uploader(
+                "URLs + Embeddings (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_emb_shared",
+                help=HELP_EMB,
+            )
+            emb_df = _read_up("URLs + Embeddings", up_emb, required=True)
 
-# Gemeinsame Sektion (falls mehrfach benötigt)
-if shared_uploads:
-    st.markdown("### Für mehrere Analysen benötigt")
+        if "Related URLs" in shared_uploads and mode == "Related URLs" and needs_embeddings_or_related:
+            up_related = st.file_uploader(
+                "Related URLs (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_related_shared",
+                help=HELP_REL,
+            )
+            related_df = _read_up("Related URLs", up_related, required=True)
 
-# Spalten IMMER anlegen, damit colA/colB existieren
-colA, colB = st.columns(2)
+        if "All Inlinks" in shared_uploads and needs_inlinks:
+            up_inlinks = st.file_uploader(
+                "All Inlinks (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_inlinks_shared",
+                help=HELP_INL,
+            )
+            inlinks_df = _read_up("All Inlinks", up_inlinks, required=True)
 
-# mode ist jetzt schon gesetzt – falls du später woanders nochmal drauf zugreifen willst,
-# kannst du dort einfach st.session_state.get("emb_rel_mode_global", "Related URLs") verwenden.
+    with colB:
+        if "Linkmetriken" in shared_uploads and needs_metrics:
+            up_metrics = st.file_uploader(
+                "Linkmetriken (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_metrics_shared",
+                help=HELP_MET,
+            )
+            metrics_df = _read_up("Linkmetriken", up_metrics, required=True)
 
-# Spalten IMMER anlegen, damit colA/colB existieren
-colA, colB = st.columns(2)
+        if "Backlinks" in shared_uploads and needs_backlinks:
+            up_backlinks = st.file_uploader(
+                "Backlinks (CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_backlinks_shared",
+                help=HELP_BL,
+            )
+            backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
 
-# Kein zweites Radio mehr – nur noch auslesen
-mode = st.session_state.get("emb_rel_mode_global", "Related URLs")
+        if "Search Console" in shared_uploads and needs_gsc_a3:
+            up_gsc = st.file_uploader(
+                "Search Console Daten (optional, CSV/Excel)",
+                type=["csv", "xlsx", "xlsm", "xls"],
+                key="up_gsc_shared",
+                help=HELP_GSC_A3,
+            )
+            if up_gsc is not None:
+                gsc_df_loaded = _read_up("Search Console", up_gsc, required=False)
 
-with colA:
-    if "URLs + Embeddings" in shared_uploads and mode == "URLs + Embeddings" and needs_embeddings_or_related:
-        up_emb = st.file_uploader(
-            "URLs + Embeddings (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_emb_shared",
-            help=HELP_EMB,
-        )
-        emb_df = _read_up("URLs + Embeddings", up_emb, required=True)
+    # Individuelle Sektionen pro Analyse (nur Uploads, die NICHT in shared gelandet sind)
+    def upload_for_analysis(title: str, needs: List[Tuple[str, str, str]]):
+        st.markdown(f"### {title}")
+        cols = st.columns(2)
+        bucketA, bucketB = [], []
+        for i, (label, key, help_txt) in enumerate(needs):
+            (bucketA if i % 2 == 0 else bucketB).append((label, key, help_txt))
+        for (col, bucket) in zip(cols, [bucketA, bucketB]):
+            with col:
+                for label, key, help_txt in bucket:
+                    up = st.file_uploader(label, type=["csv","xlsx","xlsm","xls"], key=key, help=help_txt)
+                    df = _read_up(label, up, required=True)
+                    yield (label, df)
 
-    if "Related URLs" in shared_uploads and mode == "Related URLs" and needs_embeddings_or_related:
-        up_related = st.file_uploader(
-            "Related URLs (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_related_shared",
-            help=HELP_REL,
-        )
-        related_df = _read_up("Related URLs", up_related, required=True)
+else:
+    # Optional: Wenn du GAR NICHTS anzeigen willst, lass den Block leer (pass)
+    # oder kurze Info direkt unter der Analyse-Auswahl:
+    # st.info("Bitte wähle mindestens eine Analyse, um die Upload-Sektion zu sehen.")
+    pass
 
-    if "All Inlinks" in shared_uploads and needs_inlinks:
-        up_inlinks = st.file_uploader(
-            "All Inlinks (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_inlinks_shared",
-            help=HELP_INL,
-        )
-        inlinks_df = _read_up("All Inlinks", up_inlinks, required=True)
-
-with colB:
-    if "Linkmetriken" in shared_uploads and needs_metrics:
-        up_metrics = st.file_uploader(
-            "Linkmetriken (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_metrics_shared",
-            help=HELP_MET,
-        )
-        metrics_df = _read_up("Linkmetriken", up_metrics, required=True)
-
-    if "Backlinks" in shared_uploads and needs_backlinks:
-        up_backlinks = st.file_uploader(
-            "Backlinks (CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_backlinks_shared",
-            help=HELP_BL,
-        )
-        backlinks_df = _read_up("Backlinks", up_backlinks, required=True)
-
-    if "Search Console" in shared_uploads and needs_gsc_a3:
-        up_gsc = st.file_uploader(
-            "Search Console Daten (optional, CSV/Excel)",
-            type=["csv", "xlsx", "xlsm", "xls"],
-            key="up_gsc_shared",
-            help=HELP_GSC_A3,
-        )
-        if up_gsc is not None:
-            gsc_df_loaded = _read_up("Search Console", up_gsc, required=False)
-
-
-
-
-# Individuelle Sektionen pro Analyse (nur Uploads, die NICHT in shared gelandet sind)
-def upload_for_analysis(title: str, needs: List[Tuple[str, str, str]]):
-    st.markdown(f"### {title}")
-    cols = st.columns(2)
-    bucketA, bucketB = [], []
-    for i, (label, key, help_txt) in enumerate(needs):
-        (bucketA if i % 2 == 0 else bucketB).append((label, key, help_txt))
-    for (col, bucket) in zip(cols, [bucketA, bucketB]):
-        with col:
-            for label, key, help_txt in bucket:
-                up = st.file_uploader(label, type=["csv","xlsx","xlsm","xls"], key=key, help=help_txt)
-                df = _read_up(label, up, required=True)
-                yield (label, df)
 
 # A1
 if A1_NAME in selected_analyses:
@@ -1483,21 +1357,7 @@ if A4_NAME in selected_analyses:
             "'Anchor', 'Anchor Text', 'Anker', 'Ankertext' etc."
         ))
 
-    # NEU: Crawl + optionale Embedding-Datei für semantische Ankeranalyse
-    if st.session_state.get("a4_enable_semantic_anchor", False):
-        a4_mode = st.session_state.get("a4_emb_mode", "Basierend auf einer oder mehreren Spalten der Crawl-Datei")
-
-        # Crawl nur, wenn wir ihn wirklich brauchen
-        if a4_mode in ["Basierend auf einer oder mehreren Spalten der Crawl-Datei", "Embedding-Spalte in Crawl-Datei nutzen"]:
-            needs.append(("Crawl (CSV/Excel)", "up_crawl_a4", HELP_CRAWL_A4))
-
-        # Separate Embedding-Datei nur im entsprechenden Modus
-        if a4_mode == "Separate Embedding-Datei (URL + Embedding)":
-            needs.append((
-                "URLs + Embeddings für semantische Ankeranalyse (CSV/Excel)",
-                "up_emb_a4",
-                HELP_EMB
-            ))
+    
 
 
     if needs:
