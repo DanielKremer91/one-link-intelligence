@@ -782,31 +782,75 @@ with st.sidebar:
             
             if enable_gsc_coverage:
                 st.markdown("**Search Console Query Coverage bei Ankertexten**")
-                st.caption("Gleicht die Top 20% der Suchanfragen ...")
-            
+                st.caption("Gleicht die Top 20% der Suchanfragen aus der Search Console – basierend auf Klicks oder Impressionen – ab, ob diese als Ankertext für die URL vorkommen")
+
                 # Brand / Non-Brand
-                brand_mode = st.radio(...)
-            
-                brand_text = st.text_area(...)
-                brand_file = st.file_uploader(...)
-                auto_variants = st.checkbox(...)
-            
-                # Relevanzgrundlage
-                metric_choice = st.radio(...)
-            
-                st.caption("Soll der Abgleich ... Exact Match oder semantische Ähnlichkeit ...")
-            
+                brand_mode = st.radio(
+                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?",
+                    ["Nur Non-Brand", "Nur Brand", "Beides"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_brand_mode",
+                )
+
+                brand_text = st.text_area(
+                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)",
+                    value=st.session_state.get("a4_brand_text", ""),
+                    key="a4_brand_text",
+                )
+                brand_file = st.file_uploader(
+                    "Optional: Brand-Liste (1 Spalte)",
+                    type=["csv", "xlsx", "xlsm", "xls"],
+                    key="a4_brand_file",
+                )
+                auto_variants = st.checkbox(
+                    "Branded Keywords auch als Brand-Keywords behandeln?",
+                    value=st.session_state.get("a4_auto_variants", True),
+                    key="a4_auto_variants",
+                )
+
+                metric_choice = st.radio(
+                    "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
+                    ["Impressions", "Clicks"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_metric_choice",
+                )
+
+                st.caption(
+                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match "
+                    "oder auf Basis semantischer Ähnlichkeit erfolgen?"
+                )
+
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
-            
-                embed_model_name = st.selectbox(...)
-                embed_thresh = st.slider(...)
-            
-                # Schwellen-Helptext + Inputs NUR für GSC
-                help_text_schwellen = (
-                    "Mit den Schwellen & Filtern reduzierst du Rauschen ..."
+
+                embed_model_name = st.selectbox(
+                    "Sentence Transformer Modell (Embedding-Modell)",
+                    [
+                        "sentence-transformers/all-MiniLM-L6-v2",
+                        "sentence-transformers/all-MiniLM-L12-v2",
+                        "sentence-transformers/all-mpnet-base-v2",
+                    ],
+                    index=0,
+                    key="a4_embed_model",
                 )
-            
+                embed_thresh = st.slider(
+                    "Cosine-Schwelle (Embedding)",
+                    0.50, 0.95, 0.75, 0.01,
+                    key="a4_embed_thresh",
+                )
+
+                help_text_schwellen = (
+                    "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
+                    "• Mindest-Klicks/Query – wird nur angewendet, wenn oben Clicks ausgewählt ist.\n"
+                    "• Mindest-Impressions/Query – wird nur angewendet, wenn oben Impressions ausgewählt ist.\n"
+                    "• Top-N Queries pro URL – zusätzlicher Deckel nach der Top-20-%-Auswahl.\n\n"
+                    "Hinweise:\n"
+                    "– Die Auswahl Impressions vs. Clicks steuert, welche Schwelle greift.\n"
+                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, dann die Top-20-% berechnet."
+                )
+
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
                     min_clicks = st.number_input(
@@ -834,8 +878,22 @@ with st.sidebar:
                         step=1,
                         key="a4_topN",
                     )
-            
-            # 👉 HIER ist der GSC-Block zu Ende
+
+            else:
+                # Defaults setzen, wenn GSC-Coverage deaktiviert ist
+                st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
+                st.session_state.setdefault("a4_brand_text", "")
+                st.session_state.setdefault("a4_auto_variants", True)
+                st.session_state.setdefault("a4_metric_choice", "Impressions")
+                st.session_state.setdefault("a4_check_exact", True)
+                st.session_state.setdefault("a4_check_embed", True)
+                st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
+                st.session_state.setdefault("a4_embed_thresh", 0.75)
+                st.session_state.setdefault("a4_min_clicks", 50)
+                st.session_state.setdefault("a4_min_impr", 500)
+                st.session_state.setdefault("a4_topN", 0)
+                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+
             
             # Abstand / Trennlinie zur nächsten Unteranalyse
             st.markdown(
