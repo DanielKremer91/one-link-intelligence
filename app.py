@@ -730,8 +730,8 @@ with st.sidebar:
             if enable_over_anchor:
                 st.markdown("**Over-Anchor-Check**")
                 st.caption("Identifiziert URLs, die mehr als 200 mal mit demselben Ankertext verlinkt werden.")
-                
-                col_o1, col_o2 = st.columns(2)
+            
+                col_o1, _ = st.columns(2)
                 with col_o1:
                     top_anchor_abs = st.number_input(
                         "Schwelle identischer Anker (absolut)",
@@ -741,27 +741,12 @@ with st.sidebar:
                         key="a4_top_anchor_abs",
                         help="Ab wie vielen identischen Ankern eine URL als Over-Anchor-Fall gilt."
                     )
-                with col_o2:
-                    top_anchor_share = st.slider(
-                        "Schwelle TopAnchorShare (%)",
-                        0, 100, 60, 1,
-                        key="a4_top_anchor_share",
-                        help="Oder: wenn der meistgenutzte Anchor ≥ Anteil an allen Anchors hat."
-                    )
-                # ✅ NEU: Modus wählen
-                over_anchor_mode = st.radio(
-                    "Welche Schwelle soll gelten?",
-                    ["Absolut", "Anteil (%)", "Beides"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_over_anchor_mode",
-                    help="Absolut: nur Count. Anteil: nur %-Anteil. Beides: Count UND Anteil müssen erreicht sein."
-                )
-    
+            
             else:
+                # Default setzen, falls disabled
                 st.session_state.setdefault("a4_top_anchor_abs", 200)
-                st.session_state.setdefault("a4_top_anchor_share", 60)
-                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
+
+                
 
             # Abstand / Trennlinie zur nächsten Unteranalyse
             st.markdown(
@@ -1058,13 +1043,22 @@ with st.sidebar:
             )
 
 
-            # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
-            enable_anchor_matrix = st.checkbox(
+           # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
+           enable_anchor_matrix = st.checkbox(
                 "URL-Ankertext-Matrix (Wide) anzeigen",
                 value=True,
                 key="a4_enable_anchor_matrix",
-                help="Zeigt je Ziel-URL die Ankertexte in breitem Format (inkl. CSV/XLSX-Export)."
+                help="Zeigt je Ziel-URL die Ankertexte in breitem Format (inkl. CSV-Export)."
             )
+            
+            # ✅ NEU: Switch für URL-Ankertext-Matrix (Long)
+            enable_anchor_matrix_long = st.checkbox(
+                "URL-Ankertext-Matrix (Long-Format) anzeigen",
+                value=False,
+                key="a4_enable_anchor_matrix_long",
+                help="Zeigt je Ziel-URL alle Ankertexte untereinander (Long-Format, inkl. CSV/XLSX-Export)."
+            )
+
 
             st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
 
@@ -2714,21 +2708,24 @@ anchor_inv_internal = st.session_state.get("_anchor_inv_internal", pd.DataFrame(
 enable_over_anchor = st.session_state.get("a4_enable_over_anchor", True)
 over_anchor_df = pd.DataFrame(columns=["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"])
 
+# 1) Over-Anchor-Check
 if enable_over_anchor and not anchor_inv_internal.empty:
+    # Gesamtanzahl Anker je Ziel-URL
     totals = anchor_inv_internal.groupby("target")["count"].sum().rename("total")
     tmp = anchor_inv_internal.merge(totals, on="target", how="left")
-    tmp["share"] = np.where(tmp["total"] > 0, (100.0 * tmp["count"] / tmp["total"]), 0.0).round(2)
 
-    mode = st.session_state.get("a4_over_anchor_mode", "Absolut")
+    # Anteil dieses Ankers an allen Ankern der URL (nur Info, kein Filter mehr)
+    tmp["share"] = np.where(
+        tmp["total"] > 0,
+        (100.0 * tmp["count"] / tmp["total"]),
+        0.0,
+    ).round(2)
+
+    # Nur noch absolute Schwelle: wie viele Vorkommen muss ein Anker haben?
     top_anchor_abs = int(st.session_state.get("a4_top_anchor_abs", 200))
-    top_anchor_share = float(st.session_state.get("a4_top_anchor_share", 60))
 
-    if mode == "Absolut":
-        filt = (tmp["count"] >= top_anchor_abs)
-    elif mode == "Anteil (%)":
-        filt = (tmp["share"] >= top_anchor_share)
-    else:  # "Beides"
-        filt = (tmp["count"] >= top_anchor_abs) & (tmp["share"] >= top_anchor_share)
+    # Filter: Count >= Schwelle (absolut)
+    filt = (tmp["count"] >= top_anchor_abs)
 
     over_anchor_df = tmp.loc[filt, ["target", "anchor", "count", "share"]].copy()
 
@@ -2738,6 +2735,7 @@ if enable_over_anchor and not anchor_inv_internal.empty:
     # Reihenfolge der Spalten neu setzen
     over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
     over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
+
 
 
 
@@ -3178,83 +3176,128 @@ if enable_over_anchor and not anchor_inv_internal.empty:
     
 
     
-    # 3) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
-    if st.session_state.get("a4_enable_anchor_matrix", True):
-        anchor_inv_check = anchor_inv_vis.copy()
+# 4) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
+if st.session_state.get("a4_enable_anchor_matrix", True):
+    anchor_inv_check = anchor_inv_vis.copy()
 
-        if not anchor_inv_check.empty:
-            inv_sorted = anchor_inv_check.sort_values(["target", "count"], ascending=[True, False]).copy()
-            has_flag = (
-                "source_flag" in inv_sorted.columns
-                and bool(st.session_state.get("a4_include_offpage_anchors", False))
-            )
+    if not anchor_inv_check.empty:
+        inv_sorted = anchor_inv_check.sort_values(
+            ["target", "count"],
+            ascending=[True, False]
+        ).copy()
 
+        has_flag = (
+            "source_flag" in inv_sorted.columns
+            and bool(st.session_state.get("a4_include_offpage_anchors", False))
+        )
 
-            max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
+        # Gesamtanzahl Anker je Ziel-URL → Anteil pro Anker berechnen
+        totals = inv_sorted.groupby("target")["count"].transform("sum")
+        inv_sorted["share"] = np.where(
+            totals > 0,
+            (100.0 * inv_sorted["count"] / totals),
+            0.0,
+        ).round(2)
 
-            if has_flag:
-                cols = ["Ziel-URL"] + [
-                    x
-                    for i in range(1, max_n + 1)
-                    for x in (f"Ankertext {i}", f"Count Ankertext {i}", f"Quelle Ankertext {i}")
-                ]
-            else:
-                cols = ["Ziel-URL"] + [
-                    x
-                    for i in range(1, max_n + 1)
-                    for x in (f"Ankertext {i}", f"Count Ankertext {i}")
-                ]
+        max_n = int(inv_sorted.groupby("target")["anchor"].size().max())
 
-            rows = []
-            for tgt, grp in inv_sorted.groupby("target", sort=False):
-                row = [disp(tgt)]
-                if has_flag:
-                    for a, c, src_flag in zip(
-                        grp["anchor"].astype(str),
-                        grp["count"].astype(int),
-                        grp["source_flag"].astype(str),
-                    ):
-                        row += [a, c, src_flag]
-                else:
-                    for a, c in zip(
-                        grp["anchor"].astype(str),
-                        grp["count"].astype(int),
-                    ):
-                        row += [a, c]
-
-                while len(row) < len(cols):
-                    row.append("")
-                rows.append(row)
-
-            anchor_wide_df = pd.DataFrame(rows, columns=cols)
-
-            st.markdown("#### 4) Anchor-Inventar (Wide)")
-            st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
-
-            # CSV-Download
-            st.download_button(
-                "Download Anchor-Inventar (Wide) – CSV",
-                data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name="a4_anchor_inventar_wide.csv",
-                mime="text/csv",
-                key="a4_dl_anchor_wide_csv_main",
-            )
-
-            # XLSX-Download
-            try:
-                buf_anchor = io.BytesIO()
-                with pd.ExcelWriter(buf_anchor, engine="xlsxwriter") as xw:
-                    anchor_wide_df.to_excel(xw, index=False, sheet_name="Anchor-Inventar")
-                buf_anchor.seek(0)
-                st.download_button(
-                    "Download Anchor-Inventar (Wide) – XLSX",
-                    data=buf_anchor.getvalue(),
-                    file_name="a4_anchor_inventar_wide.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="a4_dl_anchor_wide_xlsx_main",
+        if has_flag:
+            cols = ["Ziel-URL"] + [
+                x
+                for i in range(1, max_n + 1)
+                for x in (
+                    f"Ankertext {i}",
+                    f"Count Ankertext {i}",
+                    f"TopAnchorShare Ankertext {i} (%)",
+                    f"Quelle Ankertext {i}",
                 )
-            except Exception:
-                pass
+            ]
+        else:
+            cols = ["Ziel-URL"] + [
+                x
+                for i in range(1, max_n + 1)
+                for x in (
+                    f"Ankertext {i}",
+                    f"Count Ankertext {i}",
+                    f"TopAnchorShare Ankertext {i} (%)",
+                )
+            ]
+
+        rows = []
+        for tgt, grp in inv_sorted.groupby("target", sort=False):
+            row = [disp(tgt)]
+            if has_flag:
+                for a, c, s, src_flag in zip(
+                    grp["anchor"].astype(str),
+                    grp["count"].astype(int),
+                    grp["share"].astype(float),
+                    grp["source_flag"].astype(str),
+                ):
+                    row += [a, c, float(s), src_flag]
+            else:
+                for a, c, s in zip(
+                    grp["anchor"].astype(str),
+                    grp["count"].astype(int),
+                    grp["share"].astype(float),
+                ):
+                    row += [a, c, float(s)]
+
+            while len(row) < len(cols):
+                row.append("")
+            rows.append(row)
+
+        anchor_wide_df = pd.DataFrame(rows, columns=cols)
+
+        st.markdown("#### 4) Anchor-Inventar (Wide)")
+        st.dataframe(anchor_wide_df, use_container_width=True, hide_index=True)
+
+        # CSV-Download (Wide)
+        st.download_button(
+            "Download Anchor-Inventar (Wide) – CSV",
+            data=anchor_wide_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="a4_anchor_inventar_wide.csv",
+            mime="text/csv",
+            key="a4_dl_anchor_wide_csv_main",
+        )
+
+
+# 4b) Anchor-Inventar (Long) – nur wenn separat aktiviert
+if st.session_state.get("a4_enable_anchor_matrix_long", False):
+    anchor_inv_check = anchor_inv_vis.copy()
+
+    if not anchor_inv_check.empty:
+        # TopAnchorShare(%) pro Ziel-URL + Anker berechnen
+        totals = anchor_inv_check.groupby("target")["count"].sum().rename("total")
+        tmp = anchor_inv_check.merge(totals, on="target", how="left")
+        tmp["TopAnchorShare(%)"] = np.where(
+            tmp["total"] > 0,
+            (100.0 * tmp["count"] / tmp["total"]).round(2),
+            0.0
+        )
+
+        long_df = tmp.copy()
+        long_df["Ziel-URL"] = long_df["target"].map(disp)
+        long_df = long_df[["Ziel-URL", "anchor", "count", "TopAnchorShare(%)"]]
+
+        # Optional: Quelle (intern / Offpage / intern + Offpage), falls vorhanden
+        if "source_flag" in tmp.columns:
+            long_df["Quelle"] = tmp["source_flag"]
+
+        st.markdown("#### URL-Ankertext-Matrix (Long-Format)")
+        st.dataframe(long_df, use_container_width=True, hide_index=True)
+
+        # CSV-Export (Long)
+        st.download_button(
+            "Download URL-Ankertext-Matrix (Long-Format, CSV)",
+            data=long_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="a4_anchor_inventar_long.csv",
+            mime="text/csv",
+            key="a4_dl_anchor_long_csv",
+        )
+    else:
+        st.info("Keine Anchor-Daten für die URL-Ankertext-Matrix (Long-Format) verfügbar.")
+
+
 
     # 5) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
     if st.session_state.get("a4_shared_enable", True):
