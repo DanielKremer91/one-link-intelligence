@@ -3180,9 +3180,10 @@ if enable_over_anchor and not anchor_inv_internal.empty:
     
 # 4) Anchor-Inventar (Wide) – nur wenn in der Sidebar aktiviert
 if st.session_state.get("a4_enable_anchor_matrix", True):
-    anchor_inv_check = anchor_inv_vis.copy()
+    anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame()).copy()
 
     if not anchor_inv_check.empty:
+    
         inv_sorted = anchor_inv_check.sort_values(
             ["target", "count"],
             ascending=[True, False]
@@ -3265,9 +3266,10 @@ if st.session_state.get("a4_enable_anchor_matrix", True):
 
 # 4b) Anchor-Inventar (Long) – nur wenn separat aktiviert
 if st.session_state.get("a4_enable_anchor_matrix_long", False):
-    anchor_inv_check = anchor_inv_vis.copy()
+    anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame()).copy()
 
     if not anchor_inv_check.empty:
+        
         # TopAnchorShare(%) pro Ziel-URL + Anker berechnen
         totals = anchor_inv_check.groupby("target")["count"].sum().rename("total")
         tmp = anchor_inv_check.merge(totals, on="target", how="left")
@@ -3301,130 +3303,103 @@ if st.session_state.get("a4_enable_anchor_matrix_long", False):
 
 
 
-    # 5) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
-    if st.session_state.get("a4_shared_enable", True):
-        anchor_inv_check = anchor_inv_vis.copy()
-    
-        if not anchor_inv_check.empty:
-            st.markdown("#### 5) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
-    
-            min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
-            ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
-    
-            df_shared = anchor_inv_check.copy()
-            df_shared["target"] = df_shared["target"].astype(str)
-            df_shared["anchor"] = df_shared["anchor"].astype(str)
-    
-            if ignore_nav:
-                df_shared = df_shared[
-                    ~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)
-                ]
-    
-            has_flag = "source_flag" in df_shared.columns
-    
-            # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
-            anchor_source_map = {}
-            if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
-                def _merge_flags(flags):
-                    flags = {f for f in flags if pd.notna(f)}
-                    if not flags:
-                        return "unbekannt"
-                    if "intern + Offpage" in flags:
-                        return "intern + Offpage"
-                    has_int = "nur intern" in flags
-                    has_off = "nur Offpage" in flags
-                    if has_int and has_off:
-                        return "intern + Offpage"
-                    if has_int:
-                        return "nur intern"
-                    if has_off:
-                        return "nur Offpage"
-                    return sorted(flags)[0]
-    
-                anchor_source_map = (
-                    df_shared.groupby("anchor")["source_flag"]
-                    .agg(lambda s: _merge_flags(set(s)))
-                    .to_dict()
-                )
-    
-            # Gruppieren: ein Eintrag pro Anchor → Liste der URLs
-            grouped = (
-                df_shared.groupby("anchor")["target"]
-                .agg(lambda s: sorted({disp(t) for t in s}))  # disp() = Original-URL-Format
-                .reset_index(name="urls")
-            )
-            grouped["url_count"] = grouped["urls"].apply(len)
-            grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
-    
-            if has_flag and anchor_source_map:
-                grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
-    
-            if grouped.empty:
-                st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
-            else:
-                # 🔁 NEU: Long-Format
-                # Eine Zeile = Ankertext + Ziel-URL (untereinander), optional mit Quelle + Anzahl URLs pro Anker
-                rows = []
-                for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
-                    anchor_txt = r["anchor"]
-                    urls = r["urls"]
-                    url_count = int(r["url_count"])
-                    quelle_val = r.get("Quelle", None) if "Quelle" in grouped.columns else None
-    
-                    for u in urls:
-                        if quelle_val is not None:
-                            rows.append([anchor_txt, quelle_val, u, url_count])
-                        else:
-                            rows.append([anchor_txt, u, url_count])
-    
-                if "Quelle" in grouped.columns:
-                    shared_long_df = pd.DataFrame(
-                        rows,
-                        columns=["Ankertext", "Quelle", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
-                    )
-                else:
-                    shared_long_df = pd.DataFrame(
-                        rows,
-                        columns=["Ankertext", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
-                    )
-    
-                st.dataframe(shared_long_df, use_container_width=True, hide_index=True)
-    
-                # CSV
-                st.download_button(
-                    "Download Shared-Ankertexte (CSV)",
-                     data=shared_long_df.to_csv(index=False).encode("utf-8-sig"),
-                     file_name="a4_shared_ankertexte_long.csv",
-                     mime="text/csv",
-                     key="a4_dl_shared_csv_main",
-                )
-    
-                # XLSX
-                try:
-                    buf_shared = io.BytesIO()
-                    with pd.ExcelWriter(buf_shared, engine="xlsxwriter") as xw:
-                        shared_long_df.to_excel(xw, index=False, sheet_name="Shared-Ankertexte")
-                        ws = xw.sheets["Shared-Ankertexte"]
-                        for col_idx, col_name in enumerate(shared_long_df.columns, start=1):
-                            max_len_col = max(
-                                len(str(col_name)),
-                                *(
-                                    len(str(v))
-                                    for v in shared_long_df.iloc[:, col_idx - 1].astype(str).values[:1000]
-                                ),
-                            )
-                            ws.set_column(col_idx - 1, col_idx - 1, min(max_len_col + 2, 60))
-                    buf_shared.seek(0)
-                    st.download_button(
-                        "Download Shared-Ankertexte (XLSX)",
-                        data=buf_shared.getvalue(),
-                        file_name="a4_shared_ankertexte_long.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="a4_dl_shared_xlsx_main",
-                    )
-                except Exception as e:
-                    st.warning(f"XLSX-Export (Shared-Ankertexte) nicht möglich: {e}")
+# 5) Shared-Ankertexte – nur wenn in der Sidebar aktiviert
+if st.session_state.get("a4_shared_enable", True):
+    anchor_inv_check = st.session_state.get("_anchor_inv_vis", pd.DataFrame()).copy()
 
+    if not anchor_inv_check.empty:
+        st.markdown("#### 5) Shared-Ankertexte (gleicher Ankertext für mehrere Ziel-URLs)")
+
+        min_urls_per_anchor = int(st.session_state.get("a4_shared_min_urls", 2))
+        ignore_nav = bool(st.session_state.get("a4_shared_ignore_nav", True))
+
+        df_shared = anchor_inv_check.copy()
+        df_shared["target"] = df_shared["target"].astype(str)
+        df_shared["anchor"] = df_shared["anchor"].astype(str)
+
+        if ignore_nav:
+            df_shared = df_shared[
+                ~df_shared["anchor"].str.strip().str.lower().isin(NAVIGATIONAL_ANCHORS)
+            ]
+
+        has_flag = "source_flag" in df_shared.columns
+
+        # Aggregierte Quelle pro Anchor ermitteln (nur wenn Offpage aktiv)
+        anchor_source_map = {}
+        if has_flag and bool(st.session_state.get("a4_include_offpage_anchors", False)):
+
+            def _merge_flags(flags):
+                flags = {f for f in flags if pd.notna(f)}
+                if not flags:
+                    return "unbekannt"
+                if "intern + Offpage" in flags:
+                    return "intern + Offpage"
+                has_int = "nur intern" in flags
+                has_off = "nur Offpage" in flags
+                if has_int and has_off:
+                    return "intern + Offpage"
+                if has_int:
+                    return "nur intern"
+                if has_off:
+                    return "nur Offpage"
+                return sorted(flags)[0]
+
+            anchor_source_map = (
+                df_shared.groupby("anchor")["source_flag"]
+                .agg(lambda s: _merge_flags(set(s)))
+                .to_dict()
+            )
+
+        # Gruppieren: ein Eintrag pro Anchor → Liste der URLs
+        grouped = (
+            df_shared.groupby("anchor")["target"]
+            .agg(lambda s: sorted({disp(t) for t in s}))  # disp() = Original-URL-Format
+            .reset_index(name="urls")
+        )
+        grouped["url_count"] = grouped["urls"].apply(len)
+        grouped = grouped[grouped["url_count"] >= min_urls_per_anchor]
+
+        if has_flag and anchor_source_map:
+            grouped["Quelle"] = grouped["anchor"].map(anchor_source_map).fillna("unbekannt")
+
+        if grouped.empty:
+            st.info("Keine Shared-Ankertexte nach den gesetzten Filtern gefunden.")
+        else:
+            # 🔁 Long-Format: eine Zeile = Ankertext + Ziel-URL
+            rows = []
+            for _, r in grouped.sort_values("url_count", ascending=False).iterrows():
+                anchor_txt = r["anchor"]
+                urls = r["urls"]
+                url_count = int(r["url_count"])
+                quelle_val = r.get("Quelle", None) if "Quelle" in grouped.columns else None
+
+                for u in urls:
+                    if quelle_val is not None:
+                        rows.append([anchor_txt, quelle_val, u, url_count])
+                    else:
+                        rows.append([anchor_txt, u, url_count])
+
+            if "Quelle" in grouped.columns:
+                shared_long_df = pd.DataFrame(
+                    rows,
+                    columns=["Ankertext", "Quelle", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
+                )
+            else:
+                shared_long_df = pd.DataFrame(
+                    rows,
+                    columns=["Ankertext", "Ziel-URL", "Anzahl_Ziel-URLs_für_Anker"]
+                )
+
+            st.dataframe(shared_long_df, use_container_width=True, hide_index=True)
+
+            # CSV-Export
+            st.download_button(
+                "Download Shared-Ankertexte (CSV)",
+                data=shared_long_df.to_csv(index=False).encode("utf-8-sig"),
+                file_name="a4_shared_ankertexte_long.csv",
+                mime="text/csv",
+                key="a4_dl_shared_csv_main",
+            )
 
 
     # ============================
