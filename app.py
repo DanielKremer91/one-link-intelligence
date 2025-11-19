@@ -2462,61 +2462,62 @@ if A4_NAME in selected_analyses:
         key_suffix: str,
         label: str,
     ) -> pd.DataFrame:
-    """
-    Filtert die All-Inlinks-Tabelle für eine A4-Unteranalyse nach Linkpositionen.
+        """
+        Filtert die All-Inlinks-Tabelle für eine A4-Unteranalyse nach Linkpositionen.
 
-    - Default: alle Positionen werden berücksichtigt.
-    - User kann im Multiselect einzelne Positionen ausschließen.
-    - Zusätzlich: globaler A4-Scope 'Nur Content-Links' nutzt is_content_position().
-    - key_suffix: eindeutiger Suffix pro Unteranalyse (z. B. "over_anchor", "gsc_cov", "kw_cov" usw.).
-    """
-    if df is None or df.empty:
+        - Default: alle Positionen werden berücksichtigt.
+        - User kann im Multiselect einzelne Positionen ausschließen.
+        - Zusätzlich: globaler A4-Scope 'Nur Content-Links' nutzt is_content_position().
+        - key_suffix: eindeutiger Suffix pro Unteranalyse (z. B. "over_anchor", "gsc_cov", "kw_cov" usw.).
+        """
+        if df is None or df.empty:
+            return df
+
+        # NEU: globaler A4-Scope – nur Content-Links?
+        scope = st.session_state.get("a4_link_scope", "Alle Links (Standard)")
+        if scope.startswith("Nur") and pos_idx != -1:
+            mask_content = df.iloc[:, pos_idx].apply(is_content_position)
+            df = df[mask_content]
+        elif scope.startswith("Nur") and pos_idx == -1:
+            # Nur einmal warnen
+            if not st.session_state.get("_a4_pos_missing_warned", False):
+                st.info(
+                    "Die Option 'Nur Content-Links' ist aktiv, "
+                    "aber in 'All Inlinks' wurde keine Linkpositions-Spalte erkannt – "
+                    "es werden daher alle Links verwendet."
+                )
+                st.session_state["_a4_pos_missing_warned"] = True
+
+        # Wenn es keine Positionsspalte gibt, können wir danach nicht filtern
+        if pos_idx == -1:
+            return df
+
+        pos_series = df.iloc[:, pos_idx].dropna().astype(str)
+        pos_values = sorted(pos_series.unique())
+
+        if not pos_values:
+            return df
+
+        exclude_key = f"a4_pos_exclude_{key_suffix}"
+
+        excluded = st.multiselect(
+            label,
+            options=pos_values,
+            default=[],
+            key=exclude_key,
+            help=(
+                "Standard: alle Linkpositionen werden berücksichtigt. "
+                "Wähle optional Positionen aus, die für diese Analyse ignoriert werden sollen "
+                "(z. B. Navigation, Footer)."
+            ),
+        )
+
+        if excluded:
+            mask = ~df.iloc[:, pos_idx].astype(str).isin(excluded)
+            return df[mask]
+
         return df
 
-    # NEU: globaler A4-Scope – nur Content-Links?
-    scope = st.session_state.get("a4_link_scope", "Alle Links (Standard)")
-    if scope.startswith("Nur") and pos_idx != -1:
-        mask_content = df.iloc[:, pos_idx].apply(is_content_position)
-        df = df[mask_content]
-    elif scope.startswith("Nur") and pos_idx == -1:
-        # Nur einmal warnen
-        if not st.session_state.get("_a4_pos_missing_warned", False):
-            st.info(
-                "Die Option 'Nur Content-Links' ist aktiv, "
-                "aber in 'All Inlinks' wurde keine Linkpositions-Spalte erkannt – "
-                "es werden daher alle Links verwendet."
-            )
-            st.session_state["_a4_pos_missing_warned"] = True
-
-    # Wenn es keine Positionsspalte gibt, können wir danach nicht filtern
-    if pos_idx == -1:
-        return df
-
-    pos_series = df.iloc[:, pos_idx].dropna().astype(str)
-    pos_values = sorted(pos_series.unique())
-
-    if not pos_values:
-        return df
-
-    exclude_key = f"a4_pos_exclude_{key_suffix}"
-
-    excluded = st.multiselect(
-        label,
-        options=pos_values,
-        default=[],
-        key=exclude_key,
-        help=(
-            "Standard: alle Linkpositionen werden berücksichtigt. "
-            "Wähle optional Positionen aus, die für diese Analyse ignoriert werden sollen "
-            "(z. B. Navigation, Footer)."
-        ),
-    )
-
-    if excluded:
-        mask = ~df.iloc[:, pos_idx].astype(str).isin(excluded)
-        return df[mask]
-
-    return df
 
 
     def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
@@ -3329,11 +3330,7 @@ if A4_NAME in selected_analyses:
 
                     if not result_rows:
                         st.info("Keine Keyword-Matches gegen das Anchor-Inventar gefunden.")
-                    else:
-                        result_df = pd.DataFrame(
-                            result_rows,
-                            columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Anker-Anteil Keyword (%)", "Match-Typ"],
-                        )
+                    
 
                         if view_mode.startswith("Wide"):
                             wide_rows = []
@@ -3345,7 +3342,7 @@ if A4_NAME in selected_analyses:
                                 cols.extend([
                                     f"Keyword {i}",
                                     f"Kommt als Ankertext vor? {i}",
-                                    f"Anker-Anteil Keyword {i} (%)",
+                                    f"Ankertext-Share Keyword {i} (%)",
                                 ])
 
                             for url, grp in grouped:
