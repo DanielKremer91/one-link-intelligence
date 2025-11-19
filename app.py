@@ -725,14 +725,14 @@ with st.sidebar:
             st.caption("Hier sind mehrere Detail-Analysen möglich – diese können nachfolgend aktiviert oder deaktiviert werden.")
             # NEU: Link-Scope – alle Links vs. nur Content-Links
             a4_link_scope = st.radio(
-                "Welche Links sollen in Analyse 4 berücksichtigt werden?",
-                ["Alle Links (Standard)", "Nur Content-Links (Body/Inhalt etc.)"],
+                "Welche Links sollen bei den Ankertext-Analysen berücksichtigt werden?",
+                ["Alle Links (Standard)", "Nur Content-Links"],
                 index=0,
                 key="a4_link_scope",
                 help=(
-                    "Basis ist die Spalte 'Link position' / 'Linkposition' / 'Pos. Link' usw. "
+                    "Basis ist die Spalte 'Link position'"
                     "in der All-Inlinks-Datei. "
-                    "'Nur Content-Links' filtert auf Positionen, die z. B. 'Inhalt', 'Content', 'Body' enthalten."
+                    "'Nur Content-Links' filtert auf Linkpositionen, die z. B. 'Inhalt', 'Content', 'Body' enthalten. Navi- und Footerlinks z. B. werden rausgefiltert."
                 ),
             )
 
