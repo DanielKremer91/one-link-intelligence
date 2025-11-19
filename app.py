@@ -1042,9 +1042,8 @@ with st.sidebar:
                 )
             )
 
-
-           # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
-           enable_anchor_matrix = st.checkbox(
+            # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
+            enable_anchor_matrix = st.checkbox(
                 "URL-Ankertext-Matrix (Wide) anzeigen",
                 value=True,
                 key="a4_enable_anchor_matrix",
@@ -1056,12 +1055,13 @@ with st.sidebar:
                 "URL-Ankertext-Matrix (Long-Format) anzeigen",
                 value=False,
                 key="a4_enable_anchor_matrix_long",
-                help="Zeigt je Ziel-URL alle Ankertexte untereinander (Long-Format, inkl. CSV/XLSX-Export)."
+                help="Zeigt je Ziel-URL alle Ankertexte untereinander (Long-Format, inkl. CSV-Export)."
             )
 
-
-            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
-
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
             
             # ✅ NEU: Switch + Settings für Shared-Ankertexte
             enable_shared_sidebar = st.checkbox(
@@ -1071,7 +1071,6 @@ with st.sidebar:
                 help="Zeigt Ankertexte, die auf mehreren unterschiedlichen Ziel-URLs verwendet werden."
             )
 
-           
             col_shs1, col_shs2 = st.columns(2)
             with col_shs1:
                 min_urls_per_anchor_sidebar = st.number_input(
@@ -1086,9 +1085,10 @@ with st.sidebar:
                     help="Blendet generische/navigative Anker wie 'hier', 'mehr' etc. aus."
                 )
 
-            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
-
-
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
             
             treemap_topK = st.number_input(
                 "Treemap: Top-K Anchors anzeigen",
@@ -1112,8 +1112,10 @@ with st.sidebar:
                 help="Bestimmt, ob für alle Ziel-URLs oder nur für eine Auswahl Treemaps gebaut werden."
             )
 
-            st.markdown("<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>", unsafe_allow_html=True)
-
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
             
             if treemap_url_mode == "Ausgewählte URLs":
                 # Versuche, bekannte URLs aus dem Anchor-Inventar zu laden (falls A4 schon einmal lief)
@@ -1132,8 +1134,8 @@ with st.sidebar:
                     st.session_state["a4_treemap_selected_urls"] = []
             else:
                 # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
-                st.session_state["a4_treemap_selected_urls"] = []                                
-            
+                st.session_state["a4_treemap_selected_urls"] = []
+
 
     else:
         st.caption("Wähle oben mindestens eine Analyse aus, um Einstellungen zu sehen.")
