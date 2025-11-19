@@ -723,6 +723,19 @@ with st.sidebar:
                 st.markdown("---")
             st.subheader("Einstellungen – Ankertexte analysieren A4")
             st.caption("Hier sind mehrere Detail-Analysen möglich – diese können nachfolgend aktiviert oder deaktiviert werden.")
+            # NEU: Link-Scope – alle Links vs. nur Content-Links
+            a4_link_scope = st.radio(
+                "Welche Links sollen in Analyse 4 berücksichtigt werden?",
+                ["Alle Links (Standard)", "Nur Content-Links (Body/Inhalt etc.)"],
+                index=0,
+                key="a4_link_scope",
+                help=(
+                    "Basis ist die Spalte 'Link position' / 'Linkposition' / 'Pos. Link' usw. "
+                    "in der All-Inlinks-Datei. "
+                    "'Nur Content-Links' filtert auf Positionen, die z. B. 'Inhalt', 'Content', 'Body' enthalten."
+                ),
+            )
+
             
             # Switch für Over-Anchor-Check
             enable_over_anchor = st.checkbox(
@@ -904,13 +917,14 @@ with st.sidebar:
 
            
 
-            
-            # --- Visualisierung (A4) ---
-            st.markdown("**Ankertext-Matrix & Visualisierung**")
+            # --- Ankertext-Matrix (A4) ---
+            st.markdown("**Ankertext-Matrix / Anchor-Inventar**")
             st.caption(
-                "Lasse dir je URL die häufigsten Ankertexte visuell oder als CSV ausgeben. "
+                "Lasse dir je Ziel-URL die Ankertexte als Tabelle (Wide/Long) ausgeben. "
                 "Optional kannst du externe Offpage-Ankertexte mit einbeziehen."
             )
+
+
             
             # NEU: Offpage-Anker einbeziehen
             include_offpage_anchors = st.checkbox(
@@ -923,16 +937,7 @@ with st.sidebar:
                 )
             )
             
-            show_treemap = st.checkbox(
-                "Treemap-Visualisierung aktivieren",
-                value=True,
-                key="a4_show_treemap",
-                help=(
-                    "Schaltet die Treemap ein/aus. Die Treemap zeigt je Ziel-URL die häufigsten Ankertexte. "
-                    "Grundlage sind die Anker aus All Inlinks und – falls aktiviert – aus der Offpage-Ankerdatei."
-                )
-            )
-
+           
             # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
             enable_anchor_matrix = st.checkbox(
                 "URL-Ankertext-Matrix (Wide) anzeigen",
@@ -981,6 +986,28 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
             
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
+            
+            # --- Visualisierung (Treemap) ---
+            st.markdown("**Visualisierung (Treemap)**")
+            st.caption(
+                "Steuere die Treemap-Visualisierung der Ankertexte je Ziel-URL. "
+                "Die Treemap nutzt dieselben Anchor-Daten wie die Ankertext-Matrix."
+            )
+            
+            show_treemap = st.checkbox(
+                "Treemap-Visualisierung aktivieren",
+                value=True,
+                key="a4_show_treemap",
+                help=(
+                    "Schaltet die Treemap ein/aus. Die Treemap zeigt je Ziel-URL die häufigsten Ankertexte. "
+                    "Grundlage sind die Anker aus All Inlinks und – falls aktiviert – aus der Offpage-Ankerdatei."
+                ),
+            )
+
             treemap_topK = st.number_input(
                 "Treemap: Top-K Anchors anzeigen",
                 min_value=3,
@@ -1379,6 +1406,8 @@ if A4_NAME in selected_analyses:
                 inlinks_df = df
             if "Search Console" in label:
                 gsc_df_loaded = df
+            if "Keyword-Liste" in label:
+                kw_df_a4 = df
             if "Offpage-Ankertexte" in label:
                 offpage_anchors_df = df
             if "Crawl" in label:
@@ -2433,42 +2462,62 @@ if A4_NAME in selected_analyses:
         key_suffix: str,
         label: str,
     ) -> pd.DataFrame:
-        """
-        Filtert die All-Inlinks-Tabelle für eine A4-Unteranalyse nach Linkpositionen.
+    """
+    Filtert die All-Inlinks-Tabelle für eine A4-Unteranalyse nach Linkpositionen.
 
-        - Default: alle Positionen werden berücksichtigt.
-        - User kann im Multiselect einzelne Positionen ausschließen.
-        - key_suffix: eindeutiger Suffix pro Unteranalyse (z. B. "over_anchor", "gsc_cov", "kw_cov" usw.).
-        """
-        if df is None or df.empty or pos_idx == -1:
-            # Keine Positionsspalte oder keine Daten -> nichts filtern
-            return df
-
-        pos_series = df.iloc[:, pos_idx].dropna().astype(str)
-        pos_values = sorted(pos_series.unique())
-
-        if not pos_values:
-            return df
-
-        exclude_key = f"a4_pos_exclude_{key_suffix}"
-
-        excluded = st.multiselect(
-            label,
-            options=pos_values,
-            default=[],
-            key=exclude_key,
-            help=(
-                "Standard: alle Linkpositionen werden berücksichtigt. "
-                "Wähle optional Positionen aus, die für diese Analyse ignoriert werden sollen "
-                "(z. B. Navigation, Footer)."
-            ),
-        )
-
-        if excluded:
-            mask = ~df.iloc[:, pos_idx].astype(str).isin(excluded)
-            return df[mask]
-
+    - Default: alle Positionen werden berücksichtigt.
+    - User kann im Multiselect einzelne Positionen ausschließen.
+    - Zusätzlich: globaler A4-Scope 'Nur Content-Links' nutzt is_content_position().
+    - key_suffix: eindeutiger Suffix pro Unteranalyse (z. B. "over_anchor", "gsc_cov", "kw_cov" usw.).
+    """
+    if df is None or df.empty:
         return df
+
+    # NEU: globaler A4-Scope – nur Content-Links?
+    scope = st.session_state.get("a4_link_scope", "Alle Links (Standard)")
+    if scope.startswith("Nur") and pos_idx != -1:
+        mask_content = df.iloc[:, pos_idx].apply(is_content_position)
+        df = df[mask_content]
+    elif scope.startswith("Nur") and pos_idx == -1:
+        # Nur einmal warnen
+        if not st.session_state.get("_a4_pos_missing_warned", False):
+            st.info(
+                "Die Option 'Nur Content-Links' ist aktiv, "
+                "aber in 'All Inlinks' wurde keine Linkpositions-Spalte erkannt – "
+                "es werden daher alle Links verwendet."
+            )
+            st.session_state["_a4_pos_missing_warned"] = True
+
+    # Wenn es keine Positionsspalte gibt, können wir danach nicht filtern
+    if pos_idx == -1:
+        return df
+
+    pos_series = df.iloc[:, pos_idx].dropna().astype(str)
+    pos_values = sorted(pos_series.unique())
+
+    if not pos_values:
+        return df
+
+    exclude_key = f"a4_pos_exclude_{key_suffix}"
+
+    excluded = st.multiselect(
+        label,
+        options=pos_values,
+        default=[],
+        key=exclude_key,
+        help=(
+            "Standard: alle Linkpositionen werden berücksichtigt. "
+            "Wähle optional Positionen aus, die für diese Analyse ignoriert werden sollen "
+            "(z. B. Navigation, Footer)."
+        ),
+    )
+
+    if excluded:
+        mask = ~df.iloc[:, pos_idx].astype(str).isin(excluded)
+        return df[mask]
+
+    return df
+
 
     def extract_anchor_inventory(df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -3270,15 +3319,20 @@ if A4_NAME in selected_analyses:
                                 kw_str,
                                 "ja" if found else "nein",
                                 share_pct,
-                                match_type,
                             ])
+                            
+                            result_df = pd.DataFrame(
+                                result_rows,
+                                columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Ankertext-Share (%)"],
+                            )
+
 
                     if not result_rows:
                         st.info("Keine Keyword-Matches gegen das Anchor-Inventar gefunden.")
                     else:
                         result_df = pd.DataFrame(
                             result_rows,
-                            columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Anker-Anteil (%)", "Match-Typ"],
+                            columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Anker-Anteil Keyword (%)", "Match-Typ"],
                         )
 
                         if view_mode.startswith("Wide"):
