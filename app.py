@@ -913,6 +913,13 @@ with st.sidebar:
                     "ob die Keywords als Ankertexte vorkommen und welchen Anteil sie am gesamten Anchor-Inventar haben."
                 )
             )
+            
+            if enable_kw_coverage:
+                st.markdown("**Keyword-Coverage mit eigener Keyword-Liste**")
+                st.caption(
+                    "Prüft für jede URL, ob deine definierten Keywords als Ankertexte vorkommen "
+                    "und wie hoch ihr Anteil am gesamten Anchor-Inventar ist."
+                )
 
 
 
@@ -1387,13 +1394,15 @@ if A4_NAME in selected_analyses:
     # GSC Upload nur wenn GSC-Coverage aktiviert ist
     if st.session_state.get("a4_enable_gsc_coverage", True):
         needs.append(("Search Console (CSV/Excel)", "up_gsc_a4", HELP_GSC_A4))
-    # NEU: Eigene Keyword-Liste (für Keyword-Coverage / eigene Keywords)
-    # Immer optional, kein Pflicht-Upload
-    needs.append((
-        "Eigene Keyword-Liste (CSV/Excel)",
-        "up_kw_a4",
-        HELP_A4_KW
-    ))
+
+    # Eigene Keyword-Liste nur anzeigen, wenn Keyword-Coverage aktiv ist
+    if st.session_state.get("a4_enable_kw_coverage", True):
+        needs.append((
+            "Eigene Keyword-Liste (CSV/Excel)",
+            "up_kw_a4",
+            HELP_A4_KW
+        ))
+
     # Offpage-Ankerdatei nur anbieten, wenn Option aktiviert
     if st.session_state.get("a4_include_offpage_anchors", False):
         needs.append((
@@ -1403,6 +1412,7 @@ if A4_NAME in selected_analyses:
             "Ziel-URL wird ähnlich wie in 'All Inlinks' erkannt, Ankertext über Spaltennamen wie "
             "'Anchor', 'Anchor Text', 'Anker', 'Ankertext' etc."
         ))
+
 
     
 
