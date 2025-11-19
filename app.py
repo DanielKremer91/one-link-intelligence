@@ -867,8 +867,8 @@ with st.sidebar:
                         value=st.session_state.get("a4_topN", 0),
                         step=1,
                         key="a4_topN",
-                        )
                     )
+
 
             else:
                 # Setze Defaults wenn deaktiviert
