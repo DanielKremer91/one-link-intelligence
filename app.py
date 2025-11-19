@@ -11,6 +11,16 @@ import io
 import zipfile
 import json
 
+inlinks_df = None
+metrics_df = None
+emb_df = None
+related_df = None
+backlinks_df = None
+offpage_anchors_df = None
+gsc_df_loaded = None
+kw_df_a4 = None
+
+
 # Neu: Plotly für Treemap
 try:
     import plotly.express as px
@@ -868,6 +878,7 @@ with st.sidebar:
                         step=1,
                         key="a4_topN",
                     )
+
 
 
             else:
