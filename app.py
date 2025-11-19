@@ -905,7 +905,7 @@ with st.sidebar:
             
             # Switch für Keyword-Coverage mit eigener Keyword-Liste (UNABHÄNGIG von GSC)
             enable_kw_coverage = st.checkbox(
-                "Keyword-Coverage mit eigener Keyword-Liste aktivieren",
+                "Keyword-Ankertext-Coverage mit eigener Keyword-Liste aktivieren",
                 value=True,
                 key="a4_enable_kw_coverage",
                 help=(
@@ -915,7 +915,7 @@ with st.sidebar:
             )
             
             if enable_kw_coverage:
-                st.markdown("**Keyword-Coverage mit eigener Keyword-Liste**")
+                st.markdown("**Keyword-Ankertext-Coverage mit eigener Keyword-Liste**")
                 st.caption(
                     "Prüft für jede URL, ob deine definierten Keywords als Ankertexte vorkommen "
                     "und wie hoch ihr Anteil am gesamten Anchor-Inventar ist."
