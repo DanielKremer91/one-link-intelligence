@@ -772,82 +772,89 @@ with st.sidebar:
                 unsafe_allow_html=True,
             )
             
-            # Switch für GSC-Query-Coverage
+           # Switch für GSC-Query-Coverage
             enable_gsc_coverage = st.checkbox(
                 "Search Console Query Coverage bei Ankertexten aktivieren",
                 value=True,
                 key="a4_enable_gsc_coverage",
-                help="Prüft, ob je URL die Top-Queries aus Google Search Console (nach Impressionen oder Klicks) als Ankertexte vorhanden sind."
+                help="Prüft, ob je URL die Top-Queries aus Google Search Console ..."
             )
             
             if enable_gsc_coverage:
                 st.markdown("**Search Console Query Coverage bei Ankertexten**")
-                st.caption("Gleicht die Top 20% der Suchanfragen einer URL (basierend auf Search Console Daten) mit vorhandenen Ankertexten ab und identifiziert fehlende oder falsch verlinkte Queries.")
-                
-                # Wichtig: Reihenfolge – zuerst welche Queries berücksichtigen
-                brand_mode = st.radio(
-                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?",
-                    ["Nur Non-Brand", "Nur Brand", "Beides"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_brand_mode",
-                    help="Filtert GSC-Queries nach Brand/Non-Brand bevor die Auswertung startet."
-                )
-                
-                # Brand-Schreibweisen IMMER anzeigen, wenn GSC-Coverage aktiv ist
-                brand_text = st.text_area(
-                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)",
-                    value=st.session_state.get("a4_brand_text", ""),
-                    key="a4_brand_text",
-                    help="Liste von Marken-Schreibweisen; wird für Brand/Non-Brand-Erkennung verwendet."
-                )
-                brand_file = st.file_uploader(
-                    "Optional: Brand-Liste (1 Spalte)",
-                    type=["csv", "xlsx", "xlsm", "xls"],
-                    key="a4_brand_file",
-                    help="Einspaltige Liste; zusätzliche Spalten werden ignoriert."
-                )
-                auto_variants = st.checkbox(
-                    "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
-                    value=st.session_state.get("a4_auto_variants", True),
-                    key="a4_auto_variants",
-                    help="Alle Keyword+Brand-Kombinationen werden als Brand-Queries erkannt."
-                )
-
-                # --- Relevanzgrundlage ---
-                metric_choice = st.radio(
-                    "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
-                    ["Impressions", "Clicks"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_metric_choice"
-                )
-                
-                st.caption(
-                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match "
-                    "oder auf Basis semantischer Ähnlichkeit erfolgen?"
-                )
-
+                st.caption("Gleicht die Top 20% der Suchanfragen ...")
+            
+                # Brand / Non-Brand
+                brand_mode = st.radio(...)
+            
+                brand_text = st.text_area(...)
+                brand_file = st.file_uploader(...)
+                auto_variants = st.checkbox(...)
+            
+                # Relevanzgrundlage
+                metric_choice = st.radio(...)
+            
+                st.caption("Soll der Abgleich ... Exact Match oder semantische Ähnlichkeit ...")
+            
                 check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
                 check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+            
+                embed_model_name = st.selectbox(...)
+                embed_thresh = st.slider(...)
+            
+                # Schwellen-Helptext + Inputs NUR für GSC
+                help_text_schwellen = (
+                    "Mit den Schwellen & Filtern reduzierst du Rauschen ..."
+                )
+            
+                col_s1, col_s2, col_s3 = st.columns(3)
+                with col_s1:
+                    min_clicks = st.number_input(
+                        "Mindest-Klicks/Query",
+                        min_value=0,
+                        value=50,
+                        step=10,
+                        key="a4_min_clicks",
+                        help=help_text_schwellen
+                    )
+                with col_s2:
+                    min_impr = st.number_input(
+                        "Mindest-Impressions/Query",
+                        min_value=0,
+                        value=500,
+                        step=50,
+                        key="a4_min_impr",
+                        help=help_text_schwellen
+                    )
+                with col_s3:
+                    topN_default = st.number_input(
+                        "Top-N Queries pro URL (zusätzliche Bedingung)",
+                        min_value=0,
+                        value=st.session_state.get("a4_topN", 0),
+                        step=1,
+                        key="a4_topN",
+                    )
+            
+            # 👉 HIER ist der GSC-Block zu Ende
+            
+            # Abstand / Trennlinie zur nächsten Unteranalyse
+            st.markdown(
+                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
+                unsafe_allow_html=True,
+            )
+            
+            # Switch für Keyword-Coverage mit eigener Keyword-Liste (UNABHÄNGIG von GSC)
+            enable_kw_coverage = st.checkbox(
+                "Keyword-Coverage mit eigener Keyword-Liste aktivieren",
+                value=True,
+                key="a4_enable_kw_coverage",
+                help=(
+                    "Prüft für eine manuell hochgeladene Keyword-Liste, "
+                    "ob die Keywords als Ankertexte vorkommen und welchen Anteil sie am gesamten Anchor-Inventar haben."
+                )
+            )
 
-                embed_model_name = st.selectbox(
-                    "Sentence Transformer Modell (Embedding-Modell)",
-                    [
-                        "sentence-transformers/all-MiniLM-L6-v2",
-                        "sentence-transformers/all-MiniLM-L12-v2",
-                        "sentence-transformers/all-mpnet-base-v2",
-                    ],
-                    index=0,
-                    help="Standard: all-MiniLM-L6-v2",
-                    key="a4_embed_model",
-                )
-                embed_thresh = st.slider(
-                    "Cosine-Schwelle (Embedding)",
-                    0.50, 0.95, 0.75, 0.01,
-                    key="a4_embed_thresh",
-                    help="Nur Anchors mit Cosine Similarity ≥ Schwelle gelten als semantische Treffer."
-                )
+
 
                 help_text_schwellen = (
                     "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
@@ -3138,35 +3145,34 @@ if A4_NAME in selected_analyses:
         except Exception:
             pass
 
-    # ============================
     # 3) Keyword-Coverage mit eigener Keyword-Datei
-    # ============================
-    st.markdown("#### 3) Keyword-Coverage mit eigener Keyword-Datei")
-
-    kw_df = kw_df_a4
-    if not isinstance(kw_df, pd.DataFrame) or kw_df.empty:
-        st.info("Für die Keyword-Coverage wurde noch keine Keyword-Datei hochgeladen.")
-    else:
-        df_kw = kw_df.copy()
-        df_kw.columns = [str(c).strip() for c in df_kw.columns]
-
-        if df_kw.shape[1] < 2:
-            st.warning("Die Keyword-Datei benötigt mindestens 2 Spalten: URL + Keyword(s).")
+    if st.session_state.get("a4_enable_kw_coverage", True):
+        st.markdown("#### 3) Keyword-Ankertext-Coverage mit eigener Keyword-Datei")
+    
+        kw_df = kw_df_a4
+        if not isinstance(kw_df, pd.DataFrame) or kw_df.empty:
+            st.info("Für die Keyword-Ankertext-Coverage wurde noch keine Keyword-Datei hochgeladen.")
         else:
-            url_col = df_kw.columns[0]
-            keyword_cols = list(df_kw.columns[1:])
+            df_kw = kw_df.copy()
+            df_kw.columns = [str(c).strip() for c in df_kw.columns]
 
-            # Long-Ansicht aus der Rohdatei erzeugen: eine Zeile = URL + Keyword
-            pairs = []
-            for _, r in df_kw.iterrows():
-                url_raw = str(r[url_col]).strip()
-                if not url_raw:
-                    continue
-                for c in keyword_cols:
-                    kw_val = str(r[c]).strip()
-                    if not kw_val:
+            if df_kw.shape[1] < 2:
+                st.warning("Die Keyword-Datei benötigt mindestens 2 Spalten: URL + Keyword(s).")
+            else:
+                url_col = df_kw.columns[0]
+                keyword_cols = list(df_kw.columns[1:])
+
+                # Long-Ansicht aus der Rohdatei erzeugen: eine Zeile = URL + Keyword
+                pairs = []
+                for _, r in df_kw.iterrows():
+                    url_raw = str(r[url_col]).strip()
+                    if not url_raw:
                         continue
-                    pairs.append([url_raw, kw_val])
+                    for c in keyword_cols:
+                        kw_val = str(r[c]).strip()
+                        if not kw_val:
+                            continue
+                        pairs.append([url_raw, kw_val])
 
             if not pairs:
                 st.info("In der Keyword-Datei wurden keine gültigen URL-Keyword-Kombinationen gefunden.")
