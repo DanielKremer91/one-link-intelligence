@@ -856,51 +856,6 @@ with st.sidebar:
 
 
 
-                help_text_schwellen = (
-                    "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
-                    "• Mindest-Klicks/Query – wird nur angewendet, wenn oben Clicks ausgewählt ist. Filtert Suchanfragen mit zu wenigen Klicks heraus.\n"
-                    "• Mindest-Impressions/Query – wird nur angewendet, wenn oben Impressions ausgewählt ist. Filtert Queries mit Impressionen unter dem gewählten Schwellenwert heraus.\n"
-                    "• Top-N Queries pro URL – zusätzlicher Deckel nach der Top-20-%-Auswahl. Pro URL werden maximal N der stärksten Queries geprüft.\n\n"
-                    "Hinweise:\n"
-                    "– Die Auswahl Impressions vs. Clicks steuert, welche Schwelle greift.\n"
-                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, dann die Top-20-% berechnet."
-                )
-
-                help=help_text_schwellen
-
-
-
-
-                col_s1, col_s2, col_s3 = st.columns(3)
-                with col_s1:
-                    min_clicks = st.number_input(
-                        "Mindest-Klicks/Query",
-                        min_value=0,
-                        value=50,
-                        step=10,
-                        key="a4_min_clicks",
-                        help=help_text_schwellen
-                    )
-                with col_s2:
-                    min_impr = st.number_input(
-                        "Mindest-Impressions/Query",
-                        min_value=0,
-                        value=500,
-                        step=50,
-                        key="a4_min_impr",
-                        help=help_text_schwellen
-                    )
-                with col_s3:
-                    topN_default = st.number_input(
-                        "Top-N Queries pro URL (zusätzliche Bedingung)",
-                        min_value=0,  # 0 = kein Zusatz-Deckel
-                        value=st.session_state.get("a4_topN", 0),
-                        step=1,
-                        key="a4_topN",
-                    )
-
-
-
             else:
                 # Setze Defaults wenn deaktiviert
                 st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
