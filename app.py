@@ -935,7 +935,6 @@ with st.sidebar:
             if '_faiss_available' in globals() and callable(_faiss_available) and not _faiss_available():
                 st.caption("FAISS ist hier nicht installiert – Auto-Switch nutzt ggf. NumPy.")
 
-
             st.subheader("Gewichtung (Linkpotenzial)")
             st.caption("Das Linkpotenzial gibt Aufschluss über die Lukrativität einer URL als Linkgeber.")
             w_ils = st.slider(
@@ -959,7 +958,6 @@ with st.sidebar:
                 w_ils, w_pr, w_rd, w_bl = (w_ils/w_sum, w_pr/w_sum, w_rd/w_sum, w_bl/w_sum)
                 st.caption(f"Gewichtungen wurden auf 1.0 normalisiert (Summe war {w_sum:.2f}).")
                 st.caption(f"Aktuelle Gewichtungen – ILS: {w_ils:.2f}, PR: {w_pr:.2f}, RD: {w_rd:.2f}, BL: {w_bl:.2f}")
-
 
             st.subheader("Schwellen & Limits (Related URLs)")
             sim_threshold = st.slider(
@@ -988,7 +986,7 @@ with st.sidebar:
                     "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren."
                 ),
             )
-    
+
             if scope_mode == "Verzeichnisebene (Pfad-basiert)":
                 st.selectbox(
                     "Verzeichnistiefe",
@@ -1023,9 +1021,7 @@ with st.sidebar:
                     ),
                 )
 
-                # ----------------
         # A1 – KI-Ankertexte (optional)
-        # ----------------
         if A1_NAME in selected_analyses:
             st.markdown("---")
             st.subheader("Ankertext-Vorschläge (optional, A1)")
@@ -1701,7 +1697,7 @@ if selected_analyses:
     # 1) Globaler Eingabemodus: URLs + Embeddings vs. Related URLs
     if needs_embeddings_or_related:
         mode = st.radio(
-            "Eingabemodus (für Analysen 1–3, 5 & 6)",
+            "Eingabemodus",
             ["URLs + Embeddings", "Related URLs"],
             horizontal=True,
             key="emb_rel_mode_global",
