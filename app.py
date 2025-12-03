@@ -238,6 +238,43 @@ def remember_original(raw: str) -> str:
         st.session_state["_ORIG_MAP"][key] = s
     return key
 
+def _path_segments(url: str) -> list[str]:
+    """
+    Zerlegt den Pfad einer URL in Segmente.
+    Beispiel: https://kaipara.de/wolle-guide/produktberater/x/
+    -> ["wolle-guide", "produktberater", "x"]
+    """
+    from urllib.parse import urlparse
+    p = urlparse(str(url or "").strip())
+    path = p.path or "/"
+    segs = [s for s in path.split("/") if s]
+    return segs
+
+def dir_key(url: str, depth: int) -> str:
+    """
+    Liefert einen Key für die Verzeichnisebene.
+
+    depth = 1 -> erste Verzeichnisebene (kaipara.de/wolle-guide)
+    depth = 2 -> zwei Ebenen        (kaipara.de/wolle-guide/produktberater)
+    depth = 3 -> drei Ebenen        (maximal, falls vorhanden)
+
+    Host wird immer mit ausgegeben (ohne www.).
+    """
+    from urllib.parse import urlparse
+    p = urlparse(str(url or "").strip())
+    host = (p.netloc or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+
+    segs = _path_segments(url)
+    if not segs or depth <= 0:
+        return f"{host}/"
+
+    # depth auf 1–3 begrenzen und nicht tiefer als vorhandene Segmente
+    depth = min(max(depth, 1), 3, len(segs))
+    return f"{host}/" + "/".join(segs[:depth])
+
+
 def disp(key_or_url: str) -> str:
     return st.session_state["_ORIG_MAP"].get(str(key_or_url), str(key_or_url))
 
@@ -613,6 +650,59 @@ with st.sidebar:
                 "Anzahl Related URLs", min_value=1, max_value=50, value=10, step=1,
                 help="Begrenze, wie viele semantisch verwandte URLs je Linkziel in der Analyse berücksichtigt werden sollen."
             )
+
+            st.subheader("Scope der URL-Auswahl")
+            scope_mode = st.radio(
+                "Welche URLs sollen in die Analysen einbezogen werden?",
+                [
+                    "Alle URLs (Standard)",
+                    "Verzeichnisebene (Pfad-basiert)",
+                    "Regex-basiert (nur passende URLs)",
+                ],
+                index=0,
+                key="scope_mode",
+                help=(
+                    "Alle URLs: Verhalten wie bisher.\n"
+                    "Verzeichnisebene: Nur URLs aus demselben Verzeichnis wie die Ziel-URL "
+                    "(1./2./3. Ebene des Pfads).\n"
+                    "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren."
+                ),
+            )
+    
+            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
+                st.selectbox(
+                    "Verzeichnistiefe",
+                    [1, 2, 3],
+                    index=0,
+                    key="scope_dir_depth",
+                    format_func=lambda d: f"{d}. Verzeichnisebene",
+                    help="Bestimmt, wie viele Pfadsegmente für die Gruppierung verwendet werden (max. 3 Ebenen).",
+                )
+            elif scope_mode == "Regex-basiert (nur passende URLs)":
+                st.text_area(
+                    "Regex für Ziel-URLs (eine pro Zeile, top-down)",
+                    value="",
+                    key="scope_regex_target_text",
+                    help=(
+                        "Nur URLs, die mindestens auf eine dieser Regeln matchen, "
+                        "können als Ziel-URL in den Analysen auftreten.\n"
+                        "Beispiele:\n"
+                        r"^https://kaipara\.de/wolle-guide/.*"
+                    ),
+                )
+                st.text_area(
+                    "Regex für Related-URLs / Linkgeber (eine pro Zeile, top-down)",
+                    value="",
+                    key="scope_regex_source_text",
+                    help=(
+                        "Nur URLs, die mindestens auf eine dieser Regeln matchen, "
+                        "können als Linkgeber / Related-URL auftreten.\n"
+                        "Beispiele:\n"
+                        r"^https://kaipara\.de/herren/.*\n"
+                        r"^https://kaipara\.de/.*/shirts/.*"
+                    ),
+                )
+
 
         # ----------------
         # A2 – eigene Sektion
@@ -1868,6 +1958,93 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
         for _, r in metrics_df.iterrows()
     }
 
+    # ============================================
+    # Scope-Filter für Analysen (Regex-basiert)
+    # ============================================
+    scope_mode = st.session_state.get("scope_mode", "Alle URLs (Standard)")
+    allowed_urls_target = None   # URLs, die als Ziel-URL zulässig sind
+    allowed_urls_source = None   # URLs, die als Linkgeber/Related zulässig sind
+    allowed_urls_union  = None   # Vereinigt (falls später benötigt)
+
+    if scope_mode == "Regex-basiert (nur passende URLs)":
+        regex_target_text = st.session_state.get("scope_regex_target_text", "") or ""
+        regex_source_text = st.session_state.get("scope_regex_source_text", "") or ""
+
+        patterns_target: list[re.Pattern] = []
+        patterns_source: list[re.Pattern] = []
+
+        # Ziel-URL-Regeln
+        for line in regex_target_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                patterns_target.append(re.compile(line))
+            except re.error:
+                st.warning(f"Ungültige Regex-Regel für Ziel-URLs ignoriert: {line}")
+                continue
+
+        # Source-/Related-Regeln
+        for line in regex_source_text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                patterns_source.append(re.compile(line))
+            except re.error:
+                st.warning(f"Ungültige Regex-Regel für Related-URLs ignoriert: {line}")
+                continue
+
+        if patterns_target or patterns_source:
+            all_urls_for_scope = set()
+
+            # URLs aus Related Map
+            for t, rel_list in related_map.items():
+                all_urls_for_scope.add(t)
+                for src, _ in rel_list:
+                    all_urls_for_scope.add(src)
+
+            # URLs aus All Inlinks
+            all_links = st.session_state.get("_all_links", set())
+            for src, dst in all_links:
+                all_urls_for_scope.add(src)
+                all_urls_for_scope.add(dst)
+
+            # Ziel-URL-Menge
+            if patterns_target:
+                allowed_target = set()
+                for u in all_urls_for_scope:
+                    for rx in patterns_target:
+                        if rx.search(u):
+                            allowed_target.add(u)
+                            break
+                allowed_urls_target = allowed_target
+
+            # Source-/Related-URL-Menge
+            if patterns_source:
+                allowed_source = set()
+                for u in all_urls_for_scope:
+                    for rx in patterns_source:
+                        if rx.search(u):
+                            allowed_source.add(u)
+                            break
+                allowed_urls_source = allowed_source
+
+            # Union (optional)
+            if allowed_urls_target is not None or allowed_urls_source is not None:
+                allowed_union = set()
+                if allowed_urls_target is not None:
+                    allowed_union.update(allowed_urls_target)
+                if allowed_urls_source is not None:
+                    allowed_union.update(allowed_urls_source)
+                allowed_urls_union = allowed_union
+
+    # in Session speichern, damit Analysen darauf zugreifen können
+    st.session_state["_allowed_urls_target"] = allowed_urls_target
+    st.session_state["_allowed_urls_source"] = allowed_urls_source
+    st.session_state["_allowed_urls_union"]  = allowed_urls_union
+
+
     # ===============================
     # Analyse 1 – nur rendern, wenn Button gedrückt
     # ===============================
@@ -1885,24 +2062,75 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                     f"Linkpotenzial Related URL {i}",
                 ]
             rows_norm, rows_view = [], []
+            max_related_local = int(locals().get("max_related", 10))
+
+            # Scope-Einstellungen aus der Sidebar
+            scope_mode = st.session_state.get("scope_mode", "Alle URLs (Standard)")
+            allowed_urls_target = st.session_state.get("_allowed_urls_target")
+            allowed_urls_source = st.session_state.get("_allowed_urls_source")
+
+            # Directory-Keys nur berechnen, wenn Verzeichnisscope aktiv ist
+            dir_keys = {}
+            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
+                dir_depth = int(st.session_state.get("scope_dir_depth", 1))
+                all_urls_a1 = set(related_map.keys())
+                for lst in related_map.values():
+                    for src, _ in lst:
+                        all_urls_a1.add(src)
+                dir_keys = {u: dir_key(u, dir_depth) for u in all_urls_a1}
+
             for target, related_list in sorted(related_map.items()):
-                related_sorted = sorted(related_list, key=lambda x: x[1], reverse=True)[: int(locals().get("max_related", 10))]
+                # Regex-Scope: Ziel-URL ggf. komplett ausschließen
+                if scope_mode == "Regex-basiert (nur passende URLs)" and allowed_urls_target is not None:
+                    if target not in allowed_urls_target:
+                        continue
+
+                # Start: unveränderte Kandidaten
+                filtered = list(related_list)
+
+                # Verzeichnisscope (Variante 2): nur gleiche Verzeichnisebene wie Ziel-URL
+                if scope_mode == "Verzeichnisebene (Pfad-basiert)":
+                    t_key = dir_keys.get(target, None)
+                    if t_key is not None:
+                        filtered = [
+                            (source, sim)
+                            for (source, sim) in filtered
+                            if dir_keys.get(source, None) == t_key
+                        ]
+
+                # Regex-Scope (Variante 3): nur Quellen, die als Linkgeber erlaubt sind
+                if scope_mode == "Regex-basiert (nur passende URLs)" and allowed_urls_source is not None:
+                    filtered = [
+                        (source, sim)
+                        for (source, sim) in filtered
+                        if source in allowed_urls_source
+                    ]
+
+                # Sortierung & Top-N
+                related_sorted = sorted(filtered, key=lambda x: x[1], reverse=True)[:max_related_local]
+
                 row_norm = [target]
                 row_view = [disp(target)]
+
                 for source, sim in related_sorted:
                     anywhere = "ja" if (source, target) in st.session_state["_all_links"] else "nein"
                     from_content = "ja" if (source, target) in st.session_state["_content_links"] else "nein"
                     final_score = source_potential_map.get(source, 0.0)
                     row_norm.extend([source, round(float(sim), 3), anywhere, from_content, final_score])
                     row_view.extend([disp(source), round(float(sim), 3), anywhere, from_content, final_score])
+
+                # Zeilen auf die Spaltenanzahl auffüllen
                 while len(row_norm) < len(cols):
                     row_norm.append(np.nan)
                 while len(row_view) < len(cols):
                     row_view.append(np.nan)
+
                 rows_norm.append(row_norm)
                 rows_view.append(row_view)
+
             res1_df = pd.DataFrame(rows_norm, columns=cols)
             st.session_state.res1_df = res1_df
+
 
             long_rows = []
             max_i = int(locals().get("max_related", 10))
