@@ -19,6 +19,9 @@ backlinks_df = None
 offpage_anchors_df = None
 gsc_df_loaded = None
 kw_df_a4 = None
+crawl_df_a1 = None
+gsc_df_a1 = None
+kw_df_a1 = None
 
 
 # Neu: Plotly für Treemap
@@ -545,6 +548,323 @@ def build_related_auto(
     df_rel = pd.DataFrame(rows, columns=["Ziel-URL", "Related-URL", "Score"])
     return df_rel, related_map
 
+# =========================
+# Zusatz-Helper für A1-KI
+# =========================
+
+def _find_crawl_columns(df: pd.DataFrame) -> dict:
+    """
+    Ermittelt Spaltennamen für URL, Title, H1, Meta Description, Main Content
+    nach den definierten Varianten. Überzählige Spalten werden ignoriert.
+    """
+    lower = {str(c).strip().lower(): c for c in df.columns}
+
+    def pick(candidates):
+        for cand in candidates:
+            key = cand.lower()
+            if key in lower:
+                return lower[key]
+        return None
+
+    url_col = pick(["URL", "Url", "Address", "address"])
+    title_col = pick(["Title", "Title 1", "Title Tag", "Title-Tag"])
+    h1_col = pick(["H1", "H1-1", "H1 - 1", "h1"])
+    meta_col = pick(["Meta Description", "Meta Description 1", "MD", "MD 1"])
+    main_col = pick(["Main Content Extraction 1", "Main Content Extraction", "Main Content Extraction 2"])
+
+    return {
+        "url": url_col,
+        "title": title_col,
+        "h1": h1_col,
+        "meta": meta_col,
+        "main": main_col,
+    }
+
+
+def build_page_text_maps_for_a1(crawl_df: pd.DataFrame) -> dict:
+    """
+    Baut Dictionaries:
+    - url_norm -> title / h1 / meta / main_content (als Strings)
+    """
+    if crawl_df is None or crawl_df.empty:
+        return {"title": {}, "h1": {}, "meta": {}, "main": {}}
+
+    cols = _find_crawl_columns(crawl_df)
+    url_c = cols["url"]
+    if url_c is None:
+        st.warning("Crawl-Datei (A1) enthält keine erkennbare URL-Spalte – Seitendaten können nicht genutzt werden.")
+        return {"title": {}, "h1": {}, "meta": {}, "main": {}}
+
+    title_c = cols["title"]
+    h1_c = cols["h1"]
+    meta_c = cols["meta"]
+    main_c = cols["main"]
+
+    title_map, h1_map, meta_map, main_map = {}, {}, {}, {}
+
+    for _, r in crawl_df.iterrows():
+        url_raw = r[url_c]
+        key = remember_original(url_raw)
+        if not key:
+            continue
+        if title_c is not None:
+            title_map[key] = str(r[title_c]) if pd.notna(r[title_c]) else ""
+        if h1_c is not None:
+            h1_map[key] = str(r[h1_c]) if pd.notna(r[h1_c]) else ""
+        if meta_c is not None:
+            meta_map[key] = str(r[meta_c]) if pd.notna(r[meta_c]) else ""
+        if main_c is not None:
+            main_map[key] = str(r[main_c]) if pd.notna(r[main_c]) else ""
+
+    return {"title": title_map, "h1": h1_map, "meta": meta_map, "main": main_map}
+
+
+def build_top_gsc_keyword_map_for_a1(gsc_df: pd.DataFrame, metric: str) -> dict:
+    """
+    Liefert pro URL das Top-Keyword (nach Klicks oder Impressions).
+    metric: 'Clicks' oder 'Impressions'
+    """
+    if gsc_df is None or gsc_df.empty:
+        return {}
+
+    df = gsc_df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    hdr = [_norm_header(c) for c in df.columns]
+
+    def find_idx(cands, default=None):
+        cands = {_norm_header(x) for x in cands}
+        for i, h in enumerate(hdr):
+            if h in cands:
+                return i
+        for i, h in enumerate(hdr):
+            if any(c in h for c in cands):
+                return i
+        return default
+
+    url_i = find_idx(["url", "page", "adresse", "address"], 0)
+    q_i   = find_idx(["query", "suchanfrage", "suchbegriff"], 1)
+    c_i   = find_idx(["clicks", "klicks"], None)
+    im_i  = find_idx(["impressions", "impr", "impressionen"], None)
+
+    if url_i is None or q_i is None or (metric == "Clicks" and c_i is None) or (metric == "Impressions" and im_i is None):
+        st.warning("GSC-Datei (A1) konnte nicht eindeutig interpretiert werden (URL/Query/Metric fehlen).")
+        return {}
+
+    df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(remember_original)
+    df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str)
+
+    if c_i is not None:
+        df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
+    if im_i is not None:
+        df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
+
+    metric_col = c_i if metric == "Clicks" else im_i
+    df = df[df.iloc[:, metric_col] > 0]
+
+    if df.empty:
+        return {}
+
+    top_map = {}
+    for url, grp in df.groupby(df.columns[url_i], sort=False):
+        best = grp.sort_values(df.columns[metric_col], ascending=False).head(1)
+        if not best.empty:
+            top_map[url] = str(best.iloc[0, q_i])
+
+    return top_map
+
+
+def build_manual_keyword_map_for_a1(kw_df: pd.DataFrame) -> dict:
+    """
+    Erwartet: erste Spalte URL, weitere Spalten Keywords
+    oder long-Format. Liefert: url_norm -> [keyword1, keyword2, ...]
+    """
+    if kw_df is None or kw_df.empty:
+        return {}
+
+    df = kw_df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    if df.shape[1] < 2:
+        st.warning("Keyword-Liste (A1) braucht mindestens 2 Spalten (URL + Keywords).")
+        return {}
+
+    url_col = df.columns[0]
+    kw_cols = list(df.columns[1:])
+
+    pairs = []
+    for _, r in df.iterrows():
+        url_raw = str(r[url_col]).strip()
+        if not url_raw:
+            continue
+        for c in kw_cols:
+            val = str(r[c]).strip()
+            if not val:
+                continue
+            pairs.append((url_raw, val))
+
+    if not pairs:
+        return {}
+
+    from collections import defaultdict
+    res = defaultdict(list)
+    for u_raw, kw in pairs:
+        key = remember_original(u_raw)
+        if not key:
+            continue
+        res[key].append(kw)
+
+    return {u: sorted(set(kws)) for u, kws in res.items()}
+
+
+def generate_anchor_variants_for_url(
+    url: str,
+    page_maps: dict,
+    top_kw_map: dict,
+    manual_kw_map: dict,
+    cfg: dict,
+) -> Tuple[str, str, str]:
+    """
+    Erzeugt 3 Ankertext-Varianten (Kurz, Beschreibend, Handlungsorientiert) für eine Ziel-URL.
+    Nutzt abhängig von cfg:
+    - Seitendaten (Title/H1/Meta/Main Content)
+    - GSC-Top-Keyword
+    - manuelle Keywords
+    und ruft entweder OpenAI oder Gemini auf.
+    """
+    title_map = page_maps.get("title", {})
+    h1_map    = page_maps.get("h1", {})
+    meta_map  = page_maps.get("meta", {})
+    main_map  = page_maps.get("main", {})
+
+    fields = cfg.get("fields", [])
+    use_gsc = cfg.get("use_gsc", "Nicht verwenden")
+    gsc_metric = "Clicks" if use_gsc == "Top-Keyword nach Klicks" else "Impressions"
+    use_manual = cfg.get("use_manual", False)
+
+    title = title_map.get(url, "")
+    h1    = h1_map.get(url, "")
+    meta  = meta_map.get(url, "")
+    main  = main_map.get(url, "")
+
+    top_kw = top_kw_map.get(url, "") if use_gsc != "Nicht verwenden" else ""
+    manual_kws = manual_kw_map.get(url, []) if use_manual else []
+
+    blocks = []
+    blocks.append(f"Ziel-URL: {url}")
+
+    if "Title" in fields and title:
+        blocks.append(f"Title: {title}")
+    if "H1" in fields and h1:
+        blocks.append(f"H1: {h1}")
+    if "Meta Description" in fields and meta:
+        blocks.append(f"Meta Description: {meta}")
+    if "Main Content" in fields and main:
+        blocks.append(
+            "Main Content (zur inhaltlichen Orientierung, nicht 1:1 als Ankertext verwenden):"
+        )
+        blocks.append(main[:3000])
+
+    if top_kw:
+        blocks.append(f"Wichtigstes Such-Keyword (Search Console, {gsc_metric}): {top_kw}")
+
+    if manual_kws:
+        blocks.append(
+            "Besonders wichtige, vom Nutzer priorisierte Keywords (bitte bevorzugt verwenden, "
+            "aber nicht überoptimieren): " + ", ".join(manual_kws)
+        )
+
+    page_info = "\n".join(blocks)
+
+    system_prompt = (
+        "Du bist ein erfahrener SEO-Experte für deutschsprachige Websites. "
+        "Du erstellst präzise, natürliche und SEO-sinnvolle Ankertexte für interne Verlinkungen "
+        "und hältst dich strikt an das geforderte Ausgabeformat."
+    )
+
+    user_prompt = f"""
+Erzeuge 3 unterschiedliche Ankertexte für eine interne Verlinkung zu der folgenden Zielseite.
+
+Seitendaten:
+{page_info}
+
+Ziel:
+- Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
+- Nutze nach Möglichkeit zentrale Begriffe aus Title/H1 bzw. den wichtigen Keywords (Search Console / manuelle Liste).
+- Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
+
+Erzeuge GENAU diese 3 Varianten:
+1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
+2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext.
+3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung (z.B. „XYZ lernen“, „XYZ entdecken“), aber ohne generische Floskeln wie „hier klicken“.
+
+Strikte Regeln:
+- Sprache: ausschließlich natürliches, korrektes Deutsch.
+- Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
+- Keine Emojis, keine Anführungszeichen, keine Nummerierung, keine Aufzählungszeichen.
+- Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /.
+- Keine reinen Brand-Ankertexte; falls eine Marke vorkommt, immer mit beschreibendem Keyword kombinieren.
+- Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
+
+Ausgabeformat:
+- Antworte NUR mit den 3 Ankertexten in EINER Zeile.
+- Trenne die Varianten mit genau drei senkrechten Strichen: |||
+- Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
+
+Beispiel (nur vom Format, NICHT für diese Seite verwenden):
+Variante1|||Variante2|||Variante3
+""".strip()
+
+    provider = cfg.get("provider", "OpenAI")
+    api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
+
+    if not api_key:
+        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    text = ""
+    try:
+        if provider == "OpenAI":
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+            except Exception:
+                import openai
+                client = openai.OpenAI(api_key=api_key)
+
+            resp = client.responses.create(
+                model=cfg.get("openai_model", "gpt-5.1-mini"),
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_output_tokens=200,
+                temperature=0.5,
+            )
+            text = resp.output[0].content[0].text
+        else:
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            model_name = cfg.get("gemini_model", "gemini-1.5-pro")
+            model = genai.GenerativeModel(model_name)
+            resp = model.generate_content(
+                [{"role": "system", "parts": system_prompt},
+                 {"role": "user", "parts": user_prompt}]
+            )
+            text = resp.text
+
+    except Exception:
+        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    if not text:
+        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    parts = [p.strip() for p in str(text).split("|||") if p.strip()]
+    if len(parts) >= 3:
+        return parts[0], parts[1], parts[2]
+    base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
+    return base, f"{base} verstehen", f"Alles über {base}"
+
 
 
 # =============================
@@ -700,6 +1020,86 @@ with st.sidebar:
                         "Beispiele:\n"
                         r"^https://kaipara\.de/herren/.*\n"
                         r"^https://kaipara\.de/.*/shirts/.*"
+                    ),
+                )
+
+                # ----------------
+        # A1 – KI-Ankertexte (optional)
+        # ----------------
+        if A1_NAME in selected_analyses:
+            st.markdown("---")
+            st.subheader("Ankertext-Vorschläge (optional, A1)")
+
+            enable_anchor_ai = st.checkbox(
+                "KI-Ankertext-Vorschläge für Ziel-URLs generieren",
+                value=False,
+                key="a1_enable_anchor_ai",
+                help=(
+                    "Wenn aktiviert, werden für jede Ziel-URL in Analyse 1 drei "
+                    "SEO-optimierte Ankertext-Vorschläge erzeugt und in der A1-Tabelle "
+                    "als zusätzliche Spalten ausgegeben."
+                ),
+            )
+
+            if enable_anchor_ai:
+                anchor_provider = st.radio(
+                    "Welchen Anbieter möchtest du für die KI-Ankertexte nutzen?",
+                    ["OpenAI", "Gemini"],
+                    index=0,
+                    key="a1_anchor_provider",
+                    help="Wähle, ob die Ankertexte über OpenAI oder Google Gemini generiert werden sollen.",
+                )
+
+                if anchor_provider == "OpenAI":
+                    st.text_input(
+                        "OpenAI API Key",
+                        type="password",
+                        key="a1_openai_api_key",
+                        help="Dein OpenAI API Key (wird nur in dieser Session im Speicher gehalten).",
+                    )
+                else:
+                    st.text_input(
+                        "Gemini API Key",
+                        type="password",
+                        key="a1_gemini_api_key",
+                        help="Dein Gemini API Key (wird nur in dieser Session im Speicher gehalten).",
+                    )
+
+                st.markdown("**Welche Seitendaten sollen in den KI-Prompt einfließen?**")
+                st.multiselect(
+                    "Seitendaten für die Ankertext-Generierung",
+                    options=["Title", "H1", "Meta Description", "Main Content"],
+                    default=["Title", "H1", "Meta Description"],
+                    key="a1_prompt_fields",
+                    help=(
+                        "Diese Felder werden (falls in der Crawl-Datei vorhanden) in den Prompt aufgenommen. "
+                        "Main Content dient primär dem thematischen Verständnis der Ziel-URL – "
+                        "der Text wird nicht 1:1 als Anker verwendet."
+                    ),
+                )
+
+                st.radio(
+                    "Search Console Top-Keyword für Ankertexte verwenden?",
+                    [
+                        "Nicht verwenden",
+                        "Top-Keyword nach Klicks",
+                        "Top-Keyword nach Impressionen",
+                    ],
+                    index=0,
+                    key="a1_use_gsc_keyword",
+                    help=(
+                        "Wenn aktiviert, wird das wichtigste Such-Keyword je URL aus der Search Console "
+                        "in die Ankertext-Generierung einbezogen."
+                    ),
+                )
+
+                st.checkbox(
+                    "Manuell hochgeladene Keywords je URL priorisiert in Ankertexten nutzen",
+                    value=False,
+                    key="a1_use_manual_keywords",
+                    help=(
+                        "Wenn aktiviert, fließen die pro URL hochgeladenen Keywords als priorisierte "
+                        "Begriffe in die Ankertext-Erstellung ein."
                     ),
                 )
 
@@ -1400,9 +1800,9 @@ else:
 
 # A1
 if A1_NAME in selected_analyses:
+
     needs = []
     if needs_embeddings_or_related and "URLs + Embeddings" not in shared_uploads and "Related URLs" not in shared_uploads:
-        # zeigen wir beide Alternativen, Steuerung per Radio oben: wähle 'mode'
         if 'mode' not in locals():
             mode = "Related URLs"
         if mode == "URLs + Embeddings":
@@ -1415,12 +1815,62 @@ if A1_NAME in selected_analyses:
         needs.append(("Linkmetriken (CSV/Excel)", "up_metrics_a1", HELP_MET))
     if needs_backlinks_a1 and "Backlinks" not in shared_uploads:
         needs.append(("Backlinks (CSV/Excel)", "up_backlinks_a1", HELP_BL))
-    for (label, df) in upload_for_analysis("Analyse 1 interne Verlinkungsmöglichkeiten finden – erforderliche Dateien", needs):
-        if "Embeddings" in label: emb_df = df
-        if "Related URLs" in label: related_df = df
-        if "Inlinks" in label: inlinks_df = df
-        if "Linkmetriken" in label: metrics_df = df
-        if "Backlinks" in label: backlinks_df = df
+
+    # KI-spezifische Zusatz-Uploads nur anhängen, wenn aktiviert
+    if st.session_state.get("a1_enable_anchor_ai", False):
+        needs.append((
+            "Crawl / Page-Details (Title, H1, Meta, Main Content) (CSV/Excel)",
+            "up_crawl_a1",
+            (
+                "Erwartete Spaltennamen (mindestens die benötigten):\n"
+                "- URL-Spalte: z. B. 'URL', 'Address'\n"
+                "- Title: 'Title', 'Title 1', 'Title Tag', 'Title-Tag'\n"
+                "- H1: 'H1', 'H1-1', 'H1 - 1', 'h1'\n"
+                "- Meta Description: 'Meta Description', 'Meta Description 1', 'MD', 'MD 1'\n"
+                "- Main Content: 'Main Content Extraction 1', 'Main Content Extraction', 'Main Content Extraction 2'\n\n"
+                "Weitere Spalten werden ignoriert."
+            )
+        ))
+
+        if st.session_state.get("a1_use_gsc_keyword", "Nicht verwenden") != "Nicht verwenden":
+            needs.append((
+                "Search Console (URLs + Query + Klicks/Impressions) für Ankertexte (CSV/Excel)",
+                "up_gsc_a1",
+                (
+                    "Struktur: mindestens URL, Query und entweder Clicks oder Impressions.\n"
+                    "Diese Daten werden verwendet, um pro URL das wichtigste Top-Keyword "
+                    "(nach Klicks oder Impressions) zu bestimmen."
+                )
+            ))
+
+        if st.session_state.get("a1_use_manual_keywords", False):
+            needs.append((
+                "Manuelle Keyword-Liste je URL (CSV/Excel)",
+                "up_kw_a1",
+                HELP_A4_KW
+            ))
+
+    # Diese Schleife MUSS außerhalb des if a1_enable_anchor_ai stehen
+    for (label, df) in upload_for_analysis(
+        "Analyse 1 interne Verlinkungsmöglichkeiten finden – erforderliche Dateien",
+        needs
+    ):
+        if "Embeddings" in label:
+            emb_df = df
+        if "Related URLs" in label:
+            related_df = df
+        if "Inlinks" in label:
+            inlinks_df = df
+        if "Linkmetriken" in label:
+            metrics_df = df
+        if "Backlinks" in label:
+            backlinks_df = df
+        if "Crawl / Page-Details" in label:
+            crawl_df_a1 = df
+        if "Search Console (URLs + Query" in label:
+            gsc_df_a1 = df
+        if "Manuelle Keyword-Liste" in label:
+            kw_df_a1 = df
 
 # A2
 if A2_NAME in selected_analyses:
@@ -2169,6 +2619,45 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                     ascending=[True, False],
                     kind="mergesort"
                 ).reset_index(drop=True)
+
+            # KI-Ankertexte pro Ziel-URL (optional)
+            if st.session_state.get("a1_enable_anchor_ai", False):
+                cfg = {
+                    "provider": st.session_state.get("a1_anchor_provider", "OpenAI"),
+                    "openai_key": st.session_state.get("a1_openai_api_key", "").strip(),
+                    "gemini_key": st.session_state.get("a1_gemini_api_key", "").strip(),
+                    "fields": st.session_state.get("a1_prompt_fields", []),
+                    "use_gsc": st.session_state.get("a1_use_gsc_keyword", "Nicht verwenden"),
+                    "use_manual": st.session_state.get("a1_use_manual_keywords", False),
+                }
+
+                page_maps = build_page_text_maps_for_a1(crawl_df_a1) if isinstance(crawl_df_a1, pd.DataFrame) else {"title": {}, "h1": {}, "meta": {}, "main": {}}
+
+                top_kw_map = {}
+                if cfg["use_gsc"] != "Nicht verwenden" and isinstance(gsc_df_a1, pd.DataFrame):
+                    metric = "Clicks" if cfg["use_gsc"] == "Top-Keyword nach Klicks" else "Impressions"
+                    top_kw_map = build_top_gsc_keyword_map_for_a1(gsc_df_a1, metric)
+
+                manual_kw_map = build_manual_keyword_map_for_a1(kw_df_a1) if isinstance(kw_df_a1, pd.DataFrame) else {}
+
+                anchor_cache = {}
+                for tgt in sorted(res1_view_long["Ziel-URL"].astype(str).unique()):
+                    norm = remember_original(tgt)
+                    if not norm:
+                        norm = tgt
+                    v1, v2, v3 = generate_anchor_variants_for_url(
+                        norm,
+                        page_maps=page_maps,
+                        top_kw_map=top_kw_map,
+                        manual_kw_map=manual_kw_map,
+                        cfg=cfg,
+                    )
+                    anchor_cache[tgt] = (v1, v2, v3)
+
+                res1_view_long["Ankertext-Vorschlag 1"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[0])
+                res1_view_long["Ankertext-Vorschlag 2"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[1])
+                res1_view_long["Ankertext-Vorschlag 3"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[2])
+
             st.dataframe(res1_view_long, use_container_width=True, hide_index=True)
             csv1 = res1_view_long.to_csv(index=False).encode("utf-8-sig")
             st.download_button(
@@ -3506,11 +3995,11 @@ if A4_NAME in selected_analyses:
                         url_norm = normalize_url(url_raw)
                         inv = inv_map.get(url_norm, {})
                         total_count = total_anchor_map.get(url_norm, 0)
-
+                    
                         a_names = list(inv.keys())
                         a_emb = None
                         a_names_norm = []
-
+                    
                         if check_embed and model is not None and a_names:
                             if url_norm not in anchor_emb_cache:
                                 try:
@@ -3524,16 +4013,15 @@ if A4_NAME in selected_analyses:
                                     a_emb = None
                             else:
                                 a_names, a_names_norm, a_emb = anchor_emb_cache[url_norm]
-
+                    
                         for _, row in grp.iterrows():
                             kw_str = str(row["keyword"]).strip()
                             if not kw_str:
                                 continue
-
+                    
                             found = False
-                            match_type = "—"
                             used_count = 0
-
+                    
                             # 1) Exact Match
                             if check_exact and a_names:
                                 kw_lower = kw_str.lower()
@@ -3543,9 +4031,8 @@ if A4_NAME in selected_analyses:
                                 )
                                 if cnt_exact > 0:
                                     found = True
-                                    match_type = "Exact"
                                     used_count = cnt_exact
-
+                    
                             # 2) Embedding Match
                             if (not found) and check_embed and model is not None and a_emb is not None and a_names:
                                 try:
@@ -3557,27 +4044,27 @@ if A4_NAME in selected_analyses:
                                         cnt_emb = int(sum(inv[a_names[i]] for i in idxs))
                                         if cnt_emb > 0:
                                             found = True
-                                            match_type = "Embedding"
                                             used_count = cnt_emb
                                 except Exception:
                                     pass
-
+                    
                             if total_count > 0 and used_count > 0:
                                 share_pct = round(100.0 * used_count / float(total_count), 2)
                             else:
                                 share_pct = 0.0
-
+                    
                             result_rows.append([
                                 url_raw,
                                 kw_str,
                                 "ja" if found else "nein",
                                 share_pct,
                             ])
-                            
-                            result_df = pd.DataFrame(
-                                result_rows,
-                                columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Ankertext-Share (%)"],
-                            )
+                    
+                    # JETZT erst DataFrame bauen
+                    result_df = pd.DataFrame(
+                        result_rows,
+                        columns=["URL", "Keyword", "Kommt als Ankertext vor?", "Ankertext-Share (%)"],
+                    )
 
 
                     if not result_rows:
@@ -3603,7 +4090,7 @@ if A4_NAME in selected_analyses:
                                     row.extend([
                                         r["Keyword"],
                                         r["Kommt als Ankertext vor?"],
-                                        float(r["Anker-Anteil (%)"]),
+                                        float(r["Ankertext-Share (%)"]),
                                     ])
                                 while len(row) < len(cols):
                                     row.append("")
