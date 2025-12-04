@@ -969,18 +969,6 @@ def generate_anchor_variants_for_url(
     else:
         base = title or h1 or "weitere Informationen"
     return base, f"{base} verstehen", f"Alles über {base}"
-    
-        parts = [p.strip() for p in str(text).split("|||") if p.strip()]
-        if len(parts) >= 3:
-            return parts[0], parts[1], parts[2]
-        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-        if manual_kws:
-            base = manual_kws[0]
-        elif top_kws:
-            base = top_kws[0]
-        else:
-            base = title or h1 or "weitere Informationen"
-        return base, f"{base} verstehen", f"Alles über {base}"
 
 
 
