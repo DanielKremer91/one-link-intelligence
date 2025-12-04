@@ -556,7 +556,8 @@ def _find_crawl_columns(df: pd.DataFrame) -> dict:
     """
     Ermittelt Spaltennamen für URL, Title, H1, Meta Description, Main Content
     nach den definierten Varianten. Erkennt auch Spalten mit Brand-Präfix
-    (z. B. "Fressnapf Main Content Extraction").
+    (z. B. "Fressnapf Main Content Extraction") oder anderen Präfixen
+    (z. B. "Snippet 1: Fressnapf Main Content Extraction 1").
     Überzählige Spalten werden ignoriert.
     """
     lower = {str(c).strip().lower(): c for c in df.columns}
@@ -568,13 +569,21 @@ def _find_crawl_columns(df: pd.DataFrame) -> dict:
             if key in lower:
                 return lower[key]
         
-        # 2. Teilstring-Matches (für Brand-Präfixe)
+        # 2. Teilstring-Matches (für Brand-Präfixe und andere Präfixe)
         # Suche nach Spalten, die die Kandidaten als Teilstring enthalten
         for cand in candidates:
             key = cand.lower()
+            # Normalisiere den Key (entferne Sonderzeichen, normalisiere Whitespace)
+            key_normalized = re.sub(r'[^\w\s]', ' ', key)
+            key_normalized = re.sub(r'\s+', ' ', key_normalized).strip()
+            
             for col_lower, col_original in lower.items():
-                # Prüfe, ob der Kandidat im Spaltennamen enthalten ist
-                if key in col_lower:
+                # Normalisiere auch den Spaltennamen
+                col_normalized = re.sub(r'[^\w\s]', ' ', col_lower)
+                col_normalized = re.sub(r'\s+', ' ', col_normalized).strip()
+                
+                # Prüfe, ob der normalisierte Key im normalisierten Spaltennamen enthalten ist
+                if key_normalized in col_normalized:
                     return col_original
         
         return None
