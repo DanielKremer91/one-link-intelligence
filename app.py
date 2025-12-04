@@ -2299,9 +2299,9 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
     metrics_df.columns = [str(c).strip() for c in metrics_df.columns]
     m_header = [str(c).strip() for c in metrics_df.columns]
     m_url_idx   = find_column_index(m_header, ["url","urls","page","seite","address","adresse"])
-    m_score_idx = find_column_index(m_header, ["score","interner link score","internal link score","ils","link score","linkscore"])
-    m_in_idx    = find_column_index(m_header, ["inlinks","in links","interne inlinks","eingehende links","einzigartige inlinks","unique inlinks","inbound internal links"])
-    m_out_idx   = find_column_index(m_header, ["outlinks","out links","ausgehende links","interne outlinks","unique outlinks","einzigartige outlinks","outbound links"])
+    m_score_idx = find_column_index(m_header, ["link score","interner link score","internal link score","ils","score","linkscore"])
+    m_in_idx    = find_column_index(m_header, ["unique inlinks","einzigartige inlinks","inlinks","interne inlinks","eingehende links","in links","inbound internal links"])
+    m_out_idx   = find_column_index(m_header, ["unique outlinks","einzigartige outlinks","outlinks","ausgehende links","interne outlinks","out links","outbound links"])
     if -1 in (m_url_idx, m_score_idx, m_in_idx, m_out_idx):
         if metrics_df.shape[1] >= 4:
             if m_url_idx   == -1: m_url_idx   = 0
