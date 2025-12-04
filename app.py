@@ -555,23 +555,36 @@ def build_related_auto(
 def _find_crawl_columns(df: pd.DataFrame) -> dict:
     """
     Ermittelt Spaltennamen für URL, Title, H1, Meta Description, Main Content
-    nach den definierten Varianten. Überzählige Spalten werden ignoriert.
+    nach den definierten Varianten. Erkennt auch Spalten mit Brand-Präfix
+    (z. B. "Fressnapf Main Content Extraction").
+    Überzählige Spalten werden ignoriert.
     """
     lower = {str(c).strip().lower(): c for c in df.columns}
-
+    
     def pick(candidates):
+        # 1. Exakte Matches (wie bisher)
         for cand in candidates:
             key = cand.lower()
             if key in lower:
                 return lower[key]
+        
+        # 2. Teilstring-Matches (für Brand-Präfixe)
+        # Suche nach Spalten, die die Kandidaten als Teilstring enthalten
+        for cand in candidates:
+            key = cand.lower()
+            for col_lower, col_original in lower.items():
+                # Prüfe, ob der Kandidat im Spaltennamen enthalten ist
+                if key in col_lower:
+                    return col_original
+        
         return None
-
+    
     url_col = pick(["URL", "Url", "Address", "address"])
     title_col = pick(["Title", "Title 1", "Title Tag", "Title-Tag"])
     h1_col = pick(["H1", "H1-1", "H1 - 1", "h1"])
     meta_col = pick(["Meta Description", "Meta Description 1", "MD", "MD 1"])
     main_col = pick(["Main Content Extraction 1", "Main Content Extraction", "Main Content Extraction 2"])
-
+    
     return {
         "url": url_col,
         "title": title_col,
@@ -579,7 +592,6 @@ def _find_crawl_columns(df: pd.DataFrame) -> dict:
         "meta": meta_col,
         "main": main_col,
     }
-
 
 def build_page_text_maps_for_a1(crawl_df: pd.DataFrame) -> dict:
     """
