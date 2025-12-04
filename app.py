@@ -621,8 +621,9 @@ def build_page_text_maps_for_a1(crawl_df: pd.DataFrame) -> dict:
 
 def build_top_gsc_keyword_map_for_a1(gsc_df: pd.DataFrame, metric: str) -> dict:
     """
-    Liefert pro URL das Top-Keyword (nach Klicks oder Impressions).
+    Liefert pro URL die Top-10-Keywords (nach Klicks oder Impressions).
     metric: 'Clicks' oder 'Impressions'
+    Rückgabe: url_norm -> [keyword1, keyword2, ..., keyword10] (Liste, max. 10)
     """
     if gsc_df is None or gsc_df.empty:
         return {}
@@ -666,9 +667,11 @@ def build_top_gsc_keyword_map_for_a1(gsc_df: pd.DataFrame, metric: str) -> dict:
 
     top_map = {}
     for url, grp in df.groupby(df.columns[url_i], sort=False):
-        best = grp.sort_values(df.columns[metric_col], ascending=False).head(1)
+        # Top 10 statt Top 1
+        best = grp.sort_values(df.columns[metric_col], ascending=False).head(10)
         if not best.empty:
-            top_map[url] = str(best.iloc[0, q_i])
+            keywords = [str(best.iloc[i, q_i]) for i in range(len(best))]
+            top_map[url] = keywords
 
     return top_map
 
@@ -714,6 +717,34 @@ def build_manual_keyword_map_for_a1(kw_df: pd.DataFrame) -> dict:
 
     return {u: sorted(set(kws)) for u, kws in res.items()}
 
+def is_brand_query(query: str, brand_list: list, auto_variants: bool = True) -> bool:
+    """
+    Prüft, ob eine Query als Brand-Query gilt.
+    query: Die zu prüfende Query
+    brand_list: Liste von Brand-Strings (lowercase)
+    auto_variants: Wenn True, werden auch Kombinationen wie "marke keyword" erkannt
+    """
+    if not brand_list:
+        return False
+    
+    q_lower = str(query).strip().lower()
+    
+    # Direkter Match
+    if q_lower in brand_list:
+        return True
+    
+    # Auto-Variants: Kombinationen wie "marke keyword", "keyword marke", "marke-keyword"
+    if auto_variants:
+        q_tokens = set(q_lower.split())
+        for brand in brand_list:
+            brand_tokens = set(brand.split())
+            if brand_tokens.issubset(q_tokens):
+                return True
+            # Auch mit Bindestrich/Hybrid
+            if brand.replace("-", " ") in q_lower or brand.replace(" ", "-") in q_lower:
+                return True
+    
+    return False
 
 def generate_anchor_variants_for_url(
     url: str,
@@ -745,12 +776,28 @@ def generate_anchor_variants_for_url(
     meta  = meta_map.get(url, "")
     main  = main_map.get(url, "")
 
-    top_kw = top_kw_map.get(url, "") if use_gsc != "Nicht verwenden" else ""
+    # GSC: Liste von Keywords (Top 10)
+    top_kws = top_kw_map.get(url, []) if use_gsc != "Nicht verwenden" else []
     manual_kws = manual_kw_map.get(url, []) if use_manual else []
 
     blocks = []
     blocks.append(f"Ziel-URL: {url}")
 
+    # Priorisierung: 1) Manuelle Keywords (höchste Priorität)
+    if manual_kws:
+        blocks.append(
+            "⚠️ HÖCHSTE PRIORITÄT – Manuell hochgeladene Keywords (diese MÜSSEN bevorzugt verwendet werden): "
+            + ", ".join(manual_kws)
+        )
+
+    # Priorisierung: 2) GSC Top-Keywords (zweithöchste Priorität)
+    if top_kws:
+        blocks.append(
+            f"⚠️ HOHE PRIORITÄT – Top-Keywords aus Search Console ({gsc_metric}, Top 10): "
+            + ", ".join(top_kws)
+        )
+
+    # Priorisierung: 3) Seitendaten (unterstützend, optional)
     if "Title" in fields and title:
         blocks.append(f"Title: {title}")
     if "H1" in fields and h1:
@@ -763,107 +810,129 @@ def generate_anchor_variants_for_url(
         )
         blocks.append(main[:3000])
 
-    if top_kw:
-        blocks.append(f"Wichtigstes Such-Keyword (Search Console, {gsc_metric}): {top_kw}")
-
-    if manual_kws:
-        blocks.append(
-            "Besonders wichtige, vom Nutzer priorisierte Keywords (bitte bevorzugt verwenden, "
-            "aber nicht überoptimieren): " + ", ".join(manual_kws)
-        )
-
     page_info = "\n".join(blocks)
 
     system_prompt = (
-        "Du bist ein erfahrener SEO-Experte für deutschsprachige Websites. "
+        "Du bist ein erfahrener SEO-Experte "
         "Du erstellst präzise, natürliche und SEO-sinnvolle Ankertexte für interne Verlinkungen "
-        "und hältst dich strikt an das geforderte Ausgabeformat."
+        "und hältst dich strikt an das geforderte Ausgabeformat "
     )
 
     user_prompt = f"""
-Erzeuge 3 unterschiedliche Ankertexte für eine interne Verlinkung zu der folgenden Zielseite.
-
-Seitendaten:
-{page_info}
-
-Ziel:
-- Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
-- Nutze nach Möglichkeit zentrale Begriffe aus Title/H1 bzw. den wichtigen Keywords (Search Console / manuelle Liste).
-- Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
-
-Erzeuge GENAU diese 3 Varianten:
-1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
-2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext.
-3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung (z.B. „XYZ lernen“, „XYZ entdecken“), aber ohne generische Floskeln wie „hier klicken“.
-
-Strikte Regeln:
-- Sprache: ausschließlich natürliches, korrektes Deutsch.
-- Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
-- Keine Emojis, keine Anführungszeichen, keine Nummerierung, keine Aufzählungszeichen.
-- Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /.
-- Keine reinen Brand-Ankertexte; falls eine Marke vorkommt, immer mit beschreibendem Keyword kombinieren.
-- Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
-
-Ausgabeformat:
-- Antworte NUR mit den 3 Ankertexten in EINER Zeile.
-- Trenne die Varianten mit genau drei senkrechten Strichen: |||
-- Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
-
-Beispiel (nur vom Format, NICHT für diese Seite verwenden):
-Variante1|||Variante2|||Variante3
-""".strip()
+    Erzeuge 3 unterschiedliche Ankertexte für eine interne Verlinkung zu der folgenden Zielseite.
+    
+    Seitendaten:
+    {page_info}
+    
+    WICHTIG – Priorisierung für die Ankertext-Generierung:
+    1. HÖCHSTE PRIORITÄT: Manuell hochgeladene Keywords (falls vorhanden) – diese MÜSSEN bevorzugt verwendet werden.
+    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – diese sollen ebenfalls priorisiert werden. Und hierbei vor allem das die drei stärksten Keywords.
+    3. PRIORITÄT: Seitendaten (Title, H1, Meta Description)
+    4. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
+    
+    Ziel:
+    - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
+    - Nutze nach Möglichkeit die priorisierten Keywords (manuell > GSC > Seitendaten).
+    - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
+    
+    Erzeuge GENAU diese 3 Varianten:
+    1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
+    2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext.
+    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, aber ohne generische Floskeln wie „hier klicken“. Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
+    
+    Strikte Regeln:
+    - Sprache: ausschließlich natürliches, korrektes Deutsch.
+    - Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
+    - Keine Emojis, keine Anführungszeichen, keine Nummerierung, keine Aufzählungszeichen.
+    - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /.
+    - Keine reinen Brand-Ankertexte; falls eine Marke vorkommt, immer mit beschreibendem Keyword kombinieren.
+    - Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
+    
+    Ausgabeformat:
+    - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
+    - Trenne die Varianten mit genau drei senkrechten Strichen: |||
+    - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
+    
+    Beispiel (nur vom Format, NICHT für diese Seite verwenden):
+    Variante1|||Variante2|||Variante3
+    """.strip()
 
     provider = cfg.get("provider", "OpenAI")
-    api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
-
-    if not api_key:
-        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
-        return base, f"{base} verstehen", f"Alles über {base}"
-
-    text = ""
-    try:
-        if provider == "OpenAI":
-            try:
-                from openai import OpenAI
-                client = OpenAI(api_key=api_key)
-            except Exception:
-                import openai
-                client = openai.OpenAI(api_key=api_key)
-
-            resp = client.responses.create(
-                model=cfg.get("openai_model", "gpt-5.1-mini"),
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_output_tokens=200,
-                temperature=0.5,
-            )
-            text = resp.output[0].content[0].text
+        api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
+    
+        if not api_key:
+            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+            if manual_kws:
+                base = manual_kws[0]
+            elif top_kws:
+                base = top_kws[0]
+            else:
+                base = title or h1 or "weitere Informationen"
+            return base, f"{base} verstehen", f"Alles über {base}"
+    
+        text = ""
+        try:
+            if provider == "OpenAI":
+                try:
+                    from openai import OpenAI
+                    client = OpenAI(api_key=api_key)
+                except Exception:
+                    import openai
+                    client = openai.OpenAI(api_key=api_key)
+    
+                resp = client.chat.completions.create(
+                    model=cfg.get("openai_model", "gpt-4o-mini"),
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_tokens=200,
+                    temperature=0.5,
+                )
+                text = resp.choices[0].message.content
+    
+            else:
+                import google.generativeai as genai
+                genai.configure(api_key=api_key)
+                model_name = cfg.get("gemini_model", "gemini-1.5-pro")
+                model = genai.GenerativeModel(
+                    model_name,
+                    system_instruction=system_prompt
+                )
+                resp = model.generate_content(user_prompt)
+                text = resp.text
+    
+        except Exception:
+            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+            if manual_kws:
+                base = manual_kws[0]
+            elif top_kws:
+                base = top_kws[0]
+            else:
+                base = title or h1 or "weitere Informationen"
+            return base, f"{base} verstehen", f"Alles über {base}"
+    
+        if not text:
+            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+            if manual_kws:
+                base = manual_kws[0]
+            elif top_kws:
+                base = top_kws[0]
+            else:
+                base = title or h1 or "weitere Informationen"
+            return base, f"{base} verstehen", f"Alles über {base}"
+    
+        parts = [p.strip() for p in str(text).split("|||") if p.strip()]
+        if len(parts) >= 3:
+            return parts[0], parts[1], parts[2]
+        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+        if manual_kws:
+            base = manual_kws[0]
+        elif top_kws:
+            base = top_kws[0]
         else:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            model_name = cfg.get("gemini_model", "gemini-1.5-pro")
-            model = genai.GenerativeModel(model_name)
-            resp = model.generate_content(
-                [{"role": "system", "parts": system_prompt},
-                 {"role": "user", "parts": user_prompt}]
-            )
-            text = resp.text
-
-    except Exception:
-        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
+            base = title or h1 or "weitere Informationen"
         return base, f"{base} verstehen", f"Alles über {base}"
-
-    if not text:
-        base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
-        return base, f"{base} verstehen", f"Alles über {base}"
-
-    parts = [p.strip() for p in str(text).split("|||") if p.strip()]
-    if len(parts) >= 3:
-        return parts[0], parts[1], parts[2]
-    base = title or h1 or top_kw or (manual_kws[0] if manual_kws else "weitere Informationen")
-    return base, f"{base} verstehen", f"Alles über {base}"
 
 
 
@@ -1065,7 +1134,7 @@ with st.sidebar:
                 st.multiselect(
                     "Seitendaten für die Ankertext-Generierung",
                     options=["Title", "H1", "Meta Description", "Main Content"],
-                    default=["Title", "H1", "Meta Description"],
+                    default=[],
                     key="a1_prompt_fields",
                     help=(
                         "Diese Felder werden (falls in der Crawl-Datei vorhanden) in den Prompt aufgenommen. "
@@ -1309,8 +1378,8 @@ with st.sidebar:
                     "oder auf Basis semantischer Ähnlichkeit erfolgen?"
                 )
 
-                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_check_exact")
-                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_check_embed")
+                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_cov_exact")
+                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_cov_embed")
 
                 embed_model_name = st.selectbox(
                     "Sentence Transformer Modell (Embedding-Modell)",
@@ -3477,6 +3546,14 @@ if A4_NAME in selected_analyses:
 
     cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
     
+    # GSC-Coverage Settings (immer lesen, auch wenn deaktiviert)
+    brand_mode = st.session_state.get("a4_brand_mode", "Nur Non-Brand")
+    metric_choice = st.session_state.get("a4_metric_choice", "Impressions")
+    min_clicks = int(st.session_state.get("a4_min_clicks", 50))
+    min_impr = int(st.session_state.get("a4_min_impr", 500))
+    topN_default = int(st.session_state.get("a4_topN", 0))
+    auto_variants = bool(st.session_state.get("a4_auto_variants", True))
+
     if enable_gsc_coverage and isinstance(gsc_df, pd.DataFrame) and not gsc_df.empty:
         df = gsc_df.copy()
         df.columns = [str(c).strip() for c in df.columns]
@@ -3538,7 +3615,7 @@ if A4_NAME in selected_analyses:
                 if not brand_list or brand_mode == "Beides":
                     return True
                 q = str(row.iloc[q_i])
-                is_b = is_brand_query(q)
+                is_b = is_brand_query(q, brand_list, auto_variants)
                 if brand_mode == "Nur Non-Brand":
                     return not is_b
                 elif brand_mode == "Nur Brand":
@@ -4065,8 +4142,7 @@ if A4_NAME in selected_analyses:
 
                     if not result_rows:
                         st.info("Keine Keyword-Matches gegen das Anchor-Inventar gefunden.")
-                    
-
+                    else:
                         if view_mode.startswith("Wide"):
                             wide_rows = []
                             grouped = result_df.groupby("URL", sort=False)
