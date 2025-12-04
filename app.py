@@ -820,107 +820,155 @@ def generate_anchor_variants_for_url(
 
     user_prompt = f"""
     Erzeuge 3 unterschiedliche Ankertexte für eine interne Verlinkung zu der folgenden Zielseite.
+
     
+
     Seitendaten:
+
     {page_info}
+
     
+
     WICHTIG – Priorisierung für die Ankertext-Generierung:
+
     1. HÖCHSTE PRIORITÄT: Manuell hochgeladene Keywords (falls vorhanden) – diese MÜSSEN bevorzugt verwendet werden.
+
     2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – diese sollen ebenfalls priorisiert werden. Und hierbei vor allem das die drei stärksten Keywords.
+
     3. PRIORITÄT: Seitendaten (Title, H1, Meta Description)
+
     4. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
+
     
+
     Ziel:
+
     - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
+
     - Nutze nach Möglichkeit die priorisierten Keywords (manuell > GSC > Seitendaten).
+
     - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
+
     
+
     Erzeuge GENAU diese 3 Varianten:
+
     1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
+
     2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext.
-    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, aber ohne generische Floskeln wie „hier klicken“. Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
+
+    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, aber ohne generische Floskeln wie „hier klicken". Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
+
     
+
     Strikte Regeln:
+
     - Sprache: ausschließlich natürliches, korrektes Deutsch.
+
     - Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
+
     - Keine Emojis, keine Anführungszeichen, keine Nummerierung, keine Aufzählungszeichen.
+
     - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /.
+
     - Keine reinen Brand-Ankertexte; falls eine Marke vorkommt, immer mit beschreibendem Keyword kombinieren.
+
     - Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
+
     
+
     Ausgabeformat:
+
     - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
+
     - Trenne die Varianten mit genau drei senkrechten Strichen: |||
+
     - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
+
     
+
     Beispiel (nur vom Format, NICHT für diese Seite verwenden):
+
     Variante1|||Variante2|||Variante3
+
     """.strip()
 
     provider = cfg.get("provider", "OpenAI")
-        api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
-    
-        if not api_key:
-            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-            if manual_kws:
-                base = manual_kws[0]
-            elif top_kws:
-                base = top_kws[0]
-            else:
-                base = title or h1 or "weitere Informationen"
-            return base, f"{base} verstehen", f"Alles über {base}"
-    
-        text = ""
-        try:
-            if provider == "OpenAI":
-                try:
-                    from openai import OpenAI
-                    client = OpenAI(api_key=api_key)
-                except Exception:
-                    import openai
-                    client = openai.OpenAI(api_key=api_key)
-    
-                resp = client.chat.completions.create(
-                    model=cfg.get("openai_model", "gpt-4o-mini"),
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_tokens=200,
-                    temperature=0.5,
-                )
-                text = resp.choices[0].message.content
-    
-            else:
-                import google.generativeai as genai
-                genai.configure(api_key=api_key)
-                model_name = cfg.get("gemini_model", "gemini-1.5-pro")
-                model = genai.GenerativeModel(
-                    model_name,
-                    system_instruction=system_prompt
-                )
-                resp = model.generate_content(user_prompt)
-                text = resp.text
-    
-        except Exception:
-            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-            if manual_kws:
-                base = manual_kws[0]
-            elif top_kws:
-                base = top_kws[0]
-            else:
-                base = title or h1 or "weitere Informationen"
-            return base, f"{base} verstehen", f"Alles über {base}"
-    
-        if not text:
-            # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-            if manual_kws:
-                base = manual_kws[0]
-            elif top_kws:
-                base = top_kws[0]
-            else:
-                base = title or h1 or "weitere Informationen"
-            return base, f"{base} verstehen", f"Alles über {base}"
+    api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
+
+    if not api_key:
+        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+        if manual_kws:
+            base = manual_kws[0]
+        elif top_kws:
+            base = top_kws[0]
+        else:
+            base = title or h1 or "weitere Informationen"
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    text = ""
+    try:
+        if provider == "OpenAI":
+            try:
+                from openai import OpenAI
+                client = OpenAI(api_key=api_key)
+            except Exception:
+                import openai
+                client = openai.OpenAI(api_key=api_key)
+
+            resp = client.chat.completions.create(
+                model=cfg.get("openai_model", "gpt-4o-mini"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=200,
+                temperature=0.5,
+            )
+            text = resp.choices[0].message.content
+
+        else:
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            model_name = cfg.get("gemini_model", "gemini-1.5-pro")
+            model = genai.GenerativeModel(
+                model_name,
+                system_instruction=system_prompt
+            )
+            resp = model.generate_content(user_prompt)
+            text = resp.text
+
+    except Exception:
+        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+        if manual_kws:
+            base = manual_kws[0]
+        elif top_kws:
+            base = top_kws[0]
+        else:
+            base = title or h1 or "weitere Informationen"
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    if not text:
+        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+        if manual_kws:
+            base = manual_kws[0]
+        elif top_kws:
+            base = top_kws[0]
+        else:
+            base = title or h1 or "weitere Informationen"
+        return base, f"{base} verstehen", f"Alles über {base}"
+
+    parts = [p.strip() for p in str(text).split("|||") if p.strip()]
+    if len(parts) >= 3:
+        return parts[0], parts[1], parts[2]
+    # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
+    if manual_kws:
+        base = manual_kws[0]
+    elif top_kws:
+        base = top_kws[0]
+    else:
+        base = title or h1 or "weitere Informationen"
+    return base, f"{base} verstehen", f"Alles über {base}"
     
         parts = [p.strip() for p in str(text).split("|||") if p.strip()]
         if len(parts) >= 3:
