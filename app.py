@@ -2706,35 +2706,84 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
 
             long_rows = []
             max_i = int(locals().get("max_related", 10))
+            
+            # Seitendaten-Maps aufbauen (falls Crawl-Datei vorhanden)
+            page_maps = {}
+            if isinstance(crawl_df_a1, pd.DataFrame) and not crawl_df_a1.empty:
+                page_maps = build_page_text_maps_for_a1(crawl_df_a1)
+            
+            title_map = page_maps.get("title", {})
+            meta_map = page_maps.get("meta", {})
+            h1_map = page_maps.get("h1", {})
+            
+            # Prüfen, welche Spalten vorhanden sind
+            has_title = bool(title_map)
+            has_meta = bool(meta_map)
+            has_h1 = bool(h1_map)
+            
+            # Spalten-Liste dynamisch aufbauen
+            cols = ["Ziel-URL"]
+            if has_title:
+                cols.append("Title Tag")
+            if has_meta:
+                cols.append("Meta Description")
+            if has_h1:
+                cols.append("H1")
+            cols.extend([
+                "Related URL",
+                "Ähnlichkeit (Cosinus Ähnlichkeit)",
+                "Link von Related URL auf Ziel-URL vorhanden?",
+                "Link von Related URL auf Ziel-URL aus Inhalt heraus vorhanden?",
+                "Linkpotenzial",
+            ])
+            
             for _, r in res1_df.iterrows():
                 ziel = r["Ziel-URL"]
+                ziel_norm = remember_original(ziel) if ziel else ""
+                
+                # Seitendaten für diese Ziel-URL holen
+                title_val = title_map.get(ziel_norm, "") if has_title else ""
+                meta_val = meta_map.get(ziel_norm, "") if has_meta else ""
+                h1_val = h1_map.get(ziel_norm, "") if has_h1 else ""
+                
                 for i in range(1, max_i + 1):
                     col_src = f"Related URL {i}"
                     col_sim = f"Ähnlichkeit {i}"
                     col_any = f"Link von Related URL {i} auf Ziel-URL bereits vorhanden?"
                     col_con = f"Link von Related URL {i} auf Ziel-URL aus Inhalt heraus vorhanden?"
                     col_pot = f"Linkpotenzial Related URL {i}"
+                    
                     if col_src not in res1_df.columns:
                         break
+                    
                     src = r.get(col_src, "")
                     if not isinstance(src, str) or not src:
                         continue
+                    
                     sim = r.get(col_sim, np.nan)
                     anywhere = r.get(col_any, "nein")
                     from_content = r.get(col_con, "nein")
                     pot = r.get(col_pot, 0.0)
-                    long_rows.append([
-                        disp(ziel),
+                    
+                    # Zeile aufbauen (dynamisch je nach vorhandenen Seitendaten)
+                    row = [disp(ziel)]
+                    if has_title:
+                        row.append(title_val)
+                    if has_meta:
+                        row.append(meta_val)
+                    if has_h1:
+                        row.append(h1_val)
+                    row.extend([
                         disp(src),
                         round(float(sim), 3) if pd.notna(sim) else np.nan,
                         anywhere,
                         from_content,
                         float(pot),
                     ])
-            res1_view_long = pd.DataFrame(long_rows, columns=[
-                "Ziel-URL","Related URL","Ähnlichkeit (Cosinus Ähnlichkeit)",
-                "Link von Related URL auf Ziel-URL vorhanden?","Link von Related URL auf Ziel-URL aus Inhalt heraus vorhanden?","Linkpotenzial",
-            ])
+                    
+                    long_rows.append(row)
+            
+            res1_view_long = pd.DataFrame(long_rows, columns=cols)
             if not res1_view_long.empty:
                 res1_view_long = res1_view_long.sort_values(
                     by=["Ziel-URL", "Ähnlichkeit (Cosinus Ähnlichkeit)"],
@@ -2776,9 +2825,9 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                     )
                     anchor_cache[tgt] = (v1, v2, v3)
 
-                res1_view_long["Ankertext-Vorschlag 1"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[0])
-                res1_view_long["Ankertext-Vorschlag 2"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[1])
-                res1_view_long["Ankertext-Vorschlag 3"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[2])
+                res1_view_long["Ankertext (kurz)"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[0])
+                res1_view_long["Ankertext (beschreibend)"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[1])
+                res1_view_long["Ankertext (handlungsorientiert)"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[2])
 
             st.dataframe(res1_view_long, use_container_width=True, hide_index=True)
             csv1 = res1_view_long.to_csv(index=False).encode("utf-8-sig")
