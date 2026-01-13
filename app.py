@@ -800,35 +800,19 @@ def generate_anchor_variants_for_url(
     main_map  = page_maps.get("main", {})
 
     fields = cfg.get("fields", [])
-    use_gsc = cfg.get("use_gsc", "Nicht verwenden")
-    gsc_metric = "Clicks" if use_gsc == "Top-Keyword nach Klicks" else "Impressions"
-    use_manual = cfg.get("use_manual", False)
-
     title = title_map.get(url, "")
     h1    = h1_map.get(url, "")
     meta  = meta_map.get(url, "")
     main  = main_map.get(url, "")
-
-    # GSC: Liste von Keywords (Top 10)
-    top_kws = top_kw_map.get(url, []) if use_gsc != "Nicht verwenden" else []
-    manual_kws = manual_kw_map.get(url, []) if use_manual else []
+    
+    # Keine Keywords mehr
+    top_kws = []
+    manual_kws = []
 
     blocks = []
     blocks.append(f"Ziel-URL: {url}")
 
-    # Priorisierung: 1) Manuelle Keywords (höchste Priorität)
-    if manual_kws:
-        blocks.append(
-            "⚠️ HÖCHSTE PRIORITÄT – Manuell hochgeladene Keywords (diese MÜSSEN bevorzugt verwendet werden): "
-            + ", ".join(manual_kws)
-        )
-
-    # Priorisierung: 2) GSC Top-Keywords (zweithöchste Priorität)
-    if top_kws:
-        blocks.append(
-            f"⚠️ HOHE PRIORITÄT – Top-Keywords aus Search Console ({gsc_metric}, Top 10): "
-            + ", ".join(top_kws)
-        )
+    # Seitendaten (unterstützend, optional)
 
     # Priorisierung: 3) Seitendaten (unterstützend, optional)
     if "Title" in fields and title:
@@ -864,22 +848,18 @@ def generate_anchor_variants_for_url(
 
     WICHTIG – Priorisierung für die Ankertext-Generierung:
 
-    1. HÖCHSTE PRIORITÄT: Manuell hochgeladene Keywords (falls vorhanden) – diese MÜSSEN bevorzugt verwendet werden.
-
-    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – diese sollen ebenfalls priorisiert werden. Und hierbei vor allem das die drei stärksten Keywords.
-
-    3. PRIORITÄT: Seitendaten (Title, H1, Meta Description)
-
-    4. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
+    1. PRIORITÄT: Seitendaten (Title, H1, Meta Description)
+    
+    2. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
 
     
 
     Ziel:
 
     - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
-
-    - Nutze nach Möglichkeit die priorisierten Keywords (manuell > GSC > Seitendaten).
-
+    
+    - Nutze nach Möglichkeit die Seitendaten (Title, H1, Meta Description).
+    
     - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
 
     
@@ -910,19 +890,7 @@ def generate_anchor_variants_for_url(
 
     
 
-    Ausgabeformat:
-
-    - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
-
-    - Trenne die Varianten mit genau drei senkrechten Strichen: |||
-
-    - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
-
     
-
-    Beispiel (nur vom Format, NICHT für diese Seite verwenden):
-
-    Variante1|||Variante2|||Variante3
 
     """.strip()
 
@@ -977,50 +945,104 @@ def generate_anchor_variants_for_url(
             if not text or not text.strip():
                 raise ValueError(f"OpenAI API hat leeren Text zurückgegeben. Response: {resp}")
     
-        else:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            # Versuche verschiedene Modellnamen (Fallback auf verfügbare Modelle)
-            model_candidates = [
-                cfg.get("gemini_model"),  # Vom User konfiguriert
-                "gemini-1.5-flash-latest",  # Meist verfügbar
-                "gemini-1.5-pro-latest",   # Alternative Pro-Version
-                "gemini-1.5-flash",        # Ohne -latest Suffix
-                "gemini-1.5-pro",          # Original (falls doch verfügbar)
-                "gemini-pro",              # Ältere Version
-            ]
-            
-            model = None
-            last_error = None
-            
-            for model_name in model_candidates:
-                if not model_name:
-                    continue
-                try:
-                    model = genai.GenerativeModel(
-                        model_name,
-                        system_instruction=system_prompt
-                    )
-                    # Teste, ob das Modell funktioniert
-                    resp = model.generate_content(user_prompt)
-                    text = resp.text
+                else:
+                    import google.generativeai as genai
+                    genai.configure(api_key=api_key)
                     
-                    if not text or not text.strip():
-                        raise ValueError(f"Gemini API hat leeren Text zurückgegeben. Response: {resp}")
+                    # Versuche zuerst, verfügbare Modelle automatisch zu ermitteln
+                    available_models = []
+                    try:
+                        all_models = genai.list_models()
+                        # Filtere Modelle, die generateContent unterstützen
+                        for m in all_models:
+                            if 'generateContent' in m.supported_generation_methods:
+                                model_name = m.name.split('/')[-1]  # Extrahiere Modellname (z.B. "gemini-1.5-flash")
+                                available_models.append(model_name)
+                    except Exception as list_error:
+                        # Falls list_models() fehlschlägt, verwende Fallback-Liste
+                        available_models = []
                     
-                    # Erfolg - verwende dieses Modell
-                    break
-                except Exception as e:
-                    last_error = e
+                    # Priorität: 1) User-konfiguriertes Modell, 2) Automatisch gefundene Modelle, 3) Fallback-Liste
+                    model_candidates = []
+                    
+                    # 1. User-konfiguriertes Modell (höchste Priorität)
+                    user_model = cfg.get("gemini_model")
+                    if user_model:
+                        model_candidates.append(user_model)
+                    
+                    # 2. Automatisch gefundene Modelle (sortiert nach Priorität)
+                    priority_order = [
+                        "gemini-1.5-flash-latest",
+                        "gemini-1.5-pro-latest",
+                        "gemini-1.5-flash",
+                        "gemini-1.5-pro",
+                        "gemini-pro",
+                    ]
+                    
+                    # Füge verfügbare Modelle in Prioritätsreihenfolge hinzu
+                    for priority_model in priority_order:
+                        if priority_model in available_models and priority_model not in model_candidates:
+                            model_candidates.append(priority_model)
+                    
+                    # Füge alle anderen verfügbaren Modelle hinzu
+                    for model_name in available_models:
+                        if model_name not in model_candidates:
+                            model_candidates.append(model_name)
+                    
+                    # 3. Fallback-Liste (falls keine Modelle gefunden wurden)
+                    if not model_candidates:
+                        model_candidates = [
+                            "gemini-1.5-flash-latest",
+                            "gemini-1.5-pro-latest",
+                            "gemini-1.5-flash",
+                            "gemini-1.5-pro",
+                            "gemini-pro",
+                        ]
+                    
                     model = None
-                    continue
-            
-            if model is None:
-                raise RuntimeError(
-                    f"Kein verfügbares Gemini-Modell gefunden. Versuchte Modelle: {[m for m in model_candidates if m]}\n"
-                    f"Letzter Fehler: {str(last_error)}\n"
-                    f"Bitte prüfe die verfügbaren Modelle mit: genai.list_models()"
-                ) from last_error
+                    last_error = None
+                    tried_models = []
+                    
+                    for model_name in model_candidates:
+                        if not model_name:
+                            continue
+                        tried_models.append(model_name)
+                        try:
+                            model = genai.GenerativeModel(
+                                model_name,
+                                system_instruction=system_prompt
+                            )
+                            # Teste, ob das Modell funktioniert
+                            resp = model.generate_content(user_prompt)
+                            text = resp.text
+                            
+                            if not text or not text.strip():
+                                raise ValueError(f"Gemini API hat leeren Text zurückgegeben. Response: {resp}")
+                            
+                            # Erfolg - verwende dieses Modell
+                            break
+                        except Exception as e:
+                            last_error = e
+                            model = None
+                            continue
+                    
+                    if model is None:
+                        # Erstelle detaillierte Fehlermeldung
+                        error_msg = f"Kein verfügbares Gemini-Modell gefunden.\n\n"
+                        error_msg += f"Versuchte Modelle: {tried_models}\n\n"
+                        
+                        if available_models:
+                            error_msg += f"Verfügbare Modelle (laut API): {available_models}\n\n"
+                        else:
+                            error_msg += "Konnte verfügbare Modelle nicht automatisch ermitteln.\n\n"
+                        
+                        error_msg += f"Letzter Fehler: {str(last_error)}\n\n"
+                        error_msg += "Bitte prüfe:\n"
+                        error_msg += "- API-Key ist korrekt eingegeben\n"
+                        error_msg += "- API-Key hat die nötigen Berechtigungen\n"
+                        error_msg += "- Internetverbindung ist vorhanden"
+                        
+                        raise RuntimeError(error_msg) from last_error
     
     except Exception as e:
         # Fehler weiterwerfen mit detaillierter Info
@@ -1287,30 +1309,7 @@ with st.sidebar:
                     ),
                 )
 
-                st.radio(
-                    "Search Console Top-Keyword für Ankertexte verwenden?",
-                    [
-                        "Nicht verwenden",
-                        "Top-Keyword nach Klicks",
-                        "Top-Keyword nach Impressionen",
-                    ],
-                    index=0,
-                    key="a1_use_gsc_keyword",
-                    help=(
-                        "Wenn aktiviert, wird das wichtigste Such-Keyword je URL aus der Search Console "
-                        "in die Ankertext-Generierung einbezogen."
-                    ),
-                )
-
-                st.checkbox(
-                    "Manuell hochgeladene Keywords je URL priorisiert in Ankertexten nutzen",
-                    value=False,
-                    key="a1_use_manual_keywords",
-                    help=(
-                        "Wenn aktiviert, fließen die pro URL hochgeladenen Keywords als priorisierte "
-                        "Begriffe in die Ankertext-Erstellung ein."
-                    ),
-                )
+                
 
 
         # ----------------
@@ -2041,23 +2040,7 @@ if A1_NAME in selected_analyses:
             )
         ))
 
-        if st.session_state.get("a1_use_gsc_keyword", "Nicht verwenden") != "Nicht verwenden":
-            needs.append((
-                "Search Console (URLs + Query + Klicks/Impressions) für Ankertexte (CSV/Excel)",
-                "up_gsc_a1",
-                (
-                    "Struktur: mindestens URL, Query und entweder Clicks oder Impressions.\n"
-                    "Diese Daten werden verwendet, um pro URL das wichtigste Top-Keyword "
-                    "(nach Klicks oder Impressions) zu bestimmen."
-                )
-            ))
-
-        if st.session_state.get("a1_use_manual_keywords", False):
-            needs.append((
-                "Manuelle Keyword-Liste je URL (CSV/Excel)",
-                "up_kw_a1",
-                HELP_A4_KW
-            ))
+        
 
     # Diese Schleife MUSS außerhalb des if a1_enable_anchor_ai stehen
     for (label, df) in upload_for_analysis(
@@ -2076,10 +2059,7 @@ if A1_NAME in selected_analyses:
             backlinks_df = df
         if "Crawl / Page-Details" in label:
             crawl_df_a1 = df
-        if "Search Console (URLs + Query" in label:
-            gsc_df_a1 = df
-        if "Manuelle Keyword-Liste" in label:
-            kw_df_a1 = df
+        
 
 # A2
 if A2_NAME in selected_analyses:
@@ -2867,18 +2847,12 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                     "openai_key": st.session_state.get("a1_openai_api_key", "").strip(),
                     "gemini_key": st.session_state.get("a1_gemini_api_key", "").strip(),
                     "fields": st.session_state.get("a1_prompt_fields", []),
-                    "use_gsc": st.session_state.get("a1_use_gsc_keyword", "Nicht verwenden"),
-                    "use_manual": st.session_state.get("a1_use_manual_keywords", False),
                 }
 
                 page_maps = build_page_text_maps_for_a1(crawl_df_a1) if isinstance(crawl_df_a1, pd.DataFrame) else {"title": {}, "h1": {}, "meta": {}, "main": {}}
 
                 top_kw_map = {}
-                if cfg["use_gsc"] != "Nicht verwenden" and isinstance(gsc_df_a1, pd.DataFrame):
-                    metric = "Clicks" if cfg["use_gsc"] == "Top-Keyword nach Klicks" else "Impressions"
-                    top_kw_map = build_top_gsc_keyword_map_for_a1(gsc_df_a1, metric)
-
-                manual_kw_map = build_manual_keyword_map_for_a1(kw_df_a1) if isinstance(kw_df_a1, pd.DataFrame) else {}
+                manual_kw_map = {}
 
                 # Cache für bereits generierte Ankertexte
                 cache_key = f"_anchor_cache_{hash(str(cfg))}"
