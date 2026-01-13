@@ -872,14 +872,13 @@ def generate_anchor_variants_for_url(
     - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln (abgeleitet aus dem Title Tag).
     - Nutze beschreibende Elemente aus Title, H1 und Meta Description (z.B. "richtig reagieren", "Erreger und Symptome").
     - Kombiniere das Hauptthema mit den beschreibenden Elementen.
-    - Wenn GSC-Keywords oder manuelle Keywords vorhanden sind, kombiniere diese mit dem Hauptthema und den beschreibenden Elementen.
     - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
     - Sei kreativ, aber bleibe nah an den vorhandenen Formulierungen.
     
     Erzeuge GENAU diese 3 Varianten:
-    1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema (aus Title Tag) + ggf. ein beschreibendes Element.
-    2. Beschreibend – 3–5 Wörter, mit mehr Kontext, nutze beschreibende Elemente aus Title/H1/Meta (z.B. "Erreger und Symptome", "richtig reagieren").
-    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, nutze Verben und aktive Formulierungen aus Title/H1/Meta (z.B. "richtig reagieren"), aber ohne generische Floskeln wie „hier klicken".
+    1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema (aus Title Tag das Hauptkeyword bzw. Hauptthema ableiten) + ggf. ein beschreibendes Element. Bleibe aber bei maximal 3 Wörter.
+    2. Beschreibend – 3–5 Wörter, mit mehr Kontext, nutze beschreibende Elemente aus Title/H1/Meta.
+    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, nutze Verben und aktive Formulierungen aus Title/H1/Meta, aber ohne generische Floskeln wie „hier klicken".
     
     Strikte Regeln:
     - Sprache: ausschließlich natürliches, korrektes Deutsch.
@@ -891,16 +890,8 @@ def generate_anchor_variants_for_url(
     - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /, |.
     - Keine reinen Brand-Ankertexte; Markennamen sind komplett zu vermeiden.
     - Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
-    - ORIENTIERUNG AN FORMULIERUNGEN: Nutze die exakten Formulierungen, Begriffe und Phrasen aus Title, H1 und Meta Description. Wenn dort z.B. "richtig reagieren" steht, nutze diese Formulierung im Ankertext.
+    - ORIENTIERUNG AN FORMULIERUNGEN: Orientiere dich an Formulierungen, Begriffen und Phrasen aus Title, H1 und Meta Description.
     
-    Ausgabeformat:
-    - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
-    - Trenne die Varianten mit genau drei senkrechten Strichen: |||
-    - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
-    - WICHTIG: Kein Pipe-Zeichen (|) außer den drei Trennstrichen (|||) zwischen den Varianten.
-    
-    Beispiel (nur vom Format, NICHT für diese Seite verwenden):
-    Variante1|||Variante2|||Variante3
     """.strip()
 
     provider = cfg.get("provider", "OpenAI")
