@@ -882,6 +882,7 @@ def generate_anchor_variants_for_url(
     
     Strikte Regeln:
     - Sprache: ausschließlich natürliches, korrektes Deutsch.
+    - Beachte die Höchstzahl an Wörter. Nicht mehr als 3 Wörter bei Kurz & präzise. Maximal 5 Wörter bei Beschreibend und Handlungsorientiert.
     - Rechtschreibung: Achte auf korrekte Groß- und Kleinschreibung. Wenn Search Console Keywords z.B. "katzen agility" (kleingeschrieben) enthalten, schreibe im Ankertext korrekt "Katzen Agility" (mit Großbuchstaben am Wortanfang). Wenn im Title Tag "Zeckenbiss beim Hund" steht, schreibe auch im Ankertext "Zeckenbiss beim Hund" (nicht "zeckenbiss beim hund").
     - KEIN Pipe-Zeichen (|): Das Zeichen "|" darf NIEMALS im Ankertext vorkommen.
     - KEINE Marke: Wenn in den Seitendaten eine Marke vorkommt (z.B. "| FRESSNAPF" im Title), darf diese Marke NIEMALS im Ankertext erscheinen. Entferne Markennamen komplett aus den Ankertexten.
