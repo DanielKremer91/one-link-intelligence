@@ -944,105 +944,105 @@ def generate_anchor_variants_for_url(
             
             if not text or not text.strip():
                 raise ValueError(f"OpenAI API hat leeren Text zurückgegeben. Response: {resp}")
-    
-                else:
-                    import google.generativeai as genai
-                    genai.configure(api_key=api_key)
+
+        else:  # ✅ RICHTIG - auf gleicher Ebene wie "if provider == "OpenAI":"
+            import google.generativeai as genai
+            genai.configure(api_key=api_key)
+            
+            # Versuche zuerst, verfügbare Modelle automatisch zu ermitteln
+            available_models = []
+            try:
+                all_models = genai.list_models()
+                # Filtere Modelle, die generateContent unterstützen
+                for m in all_models:
+                    if 'generateContent' in m.supported_generation_methods:
+                        model_name = m.name.split('/')[-1]  # Extrahiere Modellname (z.B. "gemini-1.5-flash")
+                        available_models.append(model_name)
+            except Exception as list_error:
+                # Falls list_models() fehlschlägt, verwende Fallback-Liste
+                available_models = []
+            
+            # Priorität: 1) User-konfiguriertes Modell, 2) Automatisch gefundene Modelle, 3) Fallback-Liste
+            model_candidates = []
+            
+            # 1. User-konfiguriertes Modell (höchste Priorität)
+            user_model = cfg.get("gemini_model")
+            if user_model:
+                model_candidates.append(user_model)
+            
+            # 2. Automatisch gefundene Modelle (sortiert nach Priorität)
+            priority_order = [
+                "gemini-1.5-flash-latest",
+                "gemini-1.5-pro-latest",
+                "gemini-1.5-flash",
+                "gemini-1.5-pro",
+                "gemini-pro",
+            ]
+            
+            # Füge verfügbare Modelle in Prioritätsreihenfolge hinzu
+            for priority_model in priority_order:
+                if priority_model in available_models and priority_model not in model_candidates:
+                    model_candidates.append(priority_model)
+            
+            # Füge alle anderen verfügbaren Modelle hinzu
+            for model_name in available_models:
+                if model_name not in model_candidates:
+                    model_candidates.append(model_name)
+            
+            # 3. Fallback-Liste (falls keine Modelle gefunden wurden)
+            if not model_candidates:
+                model_candidates = [
+                    "gemini-1.5-flash-latest",
+                    "gemini-1.5-pro-latest",
+                    "gemini-1.5-flash",
+                    "gemini-1.5-pro",
+                    "gemini-pro",
+                ]
+            
+            model = None
+            last_error = None
+            tried_models = []
+            
+            for model_name in model_candidates:
+                if not model_name:
+                    continue
+                tried_models.append(model_name)
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        system_instruction=system_prompt
+                    )
+                    # Teste, ob das Modell funktioniert
+                    resp = model.generate_content(user_prompt)
+                    text = resp.text
                     
-                    # Versuche zuerst, verfügbare Modelle automatisch zu ermitteln
-                    available_models = []
-                    try:
-                        all_models = genai.list_models()
-                        # Filtere Modelle, die generateContent unterstützen
-                        for m in all_models:
-                            if 'generateContent' in m.supported_generation_methods:
-                                model_name = m.name.split('/')[-1]  # Extrahiere Modellname (z.B. "gemini-1.5-flash")
-                                available_models.append(model_name)
-                    except Exception as list_error:
-                        # Falls list_models() fehlschlägt, verwende Fallback-Liste
-                        available_models = []
+                    if not text or not text.strip():
+                        raise ValueError(f"Gemini API hat leeren Text zurückgegeben. Response: {resp}")
                     
-                    # Priorität: 1) User-konfiguriertes Modell, 2) Automatisch gefundene Modelle, 3) Fallback-Liste
-                    model_candidates = []
-                    
-                    # 1. User-konfiguriertes Modell (höchste Priorität)
-                    user_model = cfg.get("gemini_model")
-                    if user_model:
-                        model_candidates.append(user_model)
-                    
-                    # 2. Automatisch gefundene Modelle (sortiert nach Priorität)
-                    priority_order = [
-                        "gemini-1.5-flash-latest",
-                        "gemini-1.5-pro-latest",
-                        "gemini-1.5-flash",
-                        "gemini-1.5-pro",
-                        "gemini-pro",
-                    ]
-                    
-                    # Füge verfügbare Modelle in Prioritätsreihenfolge hinzu
-                    for priority_model in priority_order:
-                        if priority_model in available_models and priority_model not in model_candidates:
-                            model_candidates.append(priority_model)
-                    
-                    # Füge alle anderen verfügbaren Modelle hinzu
-                    for model_name in available_models:
-                        if model_name not in model_candidates:
-                            model_candidates.append(model_name)
-                    
-                    # 3. Fallback-Liste (falls keine Modelle gefunden wurden)
-                    if not model_candidates:
-                        model_candidates = [
-                            "gemini-1.5-flash-latest",
-                            "gemini-1.5-pro-latest",
-                            "gemini-1.5-flash",
-                            "gemini-1.5-pro",
-                            "gemini-pro",
-                        ]
-                    
+                    # Erfolg - verwende dieses Modell
+                    break
+                except Exception as e:
+                    last_error = e
                     model = None
-                    last_error = None
-                    tried_models = []
-                    
-                    for model_name in model_candidates:
-                        if not model_name:
-                            continue
-                        tried_models.append(model_name)
-                        try:
-                            model = genai.GenerativeModel(
-                                model_name,
-                                system_instruction=system_prompt
-                            )
-                            # Teste, ob das Modell funktioniert
-                            resp = model.generate_content(user_prompt)
-                            text = resp.text
-                            
-                            if not text or not text.strip():
-                                raise ValueError(f"Gemini API hat leeren Text zurückgegeben. Response: {resp}")
-                            
-                            # Erfolg - verwende dieses Modell
-                            break
-                        except Exception as e:
-                            last_error = e
-                            model = None
-                            continue
-                    
-                    if model is None:
-                        # Erstelle detaillierte Fehlermeldung
-                        error_msg = f"Kein verfügbares Gemini-Modell gefunden.\n\n"
-                        error_msg += f"Versuchte Modelle: {tried_models}\n\n"
-                        
-                        if available_models:
-                            error_msg += f"Verfügbare Modelle (laut API): {available_models}\n\n"
-                        else:
-                            error_msg += "Konnte verfügbare Modelle nicht automatisch ermitteln.\n\n"
-                        
-                        error_msg += f"Letzter Fehler: {str(last_error)}\n\n"
-                        error_msg += "Bitte prüfe:\n"
-                        error_msg += "- API-Key ist korrekt eingegeben\n"
-                        error_msg += "- API-Key hat die nötigen Berechtigungen\n"
-                        error_msg += "- Internetverbindung ist vorhanden"
-                        
-                        raise RuntimeError(error_msg) from last_error
+                    continue
+            
+            if model is None:
+                # Erstelle detaillierte Fehlermeldung
+                error_msg = f"Kein verfügbares Gemini-Modell gefunden.\n\n"
+                error_msg += f"Versuchte Modelle: {tried_models}\n\n"
+                
+                if available_models:
+                    error_msg += f"Verfügbare Modelle (laut API): {available_models}\n\n"
+                else:
+                    error_msg += "Konnte verfügbare Modelle nicht automatisch ermitteln.\n\n"
+                
+                error_msg += f"Letzter Fehler: {str(last_error)}\n\n"
+                error_msg += "Bitte prüfe:\n"
+                error_msg += "- API-Key ist korrekt eingegeben\n"
+                error_msg += "- API-Key hat die nötigen Berechtigungen\n"
+                error_msg += "- Internetverbindung ist vorhanden"
+                
+                raise RuntimeError(error_msg) from last_error
     
     except Exception as e:
         # Fehler weiterwerfen mit detaillierter Info
