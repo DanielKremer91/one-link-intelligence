@@ -1267,7 +1267,7 @@ with st.sidebar:
                 key="a1_enable_anchor_ai",
                 help=(
                     "Wenn aktiviert, werden für jede Ziel-URL in Analyse 1 drei "
-                    "SEO-optimierte Ankertext-Vorschläge erzeugt und in der A1-Tabelle "
+                    "Ankertext-Vorschläge erzeugt und "
                     "als zusätzliche Spalten ausgegeben."
                 ),
             )
@@ -1296,7 +1296,7 @@ with st.sidebar:
                         help="Dein Gemini API Key (wird nur in dieser Session im Speicher gehalten).",
                     )
 
-                st.markdown("**Welche Seitendaten sollen in den KI-Prompt einfließen?**")
+                st.markdown("**Welche Seitendaten sollen in den KI-Prompt zur Ankertext-Generierung einfließen?**")
                 st.multiselect(
                     "Seitendaten für die Ankertext-Generierung",
                     options=["Title", "H1", "Meta Description", "Main Content"],
