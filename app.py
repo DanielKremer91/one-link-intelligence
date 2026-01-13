@@ -777,15 +777,14 @@ def generate_anchor_variants_for_url(
     """
     Erzeugt 3 Ankertext-Varianten (Kurz, Beschreibend, Handlungsorientiert) für eine Ziel-URL.
     Nutzt abhängig von cfg:
-    - Seitendaten (Title/H1/Meta/Main Content)
-    - GSC-Top-Keyword
+    - Seitendaten (Title/H1/Meta) - OHNE Main Content
+    - GSC-Top-Keywords
     - manuelle Keywords
     und ruft entweder OpenAI oder Gemini auf.
     """
     title_map = page_maps.get("title", {})
     h1_map    = page_maps.get("h1", {})
     meta_map  = page_maps.get("meta", {})
-    main_map  = page_maps.get("main", {})
     fields = cfg.get("fields", [])
     use_gsc = cfg.get("use_gsc", "Nicht verwenden")
     gsc_metric = "Clicks" if use_gsc == "Top-Keyword nach Klicks" else "Impressions"
@@ -793,7 +792,7 @@ def generate_anchor_variants_for_url(
     title = title_map.get(url, "")
     h1    = h1_map.get(url, "")
     meta  = meta_map.get(url, "")
-    main  = main_map.get(url, "")
+    
     # GSC: Liste von Keywords (Top 10)
     top_kws = top_kw_map.get(url, []) if use_gsc != "Nicht verwenden" else []
     manual_kws = manual_kw_map.get(url, []) if use_manual else []
@@ -815,36 +814,37 @@ def generate_anchor_variants_for_url(
     
     blocks = []
     blocks.append(f"Ziel-URL: {url}")
+    
     # Priorisierung: 1) Manuelle Keywords (höchste Priorität)
     if manual_kws:
         blocks.append(
             "⚠️ HÖCHSTE PRIORITÄT – Manuell hochgeladene Keywords (diese MÜSSEN bevorzugt verwendet werden): "
             + ", ".join(manual_kws)
         )
+    
     # Priorisierung: 2) GSC Top-Keywords (zweithöchste Priorität)
     if top_kws:
         blocks.append(
             f"⚠️ HOHE PRIORITÄT – Top-Keywords aus Search Console ({gsc_metric}, Top 10, nutze ALLE für Varianten): "
             + ", ".join(top_kws)
         )
-    # Priorisierung: 3) Seitendaten (unterstützend, optional) - Marke bereits entfernt
+    
+    # Priorisierung: 3) Seitendaten (Title, H1, Meta Description) - Marke bereits entfernt
+    # WICHTIG: Main Content wird NICHT mehr verwendet
     if "Title" in fields and title:
         blocks.append(f"Title: {title}")
     if "H1" in fields and h1:
         blocks.append(f"H1: {h1}")
     if "Meta Description" in fields and meta:
         blocks.append(f"Meta Description: {meta}")
-    if "Main Content" in fields and main:
-        blocks.append(
-            "Main Content (zur inhaltlichen Orientierung, nicht 1:1 als Ankertext verwenden):"
-        )
-        blocks.append(main[:3000])
+    
     page_info = "\n".join(blocks)
     
     system_prompt = (
-        "Du bist ein erfahrener SEO-Experte "
+        "Du bist ein erfahrener SEO-Experte. "
         "Du erstellst präzise, natürliche und sinnvolle Ankertexte für interne Verlinkungen "
-        "und hältst dich strikt an das geforderte Ausgabeformat "
+        "und hältst dich strikt an das geforderte Ausgabeformat. "
+        "Du orientierst dich stark an den vorhandenen Formulierungen aus Title Tag, H1 und Meta Description."
     )
     
     user_prompt = f"""
@@ -853,26 +853,37 @@ def generate_anchor_variants_for_url(
     Seitendaten:
     {page_info}
     
-    WICHTIG – Priorisierung für die Ankertext-Generierung:
+    WICHTIG – Priorisierung und Vorgehen für die Ankertext-Generierung:
+    
     1. HÖCHSTE PRIORITÄT: Manuell hochgeladene Keywords (falls vorhanden) – diese MÜSSEN bevorzugt verwendet werden.
-    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – nutze ALLE bereitgestellten GSC-Keywords für Varianten, nicht nur das stärkste. Wenn mehrere Keywords vorhanden sind, baue ruhig verschiedene Varianten mit unterschiedlichen Keywords ein.
-    3. PRIORITÄT: Seitendaten (Title, H1, Meta Description) – orientiere dich besonders an Adjektiven, Beschreibungen und Verben aus diesen Feldern für kreative und abwechslungsreiche Ankertexte.
-    4. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
+    
+    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – nutze ALLE bereitgestellten GSC-Keywords für Varianten, nicht nur das stärkste. Wenn mehrere Keywords vorhanden sind, baue verschiedene Varianten mit unterschiedlichen Keywords ein.
+    
+    3. KERN-AUFGABE: Leite das Hauptthema aus dem Title Tag ab (z.B. "Zeckenbiss beim Hund" aus "Zeckenbiss beim Hund: So reagierst du richtig | FRESSNAPF").
+    
+    4. BESCHREIBENDE ELEMENTE: Extrahiere und nutze beschreibende Elemente, Adjektive, Verben und wichtige Begriffe aus:
+       - Title Tag (z.B. "richtig reagieren" aus "So reagierst du richtig")
+       - H1 (z.B. "so reagierst du richtig")
+       - Meta Description (z.B. "Erreger und Symptome", "Krankheiten übertragen")
+    
+    5. ORIENTIERUNG: Die Ankertexte sollen sich STARK an den vorhandenen Formulierungen aus Title, H1 und Meta Description orientieren. Nutze die exakten Formulierungen, Adjektive, Verben und beschreibenden Begriffe aus diesen Feldern.
     
     Ziel:
-    - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
-    - Nutze nach Möglichkeit die priorisierten Keywords (manuell > GSC > Seitendaten).
+    - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln (abgeleitet aus dem Title Tag).
+    - Nutze beschreibende Elemente aus Title, H1 und Meta Description (z.B. "richtig reagieren", "Erreger und Symptome").
+    - Kombiniere das Hauptthema mit den beschreibenden Elementen.
+    - Wenn GSC-Keywords oder manuelle Keywords vorhanden sind, kombiniere diese mit dem Hauptthema und den beschreibenden Elementen.
     - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
-    - Sei kreativ und abwechslungsreich – nutze Adjektive, Beschreibungen und Verben aus Title, H1 und Meta Description für natürliche, ansprechende Formulierungen.
+    - Sei kreativ, aber bleibe nah an den vorhandenen Formulierungen.
     
     Erzeuge GENAU diese 3 Varianten:
-    1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
-    2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext, nutze Adjektive und beschreibende Begriffe.
-    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, nutze Verben und aktive Formulierungen, aber ohne generische Floskeln wie „hier klicken". Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
+    1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema (aus Title Tag) + ggf. ein beschreibendes Element.
+    2. Beschreibend – 3–5 Wörter, mit mehr Kontext, nutze beschreibende Elemente aus Title/H1/Meta (z.B. "Erreger und Symptome", "richtig reagieren").
+    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, nutze Verben und aktive Formulierungen aus Title/H1/Meta (z.B. "richtig reagieren"), aber ohne generische Floskeln wie „hier klicken".
     
     Strikte Regeln:
     - Sprache: ausschließlich natürliches, korrektes Deutsch.
-    - Rechtschreibung: Achte auf korrekte Groß- und Kleinschreibung. Wenn Search Console Keywords z.B. "katzen agility" (kleingeschrieben) enthalten, schreibe im Ankertext korrekt "Katzen Agility" (mit Großbuchstaben am Wortanfang).
+    - Rechtschreibung: Achte auf korrekte Groß- und Kleinschreibung. Wenn Search Console Keywords z.B. "katzen agility" (kleingeschrieben) enthalten, schreibe im Ankertext korrekt "Katzen Agility" (mit Großbuchstaben am Wortanfang). Wenn im Title Tag "Zeckenbiss beim Hund" steht, schreibe auch im Ankertext "Zeckenbiss beim Hund" (nicht "zeckenbiss beim hund").
     - KEIN Pipe-Zeichen (|): Das Zeichen "|" darf NIEMALS im Ankertext vorkommen.
     - KEINE Marke: Wenn in den Seitendaten eine Marke vorkommt (z.B. "| FRESSNAPF" im Title), darf diese Marke NIEMALS im Ankertext erscheinen. Entferne Markennamen komplett aus den Ankertexten.
     - Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
@@ -880,8 +891,16 @@ def generate_anchor_variants_for_url(
     - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /, |.
     - Keine reinen Brand-Ankertexte; Markennamen sind komplett zu vermeiden.
     - Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
-    - Sei kreativ: Nutze verschiedene Formulierungen, Adjektive, Verben und beschreibende Begriffe aus dem Title Tag, Meta Description und H1 – falls vohanden – für abwechslungsreiche Ankertexte.
+    - ORIENTIERUNG AN FORMULIERUNGEN: Nutze die exakten Formulierungen, Begriffe und Phrasen aus Title, H1 und Meta Description. Wenn dort z.B. "richtig reagieren" steht, nutze diese Formulierung im Ankertext.
     
+    Ausgabeformat:
+    - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
+    - Trenne die Varianten mit genau drei senkrechten Strichen: |||
+    - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
+    - WICHTIG: Kein Pipe-Zeichen (|) außer den drei Trennstrichen (|||) zwischen den Varianten.
+    
+    Beispiel (nur vom Format, NICHT für diese Seite verwenden):
+    Variante1|||Variante2|||Variante3
     """.strip()
 
     provider = cfg.get("provider", "OpenAI")
@@ -908,7 +927,7 @@ def generate_anchor_variants_for_url(
                 client = openai.OpenAI(api_key=api_key)
 
             resp = client.chat.completions.create(
-                model=cfg.get("openai_model", "gpt-4o-mini"),
+                model=cfg.get("openai_model", "gpt-5.1"),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
@@ -952,6 +971,7 @@ def generate_anchor_variants_for_url(
     parts = [p.strip() for p in str(text).split("|||") if p.strip()]
     if len(parts) >= 3:
         return parts[0], parts[1], parts[2]
+    
     # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
     if manual_kws:
         base = manual_kws[0]
@@ -1148,7 +1168,7 @@ with st.sidebar:
                 st.markdown("**Welche Seitendaten sollen in den KI-Prompt für die Erstellung der Ankertextvorschläge einfließen?**")
                 st.multiselect(
                     "Seitendaten für die Ankertext-Generierung",
-                    options=["Title", "H1", "Meta Description", "Main Content"],
+                    options=["Title", "H1", "Meta Description"],
                     default=[],
                     key="a1_prompt_fields",
                     help=(
