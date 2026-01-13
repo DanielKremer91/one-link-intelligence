@@ -10,6 +10,7 @@ import re
 import io
 import zipfile
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 inlinks_df = None
 metrics_df = None
@@ -916,17 +917,11 @@ def generate_anchor_variants_for_url(
 
     provider = cfg.get("provider", "OpenAI")
     api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
-
-    if not api_key:
-        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-        if manual_kws:
-            base = manual_kws[0]
-        elif top_kws:
-            base = top_kws[0]
-        else:
-            base = title or h1 or "weitere Informationen"
-        return base, f"{base} verstehen", f"Alles über {base}"
-
+    
+    # Prüfe API-Key - KEIN FALLBACK
+    if not api_key or not api_key.strip():
+        raise ValueError(f"Kein API-Key für {provider} angegeben. Bitte in den Einstellungen eingeben.")
+    
     text = ""
     try:
         if provider == "OpenAI":
@@ -936,60 +931,153 @@ def generate_anchor_variants_for_url(
             except Exception:
                 import openai
                 client = openai.OpenAI(api_key=api_key)
-
-            resp = client.chat.completions.create(
-                model=cfg.get("openai_model", "gpt-4o-mini"),
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=200,
-                temperature=0.5,
-            )
+    
+            model_name = cfg.get("openai_model", "gpt-5.1")
+            
+            # Neuere Modelle (z.B. gpt-5.1) verwenden max_completion_tokens statt max_tokens
+            # Versuche zuerst max_completion_tokens (für neuere Modelle)
+            try:
+                resp = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    max_completion_tokens=200,  # ✅ NEU
+                    temperature=0.5,
+                )
+            except Exception as e:
+                # Falls max_completion_tokens nicht unterstützt wird, verwende max_tokens (für ältere Modelle)
+                if "max_completion_tokens" in str(e) or "unsupported" in str(e).lower():
+                    resp = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        max_tokens=200,  # ✅ Fallback für ältere Modelle
+                        temperature=0.5,
+                    )
+                else:
+                    raise
+            
             text = resp.choices[0].message.content
-
+            
+            if not text or not text.strip():
+                raise ValueError(f"OpenAI API hat leeren Text zurückgegeben. Response: {resp}")
+    
         else:
             import google.generativeai as genai
             genai.configure(api_key=api_key)
-            model_name = cfg.get("gemini_model", "gemini-1.5-pro")
-            model = genai.GenerativeModel(
-                model_name,
-                system_instruction=system_prompt
-            )
-            resp = model.generate_content(user_prompt)
-            text = resp.text
-
-    except Exception:
-        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-        if manual_kws:
-            base = manual_kws[0]
-        elif top_kws:
-            base = top_kws[0]
-        else:
-            base = title or h1 or "weitere Informationen"
-        return base, f"{base} verstehen", f"Alles über {base}"
-
-    if not text:
-        # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-        if manual_kws:
-            base = manual_kws[0]
-        elif top_kws:
-            base = top_kws[0]
-        else:
-            base = title or h1 or "weitere Informationen"
-        return base, f"{base} verstehen", f"Alles über {base}"
-
+            # Versuche verschiedene Modellnamen (Fallback auf verfügbare Modelle)
+            model_candidates = [
+                cfg.get("gemini_model"),  # Vom User konfiguriert
+                "gemini-1.5-flash-latest",  # Meist verfügbar
+                "gemini-1.5-pro-latest",   # Alternative Pro-Version
+                "gemini-1.5-flash",        # Ohne -latest Suffix
+                "gemini-1.5-pro",          # Original (falls doch verfügbar)
+                "gemini-pro",              # Ältere Version
+            ]
+            
+            model = None
+            last_error = None
+            
+            for model_name in model_candidates:
+                if not model_name:
+                    continue
+                try:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        system_instruction=system_prompt
+                    )
+                    # Teste, ob das Modell funktioniert
+                    resp = model.generate_content(user_prompt)
+                    text = resp.text
+                    
+                    if not text or not text.strip():
+                        raise ValueError(f"Gemini API hat leeren Text zurückgegeben. Response: {resp}")
+                    
+                    # Erfolg - verwende dieses Modell
+                    break
+                except Exception as e:
+                    last_error = e
+                    model = None
+                    continue
+            
+            if model is None:
+                raise RuntimeError(
+                    f"Kein verfügbares Gemini-Modell gefunden. Versuchte Modelle: {[m for m in model_candidates if m]}\n"
+                    f"Letzter Fehler: {str(last_error)}\n"
+                    f"Bitte prüfe die verfügbaren Modelle mit: genai.list_models()"
+                ) from last_error
+    
+    except Exception as e:
+        # Fehler weiterwerfen mit detaillierter Info
+        error_details = {
+            "provider": provider,
+            "url": url,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }
+        # Zeige auch die API-Response, falls vorhanden
+        if 'resp' in locals():
+            try:
+                error_details["api_response"] = str(resp)[:500]
+            except:
+                pass
+        
+        # Logge für Debugging
+        import sys
+        print(f"ERROR Ankertext-Generierung: {error_details}", file=sys.stderr)
+        
+        # Werfe Fehler weiter (kein Fallback)
+        raise RuntimeError(
+            f"Fehler bei Ankertext-Generierung für {url} ({provider}): {str(e)}\n"
+            f"Bitte prüfe:\n"
+            f"- API-Key ist korrekt eingegeben\n"
+            f"- API-Key hat die nötigen Berechtigungen\n"
+            f"- Internetverbindung ist vorhanden\n"
+            f"- Modell-Name ist korrekt (z.B. 'gpt-5.1' für OpenAI)"
+        ) from e
+    
+    # Parse die Antwort
     parts = [p.strip() for p in str(text).split("|||") if p.strip()]
-    if len(parts) >= 3:
-        return parts[0], parts[1], parts[2]
-    # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
-    if manual_kws:
-        base = manual_kws[0]
-    elif top_kws:
-        base = top_kws[0]
-    else:
-        base = title or h1 or "weitere Informationen"
-    return base, f"{base} verstehen", f"Alles über {base}"
+    
+    # Wenn weniger als 3 Teile, versuche alternative Trennzeichen
+    if len(parts) < 3:
+        # Versuche andere Trennzeichen
+        for sep in [" | ", " |", "| ", "\n", " - ", " – "]:
+            parts_alt = [p.strip() for p in str(text).split(sep) if p.strip()]
+            if len(parts_alt) >= 3:
+                parts = parts_alt[:3]
+                break
+    
+    if len(parts) < 3:
+        # Fehler: Antwort hat nicht das erwartete Format
+        raise ValueError(
+            f"API-Response hat nicht das erwartete Format (3 Varianten mit ||| getrennt).\n"
+            f"Erhaltene Response: {text[:500]}\n"
+            f"Gefundene Teile: {len(parts)} ({parts})"
+        )
+    
+    # Entferne mögliche Marken und Pipe-Zeichen aus den Ankertexten
+    cleaned_parts = []
+    for p in parts[:3]:
+        # Entferne Marken und Pipe-Zeichen
+        cleaned = remove_brand_from_text(p)
+        # Entferne auch andere unerwünschte Zeichen (aber nicht |||)
+        cleaned = re.sub(r'[|]', '', cleaned).strip()
+        if cleaned:
+            cleaned_parts.append(cleaned)
+    
+    if len(cleaned_parts) < 3:
+        raise ValueError(
+            f"Nach Bereinigung weniger als 3 gültige Ankertexte erhalten.\n"
+            f"Original Response: {text[:500]}\n"
+            f"Bereinigte Teile: {cleaned_parts}"
+        )
+    
+    return cleaned_parts[0], cleaned_parts[1], cleaned_parts[2]
 
 
 
@@ -1100,29 +1188,17 @@ with st.sidebar:
                 "Welche URLs sollen in die Analysen einbezogen werden?",
                 [
                     "Alle URLs (Standard)",
-                    "Verzeichnisebene (Pfad-basiert)",
                     "Regex-basiert (nur passende URLs)",
                 ],
                 index=0,
                 key="scope_mode",
                 help=(
                     "Alle URLs: Verhalten wie bisher.\n"
-                    "Verzeichnisebene: Nur URLs aus demselben Verzeichnis wie die Ziel-URL "
-                    "(1./2./3. Ebene des Pfads).\n"
-                    "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren."
+                    "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren "
+                    "(mehrere Regeln möglich, eine pro Zeile)."
                 ),
             )
-
-            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                st.selectbox(
-                    "Verzeichnistiefe",
-                    [1, 2, 3],
-                    index=0,
-                    key="scope_dir_depth",
-                    format_func=lambda d: f"{d}. Verzeichnisebene",
-                    help="Bestimmt, wie viele Pfadsegmente für die Gruppierung verwendet werden (max. 3 Ebenen).",
-                )
-            elif scope_mode == "Regex-basiert (nur passende URLs)":
+            if scope_mode == "Regex-basiert (nur passende URLs)":
                 st.text_area(
                     "Regex für Ziel-URLs (eine pro Zeile, top-down)",
                     value="",
@@ -2641,16 +2717,6 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
             allowed_urls_target = st.session_state.get("_allowed_urls_target")
             allowed_urls_source = st.session_state.get("_allowed_urls_source")
 
-            # Directory-Keys nur berechnen, wenn Verzeichnisscope aktiv ist
-            dir_keys = {}
-            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                dir_depth = int(st.session_state.get("scope_dir_depth", 1))
-                all_urls_a1 = set(related_map.keys())
-                for lst in related_map.values():
-                    for src, _ in lst:
-                        all_urls_a1.add(src)
-                dir_keys = {u: dir_key(u, dir_depth) for u in all_urls_a1}
-
             for target, related_list in sorted(related_map.items()):
                 # Regex-Scope: Ziel-URL ggf. komplett ausschließen
                 if scope_mode == "Regex-basiert (nur passende URLs)" and allowed_urls_target is not None:
@@ -2660,15 +2726,7 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                 # Start: unveränderte Kandidaten
                 filtered = list(related_list)
 
-                # Verzeichnisscope (Variante 2): nur gleiche Verzeichnisebene wie Ziel-URL
-                if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                    t_key = dir_keys.get(target, None)
-                    if t_key is not None:
-                        filtered = [
-                            (source, sim)
-                            for (source, sim) in filtered
-                            if dir_keys.get(source, None) == t_key
-                        ]
+                
 
                 # Regex-Scope (Variante 3): nur Quellen, die als Linkgeber erlaubt sind
                 if scope_mode == "Regex-basiert (nur passende URLs)" and allowed_urls_source is not None:
@@ -2811,19 +2869,66 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
 
                 manual_kw_map = build_manual_keyword_map_for_a1(kw_df_a1) if isinstance(kw_df_a1, pd.DataFrame) else {}
 
-                anchor_cache = {}
+                # Cache für bereits generierte Ankertexte
+                cache_key = f"_anchor_cache_{hash(str(cfg))}"
+                if cache_key not in st.session_state:
+                    st.session_state[cache_key] = {}
+                anchor_cache = st.session_state[cache_key]
+                
+                # URLs, die noch nicht im Cache sind
+                urls_to_process = []
                 for tgt in sorted(res1_view_long["Ziel-URL"].astype(str).unique()):
-                    norm = remember_original(tgt)
-                    if not norm:
-                        norm = tgt
-                    v1, v2, v3 = generate_anchor_variants_for_url(
-                        norm,
-                        page_maps=page_maps,
-                        top_kw_map=top_kw_map,
-                        manual_kw_map=manual_kw_map,
-                        cfg=cfg,
-                    )
-                    anchor_cache[tgt] = (v1, v2, v3)
+                    if tgt not in anchor_cache:
+                        norm = remember_original(tgt)
+                        if not norm:
+                            norm = tgt
+                        urls_to_process.append((tgt, norm))
+                
+                # Parallel generieren mit Progress-Bar
+                if urls_to_process:
+                    failed_urls = []
+                    progress_bar = st.progress(0)
+                    total = len(urls_to_process)
+                    
+                    def generate_single_anchor(tgt_norm_pair):
+                        tgt, norm = tgt_norm_pair
+                        try:
+                            v1, v2, v3 = generate_anchor_variants_for_url(
+                                norm,
+                                page_maps=page_maps,
+                                top_kw_map=top_kw_map,
+                                manual_kw_map=manual_kw_map,
+                                cfg=cfg,
+                            )
+                            return (tgt, (v1, v2, v3), None)
+                        except Exception as e:
+                            return (tgt, None, str(e))
+                    
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        futures = {executor.submit(generate_single_anchor, pair): pair for pair in urls_to_process}
+                        completed = 0
+                        
+                        for future in as_completed(futures):
+                            completed += 1
+                            progress_bar.progress(completed / total)
+                            tgt, result, error = future.result()
+                            
+                            if error:
+                                failed_urls.append((tgt, error))
+                            else:
+                                anchor_cache[tgt] = result
+                                st.session_state[cache_key] = anchor_cache
+                    
+                    progress_bar.empty()
+                    
+                    # Zeige Fehler an, falls welche aufgetreten sind
+                    if failed_urls:
+                        st.error(f"⚠️ Ankertext-Generierung fehlgeschlagen für {len(failed_urls)} URL(s):")
+                        for url, error in failed_urls[:10]:  # Zeige max. 10 Fehler
+                            with st.expander(f"Fehler für {disp(url)}"):
+                                st.code(error)
+                        if len(failed_urls) > 10:
+                            st.caption(f"... und {len(failed_urls) - 10} weitere Fehler")
 
                 res1_view_long["Ankertext (kurz)"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[0])
                 res1_view_long["Ankertext (beschreibend)"] = res1_view_long["Ziel-URL"].map(lambda u: anchor_cache.get(u, ("", "", ""))[1])
