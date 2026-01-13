@@ -1100,29 +1100,17 @@ with st.sidebar:
                 "Welche URLs sollen in die Analysen einbezogen werden?",
                 [
                     "Alle URLs (Standard)",
-                    "Verzeichnisebene (Pfad-basiert)",
                     "Regex-basiert (nur passende URLs)",
                 ],
                 index=0,
                 key="scope_mode",
                 help=(
                     "Alle URLs: Verhalten wie bisher.\n"
-                    "Verzeichnisebene: Nur URLs aus demselben Verzeichnis wie die Ziel-URL "
-                    "(1./2./3. Ebene des Pfads).\n"
-                    "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren."
+                    "Regex-basiert: Ziel- und Linkgeber-URLs jeweils per Regex definieren "
+                    "(mehrere Regeln möglich, eine pro Zeile)."
                 ),
             )
-
-            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                st.selectbox(
-                    "Verzeichnistiefe",
-                    [1, 2, 3],
-                    index=0,
-                    key="scope_dir_depth",
-                    format_func=lambda d: f"{d}. Verzeichnisebene",
-                    help="Bestimmt, wie viele Pfadsegmente für die Gruppierung verwendet werden (max. 3 Ebenen).",
-                )
-            elif scope_mode == "Regex-basiert (nur passende URLs)":
+            if scope_mode == "Regex-basiert (nur passende URLs)":
                 st.text_area(
                     "Regex für Ziel-URLs (eine pro Zeile, top-down)",
                     value="",
@@ -2641,15 +2629,7 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
             allowed_urls_target = st.session_state.get("_allowed_urls_target")
             allowed_urls_source = st.session_state.get("_allowed_urls_source")
 
-            # Directory-Keys nur berechnen, wenn Verzeichnisscope aktiv ist
-            dir_keys = {}
-            if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                dir_depth = int(st.session_state.get("scope_dir_depth", 1))
-                all_urls_a1 = set(related_map.keys())
-                for lst in related_map.values():
-                    for src, _ in lst:
-                        all_urls_a1.add(src)
-                dir_keys = {u: dir_key(u, dir_depth) for u in all_urls_a1}
+            
 
             for target, related_list in sorted(related_map.items()):
                 # Regex-Scope: Ziel-URL ggf. komplett ausschließen
@@ -2660,15 +2640,7 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                 # Start: unveränderte Kandidaten
                 filtered = list(related_list)
 
-                # Verzeichnisscope (Variante 2): nur gleiche Verzeichnisebene wie Ziel-URL
-                if scope_mode == "Verzeichnisebene (Pfad-basiert)":
-                    t_key = dir_keys.get(target, None)
-                    if t_key is not None:
-                        filtered = [
-                            (source, sim)
-                            for (source, sim) in filtered
-                            if dir_keys.get(source, None) == t_key
-                        ]
+                
 
                 # Regex-Scope (Variante 3): nur Quellen, die als Linkgeber erlaubt sind
                 if scope_mode == "Regex-basiert (nur passende URLs)" and allowed_urls_source is not None:
