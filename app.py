@@ -1145,21 +1145,21 @@ with st.sidebar:
                         help="Dein Gemini API Key (wird nur in dieser Session im Speicher gehalten).",
                     )
 
-                st.markdown("**Welche Seitendaten sollen in den KI-Prompt einfließen?**")
+                st.markdown("**Welche Seitendaten sollen in den KI-Prompt für die Erstellung der Ankertextvorschläge einfließen?**")
                 st.multiselect(
                     "Seitendaten für die Ankertext-Generierung",
                     options=["Title", "H1", "Meta Description", "Main Content"],
                     default=[],
                     key="a1_prompt_fields",
                     help=(
-                        "Diese Felder werden (falls in der Crawl-Datei vorhanden) in den Prompt aufgenommen. "
+                        "Diese Felder werden (falls in der Crawl-Datei vorhanden) in den Prompt und dienen als Basis für die Erstellung der Ankertextvorschläge aufgenommen. "
                         "Main Content dient primär dem thematischen Verständnis der Ziel-URL – "
                         "der Text wird nicht 1:1 als Anker verwendet."
                     ),
                 )
 
                 st.radio(
-                    "Search Console Top-Keyword für Ankertexte verwenden?",
+                    "Search Console Top-Keyword für Ankertextgenerierung verwenden?",
                     [
                         "Nicht verwenden",
                         "Top-Keyword nach Klicks",
@@ -1168,13 +1168,13 @@ with st.sidebar:
                     index=0,
                     key="a1_use_gsc_keyword",
                     help=(
-                        "Wenn aktiviert, wird das wichtigste Such-Keyword je URL aus der Search Console "
-                        "in die Ankertext-Generierung einbezogen."
+                        "Wenn aktiviert, werden die besten Suchanfragen je URL (nach Klicks oder Impressionen) aus der Search Console "
+                        "bevorzugt in die Ankertext-Generierung einbezogen."
                     ),
                 )
 
                 st.checkbox(
-                    "Manuell hochgeladene Keywords je URL priorisiert in Ankertexten nutzen",
+                    "Manuell hochgeladene Keywords je URL priorisiert für Ankertextgenerierung nutzen",
                     value=False,
                     key="a1_use_manual_keywords",
                     help=(
