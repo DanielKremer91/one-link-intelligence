@@ -2300,7 +2300,15 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
         else:
             st.error("'Linkmetriken' braucht mindestens 4 Spalten (URL, Score, Inlinks, Outlinks).")
             st.stop()
-
+    
+    # Nur die relevanten Spalten behalten (Performance-Optimierung)
+    relevant_cols = [m_url_idx, m_score_idx, m_in_idx, m_out_idx]
+    metrics_df = metrics_df.iloc[:, relevant_cols].copy()
+    metrics_df.columns = ["URL", "Score", "Inlinks", "Outlinks"]
+    
+    # Spalten-Indizes aktualisieren (jetzt sind es 0, 1, 2, 3)
+    m_url_idx, m_score_idx, m_in_idx, m_out_idx = 0, 1, 2, 3
+    
     metrics_df.iloc[:, m_url_idx] = metrics_df.iloc[:, m_url_idx].astype(str)
     metrics_map: Dict[str, Dict[str, float]] = {}
     ils_vals: List[float] = []
@@ -2322,66 +2330,56 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
     backlinks_df = backlinks_df.copy()
     backlinks_df.columns = [str(c).strip() for c in backlinks_df.columns]
     b_header = [str(c).strip() for c in backlinks_df.columns]
-
     # Kandidaten für Offpage-Backlinkliste (Referring page URL plus Target-URL)
     src_idx_file = find_column_index(b_header, POSSIBLE_SOURCE)
     tgt_idx_file = find_column_index(b_header, POSSIBLE_TARGET)
-
     backlink_map: Dict[str, Dict[str, float]] = {}
     bl_vals: List[float] = []
     rd_vals: List[float] = []
-
     # Fall A: Offpage Linkliste eine Zeile ist ein Backlink
     if src_idx_file != -1 and tgt_idx_file != -1:
         from urllib.parse import urlparse
-
+        # Nur die relevanten Spalten behalten (Performance-Optimierung)
+        backlinks_df = backlinks_df.iloc[:, [tgt_idx_file, src_idx_file]].copy()
+        backlinks_df.columns = ["Target", "Source"]
         rows = []
-        for row in backlinks_df.itertuples(index=False, name=None):
-            tgt_raw = row[tgt_idx_file]
-            src_raw = row[src_idx_file]
-
+        for _, row in backlinks_df.iterrows():
+            tgt_raw = row["Target"]
+            src_raw = row["Source"]
             tgt = remember_original(tgt_raw)
             if not tgt:
                 continue
-
             src_val = str(src_raw or "").strip()
             if not src_val:
                 continue
-
             try:
                 dom = urlparse(src_val).netloc.lower()
             except Exception:
                 dom = ""
             if not dom:
                 continue
-
             rows.append([normalize_url(tgt), dom])
-
         if not rows:
             st.error(
                 "Backlinks Datei konnte nicht als Offpage Linkliste interpretiert werden "
                 "keine gültigen Kombinationen aus Referring page URL und Target URL gefunden."
             )
             st.stop()
-
         tmp = pd.DataFrame(rows, columns=["URL", "Domain"])
         agg = tmp.groupby("URL").agg(
             Backlinks=("Domain", "size"),
             ReferringDomains=("Domain", "nunique")
         ).reset_index()
-
         backlinks_df = agg
         backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
         b_header = [str(c).strip() for c in backlinks_df.columns]
         b_url_idx = 0
         b_bl_idx  = 1
         b_rd_idx  = 2
-
         st.info(
             "Backlink Metriken wurden automatisch aus einer Offpage Linkliste berechnet "
             "Referring page URL zu Domain, aggregiert je Target URL."
         )
-
     # Fall B: Aggregierte Metriken eine Zeile ist eine URL
     else:
         b_url_idx = find_column_index(b_header, ["url","urls","page","seite","address","adresse"])
@@ -2392,7 +2390,6 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
             else:
                 st.error("'Backlinks' braucht mindestens eine URL Spalte.")
                 st.stop()
-
         b_bl_idx = find_column_index(
             b_header,
             ["backlinks","backlink","external backlinks","back links","anzahl backlinks","backlinks total"]
@@ -2402,13 +2399,18 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
             ["referring domains","ref domains","verweisende domains",
              "anzahl referring domains","anzahl verweisende domains","domains","rd"]
         )
-
         if -1 in (b_bl_idx, b_rd_idx):
             st.error(
                 "Backlinks aggregiert Spalten für Backlinks und Referring Domains "
                 "konnten nicht eindeutig erkannt werden."
             )
             st.stop()
+        # Nur die relevanten Spalten behalten (Performance-Optimierung)
+        relevant_cols = [b_url_idx, b_bl_idx, b_rd_idx]
+        backlinks_df = backlinks_df.iloc[:, relevant_cols].copy()
+        backlinks_df.columns = ["URL", "Backlinks", "Referring Domains"]
+        # Spalten-Indizes aktualisieren (jetzt sind es 0, 1, 2)
+        b_url_idx, b_bl_idx, b_rd_idx = 0, 1, 2
 
     # Backlink Map und Werte Listen aufbauen
     for row in backlinks_df.itertuples(index=False, name=None):
