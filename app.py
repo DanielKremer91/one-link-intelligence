@@ -1829,35 +1829,15 @@ def generate_anchor_variants_for_url(
                 import openai
                 client = openai.OpenAI(api_key=api_key)
 
-            model_name = cfg.get("openai_model", "gpt-5.1")
-            
-            # Neuere Modelle (z.B. gpt-5.1) verwenden max_completion_tokens statt max_tokens
-            # Versuche zuerst max_completion_tokens (für neuere Modelle)
-            try:
-                resp = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    max_completion_tokens=200,
-                    temperature=0.5,
-                )
-            except Exception as e:
-                # Falls max_completion_tokens nicht unterstützt wird, verwende max_tokens (für ältere Modelle)
-                if "max_completion_tokens" in str(e) or "unsupported" in str(e).lower():
-                    resp = client.chat.completions.create(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        max_tokens=200,
-                        temperature=0.5,
-                    )
-                else:
-                    raise
-            
+            resp = client.chat.completions.create(
+                model=cfg.get("openai_model", "gpt-5.1"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=200,
+                temperature=0.5,
+            )
             text = resp.choices[0].message.content
             
             if not text or not text.strip():
@@ -1975,4 +1955,5 @@ def generate_anchor_variants_for_url(
         )
     
     return cleaned_parts[0], cleaned_parts[1], cleaned_parts[2]
+
 
