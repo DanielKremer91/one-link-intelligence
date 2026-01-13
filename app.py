@@ -768,6 +768,17 @@ def is_brand_query(query: str, brand_list: list, auto_variants: bool = True) -> 
     
     return False
 
+
+def remove_brand_from_text(text: str) -> str:
+    """Entfernt Markennamen und Pipe-Zeichen aus Text."""
+    if not text:
+        return text
+    
+    # Entferne Pipe-Zeichen und alles danach (typisch: "| MARKENNAME")
+    text = re.sub(r'\s*\|\s*[^|]*$', '', text)
+    text = re.sub(r'\s*\|\s*', ' ', text)  # Entferne alle Pipe-Zeichen
+    
+    return text.strip()
 def generate_anchor_variants_for_url(
     url: str,
     page_maps: dict,
