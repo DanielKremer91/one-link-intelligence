@@ -786,39 +786,48 @@ def generate_anchor_variants_for_url(
     h1_map    = page_maps.get("h1", {})
     meta_map  = page_maps.get("meta", {})
     main_map  = page_maps.get("main", {})
-
     fields = cfg.get("fields", [])
     use_gsc = cfg.get("use_gsc", "Nicht verwenden")
     gsc_metric = "Clicks" if use_gsc == "Top-Keyword nach Klicks" else "Impressions"
     use_manual = cfg.get("use_manual", False)
-
     title = title_map.get(url, "")
     h1    = h1_map.get(url, "")
     meta  = meta_map.get(url, "")
     main  = main_map.get(url, "")
-
     # GSC: Liste von Keywords (Top 10)
     top_kws = top_kw_map.get(url, []) if use_gsc != "Nicht verwenden" else []
     manual_kws = manual_kw_map.get(url, []) if use_manual else []
-
+    
+    # Marke aus Seitendaten entfernen (falls vorhanden)
+    def remove_brand_from_text(text: str) -> str:
+        """Entfernt Markennamen und Pipe-Zeichen aus Text."""
+        if not text:
+            return text
+        # Entferne Pipe-Zeichen und alles danach (typisch: "| MARKENNAME")
+        text = re.sub(r'\s*\|\s*[^|]*$', '', text)
+        text = re.sub(r'\s*\|\s*', ' ', text)  # Entferne alle Pipe-Zeichen
+        return text.strip()
+    
+    # Marke aus Seitendaten entfernen
+    title = remove_brand_from_text(title)
+    h1 = remove_brand_from_text(h1)
+    meta = remove_brand_from_text(meta)
+    
     blocks = []
     blocks.append(f"Ziel-URL: {url}")
-
     # Priorisierung: 1) Manuelle Keywords (höchste Priorität)
     if manual_kws:
         blocks.append(
             "⚠️ HÖCHSTE PRIORITÄT – Manuell hochgeladene Keywords (diese MÜSSEN bevorzugt verwendet werden): "
             + ", ".join(manual_kws)
         )
-
     # Priorisierung: 2) GSC Top-Keywords (zweithöchste Priorität)
     if top_kws:
         blocks.append(
-            f"⚠️ HOHE PRIORITÄT – Top-Keywords aus Search Console ({gsc_metric}, Top 10): "
+            f"⚠️ HOHE PRIORITÄT – Top-Keywords aus Search Console ({gsc_metric}, Top 10, nutze ALLE für Varianten): "
             + ", ".join(top_kws)
         )
-
-    # Priorisierung: 3) Seitendaten (unterstützend, optional)
+    # Priorisierung: 3) Seitendaten (unterstützend, optional) - Marke bereits entfernt
     if "Title" in fields and title:
         blocks.append(f"Title: {title}")
     if "H1" in fields and h1:
@@ -830,93 +839,54 @@ def generate_anchor_variants_for_url(
             "Main Content (zur inhaltlichen Orientierung, nicht 1:1 als Ankertext verwenden):"
         )
         blocks.append(main[:3000])
-
     page_info = "\n".join(blocks)
-
+    
     system_prompt = (
         "Du bist ein erfahrener SEO-Experte "
-        "Du erstellst präzise, natürliche und SEO-sinnvolle Ankertexte für interne Verlinkungen "
+        "Du erstellst präzise, natürliche und sinnvolle Ankertexte für interne Verlinkungen "
         "und hältst dich strikt an das geforderte Ausgabeformat "
     )
-
+    
     user_prompt = f"""
     Erzeuge 3 unterschiedliche Ankertexte für eine interne Verlinkung zu der folgenden Zielseite.
-
     
-
     Seitendaten:
-
     {page_info}
-
     
-
     WICHTIG – Priorisierung für die Ankertext-Generierung:
-
     1. HÖCHSTE PRIORITÄT: Manuell hochgeladene Keywords (falls vorhanden) – diese MÜSSEN bevorzugt verwendet werden.
-
-    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – diese sollen ebenfalls priorisiert werden. Und hierbei vor allem das die drei stärksten Keywords.
-
-    3. PRIORITÄT: Seitendaten (Title, H1, Meta Description)
-
+    2. HOHE PRIORITÄT: Top-Keywords aus Search Console (falls vorhanden) – nutze ALLE bereitgestellten GSC-Keywords für Varianten, nicht nur das stärkste. Wenn mehrere Keywords vorhanden sind, baue ruhig verschiedene Varianten mit unterschiedlichen Keywords ein.
+    3. PRIORITÄT: Seitendaten (Title, H1, Meta Description) – orientiere dich besonders an Adjektiven, Beschreibungen und Verben aus diesen Feldern für kreative und abwechslungsreiche Ankertexte.
     4. UNTERSTÜTZEND: Der extrahierte Main Content dient dem thematischen Verständnis der Zielseite.
-
     
-
     Ziel:
-
     - Der Ankertext soll das Hauptthema der Zielseite klar widerspiegeln.
-
     - Nutze nach Möglichkeit die priorisierten Keywords (manuell > GSC > Seitendaten).
-
     - Vermeide harte Überoptimierung (keine unnatürlich gehäuften Keywords).
-
+    - Sei kreativ und abwechslungsreich – nutze Adjektive, Beschreibungen und Verben aus Title, H1 und Meta Description für natürliche, ansprechende Formulierungen.
     
-
     Erzeuge GENAU diese 3 Varianten:
-
     1. Kurz & präzise – 2–3 Wörter, fokussiert auf das Hauptthema.
-
-    2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext.
-
-    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, aber ohne generische Floskeln wie „hier klicken". Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
-
+    2. Beschreibend – 3–5 Wörter, mit etwas mehr Kontext, nutze Adjektive und beschreibende Begriffe.
+    3. Handlungsorientiert – 3–5 Wörter, mit klarer Nutzen- oder Handlungsorientierung, nutze Verben und aktive Formulierungen, aber ohne generische Floskeln wie „hier klicken". Es soll zum Klicken anregen ohne Clickbait zu erzeugen.
     
-
     Strikte Regeln:
-
     - Sprache: ausschließlich natürliches, korrektes Deutsch.
-
+    - Rechtschreibung: Achte auf korrekte Groß- und Kleinschreibung. Wenn Search Console Keywords z.B. "katzen agility" (kleingeschrieben) enthalten, schreibe im Ankertext korrekt "Katzen Agility" (mit Großbuchstaben am Wortanfang).
+    - KEIN Pipe-Zeichen (|): Das Zeichen "|" darf NIEMALS im Ankertext vorkommen.
+    - KEINE Marke: Wenn in den Seitendaten eine Marke vorkommt (z.B. "| FRESSNAPF" im Title), darf diese Marke NIEMALS im Ankertext erscheinen. Entferne Markennamen komplett aus den Ankertexten.
     - Keine generischen Phrasen wie "hier klicken", "mehr erfahren", "weiterlesen", "klicke hier" oder ähnlich.
-
     - Keine Emojis, keine Anführungszeichen, keine Nummerierung, keine Aufzählungszeichen.
-
-    - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /.
-
-    - Keine reinen Brand-Ankertexte; falls eine Marke vorkommt, immer mit beschreibendem Keyword kombinieren.
-
+    - Keine HTML-Tags und keine Sonderzeichen wie <, >, #, *, /, |.
+    - Keine reinen Brand-Ankertexte; Markennamen sind komplett zu vermeiden.
     - Jede der 3 Varianten muss sich in Bedeutung und Wortlaut klar von den anderen unterscheiden.
-
+    - Sei kreativ: Nutze verschiedene Formulierungen, Adjektive, Verben und beschreibende Begriffe aus dem Title Tag, Meta Description und H1 – falls vohanden – für abwechslungsreiche Ankertexte.
     
-
-    Ausgabeformat:
-
-    - Antworte NUR mit den 3 Ankertexten in EINER Zeile.
-
-    - Trenne die Varianten mit genau drei senkrechten Strichen: |||
-
-    - Kein zusätzlicher Text, keine Erklärungen, keine Zeilenumbrüche.
-
-    
-
-    Beispiel (nur vom Format, NICHT für diese Seite verwenden):
-
-    Variante1|||Variante2|||Variante3
-
     """.strip()
 
     provider = cfg.get("provider", "OpenAI")
     api_key = cfg.get("openai_key") if provider == "OpenAI" else cfg.get("gemini_key")
-
+   
     if not api_key:
         # Fallback: Priorität manuelle Keywords > GSC > Seitendaten
         if manual_kws:
