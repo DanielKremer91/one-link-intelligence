@@ -3463,26 +3463,23 @@ if A4_NAME in selected_analyses:
         df: pd.DataFrame,
         pos_idx: int,
         key_suffix: str,
-        label: str,
+        label: str = None,  # ✅ Optional gemacht
     ) -> pd.DataFrame:
         """
         Filtert die All-Inlinks-Tabelle für eine A4-Unteranalyse nach Linkpositionen.
-
         - Default: alle Positionen werden berücksichtigt.
-        - User kann im Multiselect einzelne Positionen ausschließen.
-        - Zusätzlich: globaler A4-Scope 'Nur Content-Links' nutzt is_content_position().
-        - key_suffix: eindeutiger Suffix pro Unteranalyse (z. B. "over_anchor", "gsc_cov", "kw_cov" usw.).
+        - Für 'over_anchor' und 'gsc_cov': nur globaler Scope, keine separaten Multiselects.
+        - Für andere Analysen: User kann im Multiselect einzelne Positionen ausschließen.
         """
         if df is None or df.empty:
             return df
-
+    
         # NEU: globaler A4-Scope – nur Content-Links?
         scope = st.session_state.get("a4_link_scope", "Alle Links (Standard)")
         if scope.startswith("Nur") and pos_idx != -1:
             mask_content = df.iloc[:, pos_idx].apply(is_content_position)
             df = df[mask_content]
         elif scope.startswith("Nur") and pos_idx == -1:
-            # Nur einmal warnen
             if not st.session_state.get("_a4_pos_missing_warned", False):
                 st.info(
                     "Die Option 'Nur Content-Links' ist aktiv, "
@@ -3490,26 +3487,26 @@ if A4_NAME in selected_analyses:
                     "es werden daher alle Links verwendet."
                 )
                 st.session_state["_a4_pos_missing_warned"] = True
-
-                # NEU: Für 'over_anchor' und 'gsc_cov' keine separaten Multiselects mehr
-                if key_suffix in ("over_anchor", "gsc_cov"):
-                    # Nur globaler Scope wird angewendet, keine weiteren Filter
-                    return df
-
+    
+        # ✅ NEU: Diese Prüfung muss NACH dem globalen Scope-Check kommen
+        if key_suffix in ("over_anchor", "gsc_cov"):
+            # Nur globaler Scope wird angewendet, keine weiteren Filter
+            return df
+    
         # Wenn es keine Positionsspalte gibt, können wir danach nicht filtern
         if pos_idx == -1:
             return df
-
+    
         pos_series = df.iloc[:, pos_idx].dropna().astype(str)
         pos_values = sorted(pos_series.unique())
-
+    
         if not pos_values:
             return df
-
+    
         exclude_key = f"a4_pos_exclude_{key_suffix}"
-
+    
         excluded = st.multiselect(
-            label,
+            label or f"Linkpositionen für {key_suffix}",  # ✅ Fallback
             options=pos_values,
             default=[],
             key=exclude_key,
@@ -3519,11 +3516,11 @@ if A4_NAME in selected_analyses:
                 "(z. B. Navigation, Footer)."
             ),
         )
-
+    
         if excluded:
             mask = ~df.iloc[:, pos_idx].astype(str).isin(excluded)
             return df[mask]
-
+    
         return df
 
 
