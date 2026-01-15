@@ -3491,6 +3491,11 @@ if A4_NAME in selected_analyses:
                 )
                 st.session_state["_a4_pos_missing_warned"] = True
 
+                # NEU: Für 'over_anchor' und 'gsc_cov' keine separaten Multiselects mehr
+                if key_suffix in ("over_anchor", "gsc_cov"):
+                    # Nur globaler Scope wird angewendet, keine weiteren Filter
+                    return df
+
         # Wenn es keine Positionsspalte gibt, können wir danach nicht filtern
         if pos_idx == -1:
             return df
@@ -3692,7 +3697,6 @@ if A4_NAME in selected_analyses:
             inlinks_df,
             pos_idx,
             key_suffix="over_anchor",
-            label="Linkpositionen, die für den Over-Anchor-Check ausgeschlossen werden sollen",
         )
 
         anchor_inv_internal_over = extract_anchor_inventory(inlinks_over)
@@ -3862,7 +3866,6 @@ if A4_NAME in selected_analyses:
                     inlinks_df,
                     pos_idx,
                     key_suffix="gsc_cov",
-                    label="Linkpositionen, die für die GSC-Query-Coverage ausgeschlossen werden sollen",
                 )
                 anchor_inv_internal_gsc = extract_anchor_inventory(inlinks_gsc)
 
