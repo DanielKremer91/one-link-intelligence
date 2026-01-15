@@ -3489,7 +3489,7 @@ if A4_NAME in selected_analyses:
                 st.session_state["_a4_pos_missing_warned"] = True
     
         # ✅ NEU: Diese Prüfung muss NACH dem globalen Scope-Check kommen
-        if key_suffix in ("over_anchor", "gsc_cov"):
+        if key_suffix in ("over_anchor", "gsc_cov", "kw_cov"):
             # Nur globaler Scope wird angewendet, keine weiteren Filter
             return df
     
@@ -4189,7 +4189,6 @@ if A4_NAME in selected_analyses:
                     inlinks_df,
                     pos_idx,
                     key_suffix="kw_cov",
-                    label="Linkpositionen, die für die Keyword-Coverage ausgeschlossen werden sollen",
                 )
                 anchor_inv_internal_kw = extract_anchor_inventory(inlinks_kw)
 
