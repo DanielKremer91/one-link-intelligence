@@ -3489,7 +3489,7 @@ if A4_NAME in selected_analyses:
                 st.session_state["_a4_pos_missing_warned"] = True
     
         # ✅ NEU: Diese Prüfung muss NACH dem globalen Scope-Check kommen
-        if key_suffix in ("over_anchor", "gsc_cov", "kw_cov"):
+        if key_suffix in ("over_anchor", "gsc_cov", "kw_cov", "shared", "treemap"):
             # Nur globaler Scope wird angewendet, keine weiteren Filter
             return df
     
@@ -3723,7 +3723,7 @@ if A4_NAME in selected_analyses:
 
             # Reihenfolge der Spalten neu setzen
             over_anchor_df = over_anchor_df[["Ziel-URL", "anchor", "count", "share"]]
-            over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "TopAnchorShare(%)"]
+            over_anchor_df.columns = ["Ziel-URL", "Anchor", "Count", "Anteil an Ankertextinventar (%)"]
 
     # ---- GSC laden (aus Upload oder ggf. von Analyse 3) ----
     # GSC-Daten aus Upload-Center verwenden
@@ -4088,11 +4088,11 @@ if A4_NAME in selected_analyses:
 
     # 2) GSC-Query-Coverage – Tabs 1–3
     if enable_gsc_coverage:
-        st.markdown("#### 2) GSC-Query-Coverage (Top-20 % je URL, zusätzlich Top-N-Limit)")
+        st.markdown("#### 2) Search Console Query-Coverage bei Ankertexten")
 
         st.markdown("**Tab 1: URLs mit < 50 % Abdeckung ihrer Top-Queries**")
         if gsc_tab1_df.empty:
-            st.info("Keine URLs mit weniger als 50 % Anchor-Abdeckung der Top-Queries gefunden.")
+            st.info("Keine URLs mit weniger als 50 % Ankertext-Abdeckung der Top-Queries gefunden.")
         else:
             st.dataframe(gsc_tab1_df, use_container_width=True, hide_index=True)
             st.download_button(
@@ -4104,9 +4104,9 @@ if A4_NAME in selected_analyses:
             )
 
         st.markdown("---")
-        st.markdown("**Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen**")
+        st.markdown("**Tab 2: URLs, deren Top-3-Queries alle nicht als Ankertext vorkommen**")
         if gsc_tab2_df.empty:
-            st.info("Keine URLs, bei denen alle Top-3-Queries nicht als Anchor vorkommen.")
+            st.info("Keine URLs, bei denen keine der Top-3-Queries als Ankertext vorkommt.")
         else:
             st.dataframe(gsc_tab2_df, use_container_width=True, hide_index=True)
             st.download_button(
@@ -4118,9 +4118,9 @@ if A4_NAME in selected_analyses:
             )
 
         st.markdown("---")
-        st.markdown("**Tab 3: URLs, deren Top-Query nicht als Anchor vorkommt**")
+        st.markdown("**Tab 3: URLs, deren Top-Query nicht als Ankertext vorkommt**")
         if gsc_tab3_df.empty:
-            st.info("Keine URLs, bei denen die Top-Query nicht als Anchor vorkommt.")
+            st.info("Keine URLs, bei denen die Top-Query nicht als Ankertext vorkommt.")
         else:
             st.dataframe(gsc_tab3_df, use_container_width=True, hide_index=True)
             st.download_button(
@@ -4424,8 +4424,8 @@ if A4_NAME in selected_analyses:
                     for i in range(1, max_n + 1)
                     for x in (
                         f"Ankertext {i}",
-                        f"Count Ankertext {i}",
-                        f"TopAnchorShare Ankertext {i} (%)",
+                        f"Anzahl Ankertext {i}",
+                        f"Anteil an Ankertextinventar {i} (%)",
                         f"Quelle Ankertext {i}",
                     )
                 ]
@@ -4525,7 +4525,6 @@ if A4_NAME in selected_analyses:
             inlinks_df,
             pos_idx,
             key_suffix="shared",
-            label="Linkpositionen, die für Shared-Ankertexte ausgeschlossen werden sollen",
         )
 
         anchor_internal_shared = extract_anchor_inventory(inlinks_shared)
@@ -4631,7 +4630,6 @@ if A4_NAME in selected_analyses:
             inlinks_df,
             pos_idx,
             key_suffix="treemap",
-            label="Linkpositionen, die für die Treemap ausgeschlossen werden sollen",
         )
 
         anchor_internal_treemap = extract_anchor_inventory(inlinks_treemap)
@@ -4680,10 +4678,10 @@ if A4_NAME in selected_analyses:
 
                     fig.update_traces(
                         textposition="middle center",
-                        textinfo="label+value",
+                        textinfo="label",  # ✅ Nur Label, keine Zahl
                         textfont_size=16,
+                        hovertemplate="<b>%{label}</b><br>Anzahl: %{value}<extra></extra>",  # ✅ "Count" → "Anzahl"
                     )
-
                     html_bytes = fig.to_html(full_html=True, include_plotlyjs="cdn").encode("utf-8")
 
                     return fig, html_bytes
