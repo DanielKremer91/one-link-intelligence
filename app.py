@@ -1521,8 +1521,18 @@ with st.sidebar:
                     "oder auf Basis semantischer Ähnlichkeit erfolgen?"
                 )
 
-                check_exact = st.checkbox("Exact Match prüfen", value=True, key="a4_cov_exact")
-                check_embed = st.checkbox("Embedding Match prüfen", value=True, key="a4_cov_embed")
+                match_mode = st.radio(
+                    "Match-Modus",
+                    ["Exact Match", "Embedding Match"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_match_mode",
+                    help="Wähle entweder Exact Match (exakte Übereinstimmung) oder Embedding Match (semantische Ähnlichkeit)."
+                )
+                
+                # Abgeleitete Werte
+                check_exact = (match_mode == "Exact Match")
+                check_embed = (match_mode == "Embedding Match")
 
                 embed_model_name = st.selectbox(
                     "Sentence Transformer Modell (Embedding-Modell)",
@@ -1628,45 +1638,48 @@ with st.sidebar:
                 "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
                 unsafe_allow_html=True,
             )
-
-           
-
-            # --- Ankertext-Matrix (A4) ---
-            st.markdown("**Ankertext-Matrix / Anchor-Inventar**")
-            st.caption(
-                "Lasse dir je Ziel-URL die Ankertexte als Tabelle (Wide/Long) ausgeben. "
-                "Optional kannst du externe Offpage-Ankertexte mit einbeziehen."
-            )
-
-
             
-            # NEU: Offpage-Anker einbeziehen
-            include_offpage_anchors = st.checkbox(
-                "Auch Ankertexte aus externen Backlinks berücksichtigen (Offpage-Datei)",
-                value=False,
-                key="a4_include_offpage_anchors",
-                help=(
-                    "Wenn aktiviert, werden Ankertexte aus einer separaten Offpage-Datei "
-                    "(z. B. Backlink-Export mit Anchor-Text) zusätzlich zu den internen Ankertexten gezählt."
-                )
-            )
-            
-           
-            # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
-            enable_anchor_matrix = st.checkbox(
-                "URL-Ankertext-Matrix (Wide) anzeigen",
+            # ✅ NEU: Switch für Anchor-Inventar
+            enable_anchor_inventory = st.checkbox(
+                "Anchor-Inventar / Ankertext-Matrix anzeigen",
                 value=True,
-                key="a4_enable_anchor_matrix",
-                help="Zeigt je Ziel-URL die Ankertexte in breitem Format (inkl. CSV-Export)."
+                key="a4_enable_anchor_inventory",
+                help="Zeigt das Anchor-Inventar je Ziel-URL als Tabelle (Wide/Long-Format)."
             )
             
-            # ✅ NEU: Switch für URL-Ankertext-Matrix (Long)
-            enable_anchor_matrix_long = st.checkbox(
-                "URL-Ankertext-Matrix (Long-Format) anzeigen",
-                value=False,
-                key="a4_enable_anchor_matrix_long",
-                help="Zeigt je Ziel-URL alle Ankertexte untereinander (Long-Format, inkl. CSV-Export)."
-            )
+            if enable_anchor_inventory:
+                st.markdown("**Ankertext-Matrix / Anchor-Inventar**")
+                st.caption(
+                    "Lasse dir je Ziel-URL die Ankertexte als Tabelle (Wide/Long) ausgeben. "
+                    "Optional kannst du externe Offpage-Ankertexte mit einbeziehen."
+                )
+                
+                # NEU: Offpage-Anker einbeziehen
+                include_offpage_anchors = st.checkbox(
+                    "Auch Ankertexte aus externen Backlinks berücksichtigen (Offpage-Datei)",
+                    value=False,
+                    key="a4_include_offpage_anchors",
+                    help=(
+                        "Wenn aktiviert, werden Ankertexte aus einer separaten Offpage-Datei "
+                        "(z. B. Backlink-Export mit Anchor-Text) zusätzlich zu den internen Ankertexten gezählt."
+                    )
+                )
+                
+                # ✅ NEU: Switch für URL-Ankertext-Matrix (Wide)
+                enable_anchor_matrix = st.checkbox(
+                    "URL-Ankertext-Matrix (Wide) anzeigen",
+                    value=True,
+                    key="a4_enable_anchor_matrix",
+                    help="Zeigt je Ziel-URL die Ankertexte in breitem Format (inkl. CSV-Export)."
+                )
+                
+                # ✅ NEU: Switch für URL-Ankertext-Matrix (Long)
+                enable_anchor_matrix_long = st.checkbox(
+                    "URL-Ankertext-Matrix (Long-Format) anzeigen",
+                    value=False,
+                    key="a4_enable_anchor_matrix_long",
+                    help="Zeigt je Ziel-URL alle Ankertexte untereinander (Long-Format, inkl. CSV-Export)."
+                )
 
             st.markdown(
                 "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
@@ -1706,12 +1719,6 @@ with st.sidebar:
             )
             
             # --- Visualisierung (Treemap) ---
-            st.markdown("**Visualisierung (Treemap)**")
-            st.caption(
-                "Steuere die Treemap-Visualisierung der Ankertexte je Ziel-URL. "
-                "Die Treemap nutzt dieselben Anchor-Daten wie die Ankertext-Matrix."
-            )
-            
             show_treemap = st.checkbox(
                 "Treemap-Visualisierung aktivieren",
                 value=True,
@@ -1721,52 +1728,57 @@ with st.sidebar:
                     "Grundlage sind die Anker aus All Inlinks und – falls aktiviert – aus der Offpage-Ankerdatei."
                 ),
             )
-
-            treemap_topK = st.number_input(
-                "Treemap: Top-K Anchors anzeigen",
-                min_value=3,
-                max_value=50,
-                value=12,
-                step=1,
-                key="a4_treemap_topk",
-                help=(
-                    "Begrenzt **nur die Treemap** auf die K häufigsten Anker pro Ziel-URL. "
-                    "Die nachfolgende Analyse/Exports enthalten **immer alle** Anker."
+            
+            if show_treemap:
+                st.markdown("**Visualisierung (Treemap)**")
+                st.caption(
+                    "Steuere die Treemap-Visualisierung der Ankertexte je Ziel-URL. "
+                    "Die Treemap nutzt dieselben Anchor-Daten wie die Ankertext-Matrix."
                 )
-            )
-            
-            # Auswahl, für welche URLs Treemaps erzeugt werden sollen
-            treemap_url_mode = st.radio(
-                "Für welche URLs sollen Treemaps erzeugt werden?",
-                ["Alle URLs", "Ausgewählte URLs"],
-                index=0,
-                key="a4_treemap_url_mode",
-                help="Bestimmt, ob für alle Ziel-URLs oder nur für eine Auswahl Treemaps gebaut werden."
-            )
-
-            st.markdown(
-                "<div style='margin:18px 0; border-bottom:1px solid #eee;'></div>",
-                unsafe_allow_html=True,
-            )
-            
-            if treemap_url_mode == "Ausgewählte URLs":
-                # Versuche, bekannte URLs aus dem Anchor-Inventar zu laden (falls A4 schon einmal lief)
-                anchor_inv_check_sidebar = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
-                if not anchor_inv_check_sidebar.empty and "target" in anchor_inv_check_sidebar.columns:
-                    url_options = sorted(anchor_inv_check_sidebar["target"].astype(str).unique())
-                    selected_urls_for_treemap = st.multiselect(
-                        "URLs für Treemap auswählen",
-                        options=url_options,
-                        format_func=lambda u: disp(u),
-                        key="a4_treemap_selected_urls",
-                        help="Wähle eine oder mehrere Ziel-URLs, für die im Hauptbereich je eine Treemap erzeugt wird."
+                
+                treemap_topK = st.number_input(
+                    "Treemap: Top-K Anchors anzeigen",
+                    min_value=3,
+                    max_value=50,
+                    value=12,
+                    step=1,
+                    key="a4_treemap_topk",
+                    help=(
+                        "Begrenzt **nur die Treemap** auf die K häufigsten Anker pro Ziel-URL. "
+                        "Die nachfolgende Analyse/Exports enthalten **immer alle** Anker."
                     )
+                )
+                
+                # Auswahl, für welche URLs Treemaps erzeugt werden sollen
+                treemap_url_mode = st.radio(
+                    "Für welche URLs sollen Treemaps erzeugt werden?",
+                    ["Alle URLs", "Ausgewählte URLs"],
+                    index=0,
+                    key="a4_treemap_url_mode",
+                    help="Bestimmt, ob für alle Ziel-URLs oder nur für eine Auswahl Treemaps gebaut werden."
+                )
+                
+                if treemap_url_mode == "Ausgewählte URLs":
+                    # Versuche, bekannte URLs aus dem Anchor-Inventar zu laden (falls A4 schon einmal lief)
+                    anchor_inv_check_sidebar = st.session_state.get("_anchor_inv_vis", pd.DataFrame())
+                    if not anchor_inv_check_sidebar.empty and "target" in anchor_inv_check_sidebar.columns:
+                        url_options = sorted(anchor_inv_check_sidebar["target"].astype(str).unique())
+                        selected_urls_for_treemap = st.multiselect(
+                            "URLs für Treemap auswählen",
+                            options=url_options,
+                            format_func=lambda u: disp(u),
+                            key="a4_treemap_selected_urls",
+                            help="Wähle eine oder mehrere Ziel-URLs, für die im Hauptbereich je eine Treemap erzeugt wird."
+                        )
+                    else:
+                        st.caption("Noch keine Ziel-URLs bekannt – die Auswahl wird nutzbar, nachdem A4 einmal gelaufen ist.")
+                        st.session_state["a4_treemap_selected_urls"] = []
                 else:
-                    st.caption("Noch keine Ziel-URLs bekannt – die Auswahl wird nutzbar, nachdem A4 einmal gelaufen ist.")
+                    # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
                     st.session_state["a4_treemap_selected_urls"] = []
-            else:
-                # Modus 'Alle URLs' → Leere Liste = bedeutet später: nimm alle
-                st.session_state["a4_treemap_selected_urls"] = []
+            
+            # ✅ HIER ENDET DER if show_treemap: BLOCK
+            # ✅ KEINE weiteren Treemap-Einstellungen außerhalb!
 
 
     else:
@@ -3489,7 +3501,7 @@ if A4_NAME in selected_analyses:
                 st.session_state["_a4_pos_missing_warned"] = True
     
         # ✅ NEU: Diese Prüfung muss NACH dem globalen Scope-Check kommen
-        if key_suffix in ("over_anchor", "gsc_cov", "kw_cov", "shared", "treemap"):
+        if key_suffix in ("over_anchor", "gsc_cov", "kw_cov", "shared", "treemap", "matrix_wide", "matrix_long"):
             # Nur globaler Scope wird angewendet, keine weiteren Filter
             return df
     
@@ -3872,8 +3884,9 @@ if A4_NAME in selected_analyses:
                     inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
     
                 # Embedding-Modell vorbereiten
-                check_exact = bool(st.session_state.get("a4_cov_exact", True))
-                check_embed = bool(st.session_state.get("a4_cov_embed", False))
+                match_mode = st.session_state.get("a4_match_mode", "Exact Match")
+                check_exact = (match_mode == "Exact Match")
+                check_embed = (match_mode == "Embedding Match")
                 embed_thresh = float(st.session_state.get("a4_cov_embed_thresh", 0.80))
                 embed_model_name = st.session_state.get(
                     "a4_cov_embed_model",
@@ -4008,12 +4021,14 @@ if A4_NAME in selected_analyses:
                 gsc_tab1_df = tab1[["Ziel-URL", "Query", "Als_Anker_vorhanden?"]].copy()
 
                 # Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen
+                # Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen
                 rows2 = []
                 for url, grp in cov_df.groupby("Ziel-URL", sort=False):
                     top3 = grp.head(3)
                     if top3.empty:
                         continue
-                    if not top3["MatchBool"].any():
+                    # ✅ Prüfe ob ALLE Top-3 fehlen (Summe = 0 bedeutet alle False)
+                    if top3["MatchBool"].sum() == 0:
                         for _, r in top3.iterrows():
                             rows2.append([
                                 url,
@@ -4385,14 +4400,14 @@ if A4_NAME in selected_analyses:
     # ============================
     # 4) Anchor-Inventar (Wide)
     # ============================
-    if st.session_state.get("a4_enable_anchor_matrix", True):
+    if st.session_state.get("a4_enable_anchor_inventory", True) and st.session_state.get("a4_enable_anchor_matrix", True):
 
         # Linkpositionen für Matrix (Wide) filtern
         inlinks_matrix = filter_inlinks_by_position(
             inlinks_df,
             pos_idx,
             key_suffix="matrix_wide",
-            label="Linkpositionen, die für die Anchor-Matrix (Wide) ausgeschlossen werden sollen",
+            # label-Parameter entfernen
         )
 
         anchor_internal_matrix = extract_anchor_inventory(inlinks_matrix)
