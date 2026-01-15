@@ -4020,39 +4020,25 @@ if A4_NAME in selected_analyses:
                 tab1["Als_Anker_vorhanden?"] = np.where(tab1["MatchBool"], "ja", "nein")
                 gsc_tab1_df = tab1[["Ziel-URL", "Query", "Als_Anker_vorhanden?"]].copy()
 
-                # Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen
-                # Tab 2: URLs, deren Top-3-Queries alle nicht als Anchor vorkommen
+                # Tab 2: URLs, deren Top-3-Queries alle nicht als Ankertext vorkommen
                 rows2 = []
                 for url, grp in cov_df.groupby("Ziel-URL", sort=False):
+                    # ✅ WICHTIG: Mindestens 3 Queries müssen vorhanden sein
+                    if len(grp) < 3:
+                        continue  # Überspringe URLs mit weniger als 3 Queries
+                    
+                    # Top-3 nehmen (bereits nach Klicks/Impressions sortiert aus df_top)
                     top3 = grp.head(3)
-                    if top3.empty:
-                        continue
-                    # ✅ Prüfe ob ALLE Top-3 fehlen (Summe = 0 bedeutet alle False)
-                    if top3["MatchBool"].sum() == 0:
+                    
+                    # ✅ Prüfe ob ALLE 3 Top-Queries fehlen (alle MatchBool sind False)
+                    if (top3["MatchBool"] == False).all():
+                        # ✅ Alle 3 Queries für diese URL anzeigen
                         for _, r in top3.iterrows():
                             rows2.append([
                                 url,
                                 r["Query"],
                                 "nein",
                             ])
-                gsc_tab2_df = pd.DataFrame(
-                    rows2,
-                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
-                )
-
-                # Tab 3: URLs, deren Top-Query nicht als Anchor vorkommt
-                rows3 = []
-                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
-                    top1 = grp.head(1)
-                    if top1.empty:
-                        continue
-                    r = top1.iloc[0]
-                    if not r["MatchBool"]:
-                        rows3.append([
-                            url,
-                            r["Query"],
-                            "nein",
-                        ])
                 gsc_tab3_df = pd.DataFrame(
                     rows3,
                     columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
