@@ -4039,8 +4039,26 @@ if A4_NAME in selected_analyses:
                                 r["Query"],
                                 "nein",
                             ])
+                gsc_tab2_df = pd.DataFrame(  # ✅ KORRIGIERT: gsc_tab2_df
+                    rows2,  # ✅ KORRIGIERT: rows2
+                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
+                )
+                
+                # Tab 3: URLs, deren Top-Query nicht als Ankertext vorkommt
+                rows3 = []  # ✅ NEU: rows3 für Tab 3
+                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
+                    top1 = grp.head(1)
+                    if top1.empty:
+                        continue
+                    r = top1.iloc[0]
+                    if not r["MatchBool"]:
+                        rows3.append([
+                            url,
+                            r["Query"],
+                            "nein",
+                        ])
                 gsc_tab3_df = pd.DataFrame(
-                    rows3,
+                    rows3,  # ✅ Jetzt existiert rows3
                     columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
                 )
 
