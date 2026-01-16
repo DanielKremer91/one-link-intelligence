@@ -2918,6 +2918,8 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                 return "niedrig", score
 
         out_rows = []
+        # header neu definieren, da es nicht im Scope ist
+        header = [str(c).strip() for c in inlinks_df.columns]
         rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
         out_header = [
             "Quelle","Ziel","Waster-Klasse (Quelle)","Waster-Score (Quelle)","Semantische Ähnlichkeit",*rest_cols,
@@ -3803,7 +3805,6 @@ if A4_NAME in selected_analyses:
                 )
 
             else:
-                gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
                 gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
                 gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
     else:
