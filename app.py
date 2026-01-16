@@ -1479,129 +1479,22 @@ with st.sidebar:
             )
             
             if enable_gsc_coverage:
-                st.markdown("**Search Console Query Coverage bei Ankertexten**")
-                st.caption("Gleicht die Top 20 % der Suchanfragen einer URL mit den vorhandenen Ankertexten ab.")
-
-                # Brand / Non-Brand
-                brand_mode = st.radio(
-                    "Sollen auch Brand-Suchanfragen bei dieser Analyse berücksichtigt werden?",
-                    ["Nur Non-Brand", "Nur Brand", "Beides"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_brand_mode",
-                )
-
-                brand_text = st.text_area(
-                    "Brand-Schreibweisen (eine pro Zeile oder komma-getrennt)",
-                    value=st.session_state.get("a4_brand_text", ""),
-                    key="a4_brand_text",
-                )
-                brand_file = st.file_uploader(
-                    "Optional: Brand-Liste (1 Spalte)",
-                    type=["csv", "xlsx", "xlsm", "xls"],
-                    key="a4_brand_file",
-                )
-                auto_variants = st.checkbox(
-                    "Branded Keywords auch als Brand-Keywords behandeln? (Kombis wie 'marke keyword', 'keyword marke', 'marke-keyword' usw.)",
-                    value=st.session_state.get("a4_auto_variants", True),
-                    key="a4_auto_variants",
-                )
-
-                # Relevanzgrundlage
-                metric_choice = st.radio(
-                    "Sollen die Top 20 % Suchanfragen auf Basis der Klicks oder Impressionen analysiert werden?",
-                    ["Impressions", "Clicks"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_metric_choice",
-                )
-
-                st.caption(
-                    "Soll der Abgleich der Search Console Queries mit den Ankertexten als Exact Match "
-                    "oder auf Basis semantischer Ähnlichkeit erfolgen?"
-                )
-
-                match_mode = st.radio(
-                    "Match-Modus",
-                    ["Exact Match", "Embedding Match"],
-                    index=0,
-                    horizontal=True,
-                    key="a4_match_mode",
-                    help="Wähle entweder Exact Match (exakte Übereinstimmung) oder Embedding Match (semantische Ähnlichkeit)."
-                )
-                
-                # Abgeleitete Werte
-                check_exact = (match_mode == "Exact Match")
-                check_embed = (match_mode == "Embedding Match")
-
-                embed_model_name = st.selectbox(
-                    "Sentence Transformer Modell (Embedding-Modell)",
-                    [
-                        "sentence-transformers/all-MiniLM-L6-v2",
-                        "sentence-transformers/all-MiniLM-L12-v2",
-                        "sentence-transformers/all-mpnet-base-v2",
-                    ],
-                    index=0,
-                    key="a4_embed_model",
-                )
-                embed_thresh = st.slider(
-                    "Cosine-Schwelle (Embedding)",
-                    0.50, 0.95, 0.75, 0.01,
-                    key="a4_embed_thresh",
-                )
-
-                help_text_schwellen = (
-                    "Mit den Schwellen & Filtern reduzierst du Rauschen und fokussierst die Analyse auf wirklich relevante Suchanfragen:\n\n"
-                    "• Mindest-Klicks/Query – wird nur angewendet, wenn oben Clicks ausgewählt ist.\n"
-                    "• Mindest-Impressions/Query – wird nur angewendet, wenn oben Impressions ausgewählt ist.\n"
-                    "• Top-N Queries pro URL – zusätzlicher Deckel nach der Top-20-%-Auswahl.\n\n"
-                    "Hinweise:\n"
-                    "– Die Auswahl Impressions vs. Clicks steuert, welche Schwelle greift.\n"
-                    "– Erst werden Marke/Non-Brand und Mindestwerte gefiltert, dann die Top-20-% berechnet."
-                )
-
-                col_s1, col_s2, col_s3 = st.columns(3)
-                with col_s1:
-                    min_clicks = st.number_input(
-                        "Mindest-Klicks/Query",
-                        min_value=0,
-                        value=50,
-                        step=10,
-                        key="a4_min_clicks",
-                        help=help_text_schwellen,
-                    )
-                with col_s2:
-                    min_impr = st.number_input(
-                        "Mindest-Impressions/Query",
-                        min_value=0,
-                        value=500,
-                        step=50,
-                        key="a4_min_impr",
-                        help=help_text_schwellen,
-                    )
-                with col_s3:
-                    topN_default = st.number_input(
-                        "Top-N Queries pro URL (zusätzliche Bedingung)",
-                        min_value=0,  # 0 = kein zusätzlicher Deckel
-                        value=st.session_state.get("a4_topN", 0),
-                        step=1,
-                        key="a4_topN",
-                    )
+            st.markdown("**Search Console Query Coverage bei Ankertexten**")
+            st.caption(
+                "Gleicht die Top Queries je URL mit den vorhandenen Ankertexten ab (Exact Match)."
+            )
+        
+            metric_choice = st.radio(
+                "Sollen die Top Queries auf Basis der Klicks oder Impressionen analysiert werden?",
+                ["Impressions", "Clicks"],
+                index=0,
+                horizontal=True,
+                key="a4_metric_choice",
+            )
 
             else:
                 # Defaults setzen, wenn GSC-Coverage deaktiviert ist
-                st.session_state.setdefault("a4_brand_mode", "Nur Non-Brand")
-                st.session_state.setdefault("a4_brand_text", "")
-                st.session_state.setdefault("a4_auto_variants", True)
                 st.session_state.setdefault("a4_metric_choice", "Impressions")
-                st.session_state.setdefault("a4_check_exact", True)
-                st.session_state.setdefault("a4_check_embed", True)
-                st.session_state.setdefault("a4_embed_model", "sentence-transformers/all-MiniLM-L6-v2")
-                st.session_state.setdefault("a4_embed_thresh", 0.75)
-                st.session_state.setdefault("a4_min_clicks", 50)
-                st.session_state.setdefault("a4_min_impr", 500)
-                st.session_state.setdefault("a4_topN", 0)
-                st.session_state.setdefault("a4_over_anchor_mode", "Absolut")
 
 
             
@@ -3748,8 +3641,7 @@ if A4_NAME in selected_analyses:
     # GSC-Coverage nur wenn aktiviert
     enable_gsc_coverage = st.session_state.get("a4_enable_gsc_coverage", True)
     
-    # Platzhalter für später
-    gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
+    # Platzhalter für später (Tab 1 entfernt)
     gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
     gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
 
@@ -3767,7 +3659,7 @@ if A4_NAME in selected_analyses:
         df = gsc_df.copy()
         df.columns = [str(c).strip() for c in df.columns]
         hdr = [_norm_header(c) for c in df.columns]
-    
+        
         def _find_idx(candidates: Iterable[str], default=None):
             cand_norm = {_norm_header(c) for c in candidates}
             for i, h in enumerate(hdr):
@@ -3777,270 +3669,136 @@ if A4_NAME in selected_analyses:
                 if any(c in h for c in cand_norm):
                     return i
             return default
-    
+        
         url_i = _find_idx({"url","page","seite","address","adresse","landingpage","landing page"}, 0)
         q_i   = _find_idx({"query","suchanfrage","suchbegriff"}, 1)
         c_i   = _find_idx({"clicks","klicks"}, None)
         im_i  = _find_idx({"impressions","impr","impressionen","suchimpressionen","search impressions"}, None)
-    
+        
         if url_i is None or q_i is None or (c_i is None and im_i is None):
             st.warning("GSC-Datei für A4 benötigt: **URL + Query + (Clicks oder Impressions)**. Bitte Datei prüfen.")
         else:
-            # -------------------------------
-            # Brand-Liste nur für GSC-Coverage bauen
-            # -------------------------------
-            brand_text = st.session_state.get("a4_brand_text", "")
-            brand_file = st.session_state.get("a4_brand_file", None)
-
-            raw = str(brand_text or "")
-            tokens = re.split(r"[,\n;]+", raw)
-            brand_list = [t.strip().lower() for t in tokens if t.strip()]
-
-            if brand_file is not None:
-                try:
-                    import io
-                    df_br = pd.read_csv(io.BytesIO(brand_file.getvalue()), header=None)
-                    extra = [
-                        str(v).strip().lower()
-                        for v in df_br.iloc[:, 0].dropna().tolist()
-                        if str(v).strip()
-                    ]
-                    brand_list.extend(extra)
-                except Exception as e:
-                    st.warning(
-                        f"Konnte Brand-Datei nicht lesen ({e}) – Brand-Liste wird nur aus dem Textfeld gebaut."
-                    )
-
-            brand_list = sorted(set(brand_list))
-
             df.iloc[:, url_i] = df.iloc[:, url_i].astype(str).map(remember_original)
             df.iloc[:, q_i]   = df.iloc[:, q_i].astype(str).fillna("").str.strip()
             if c_i is not None:
                 df.iloc[:, c_i] = pd.to_numeric(df.iloc[:, c_i], errors="coerce").fillna(0)
             if im_i is not None:
                 df.iloc[:, im_i] = pd.to_numeric(df.iloc[:, im_i], errors="coerce").fillna(0)
-
-            def brand_filter(row) -> bool:
-                if not brand_list or brand_mode == "Beides":
-                    return True
-                q = str(row.iloc[q_i])
-                is_b = is_brand_query(q, brand_list, auto_variants)
-                if brand_mode == "Nur Non-Brand":
-                    return not is_b
-                elif brand_mode == "Nur Brand":
-                    return is_b
-                else:
-                    return True
-
-            df = df[df.apply(brand_filter, axis=1)]
-    
-            if c_i is not None and metric_choice == "Clicks":
-                df = df[df.iloc[:, c_i] >= int(min_clicks)]
-            if im_i is not None and metric_choice == "Impressions":
-                df = df[df.iloc[:, im_i] >= int(min_impr)]
-    
-            if df.empty:
-                cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
+            
+            # ✅ Sortiere nach gewählter Metrik
+            metric_col = c_i if metric_choice == "Clicks" else im_i
+            
+            if metric_choice == "Clicks" and im_i is not None:
+                df = df.sort_values(
+                    by=[df.columns[url_i], df.columns[c_i], df.columns[im_i]],
+                    ascending=[True, False, False],
+                )
+            elif metric_choice == "Impressions" and c_i is not None:
+                df = df.sort_values(
+                    by=[df.columns[url_i], df.columns[im_i], df.columns[c_i]],
+                    ascending=[True, False, False],
+                )
             else:
-                metric_col = c_i if metric_choice == "Clicks" else im_i
-
-                if metric_choice == "Clicks" and im_i is not None:
-                    df = df.sort_values(
-                        by=[df.columns[url_i], df.columns[c_i], df.columns[im_i]],
-                        ascending=[True, False, False],
-                    )
-                elif metric_choice == "Impressions" and c_i is not None:
-                    df = df.sort_values(
-                        by=[df.columns[url_i], df.columns[im_i], df.columns[c_i]],
-                        ascending=[True, False, False],
-                    )
-                else:
-                    df = df.sort_values(
-                        by=[df.columns[url_i], df.columns[metric_col]],
-                        ascending=[True, False],
-                    )
-
-                # Top-20 % je URL (mind. 1) + Top-N-Limit
-                top_rows = []
-                for u, grp in df.groupby(df.columns[url_i], sort=False):
-                    n = max(1, int(math.ceil(0.2 * len(grp))))
-                    if int(topN_default) > 0:
-                        n = max(1, min(n, int(topN_default)))
-                    top_rows.append(grp.head(n))
-    
-                df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
-    
-                # Anchor-Inventar für GSC-Coverage (Positionsfilter)
-                inlinks_gsc = filter_inlinks_by_position(
-                    inlinks_df,
-                    pos_idx,
-                    key_suffix="gsc_cov",
+                df = df.sort_values(
+                    by=[df.columns[url_i], df.columns[metric_col]],
+                    ascending=[True, False],
                 )
-                anchor_inv_internal_gsc = extract_anchor_inventory(inlinks_gsc)
-
-                # Anchor-Inventar als Multiset: target -> {anchor: count}
-                inv_map: Dict[str, Dict[str, int]] = {}
-                for _, r in anchor_inv_internal_gsc.iterrows():
-                    inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
-    
-                # Embedding-Modell vorbereiten
-                match_mode = st.session_state.get("a4_match_mode", "Exact Match")
-                check_exact = (match_mode == "Exact Match")
-                check_embed = (match_mode == "Embedding Match")
-                embed_thresh = float(st.session_state.get("a4_cov_embed_thresh", 0.80))
-                embed_model_name = st.session_state.get(
-                    "a4_cov_embed_model",
-                    "sentence-transformers/all-MiniLM-L6-v2",
-                )
-
-                model = None
-                if check_embed:
-                    try:
-                        from sentence_transformers import SentenceTransformer
-                        if (
-                            "_A4_EMB_MODEL_NAME" not in st.session_state
-                            or st.session_state.get("_A4_EMB_MODEL_NAME") != embed_model_name
-                        ):
-                            st.session_state["_A4_EMB_MODEL"] = SentenceTransformer(embed_model_name)
-                            st.session_state["_A4_EMB_MODEL_NAME"] = embed_model_name
-                        model = st.session_state["_A4_EMB_MODEL"]
-                    except Exception as e:
-                        st.warning(f"Embedding-Modell konnte nicht geladen werden ({e}). Embedding-Abgleich wird übersprungen.")
-                        check_embed = False
-    
-                def cosine_sim_matrix(A: np.ndarray, B: np.ndarray) -> np.ndarray:
-                    A = A.astype(np.float32, copy=False)
-                    B = B.astype(np.float32, copy=False)
-                    A /= (np.linalg.norm(A, axis=1, keepdims=True) + 1e-12)
-                    B /= (np.linalg.norm(B, axis=1, keepdims=True) + 1e-12)
-                    return A @ B.T
-    
-                def _norm_text_for_emb(s: str) -> str:
-                    s = str(s or "").strip().lower()
-                    s = re.sub(r"\s+", " ", s)
-                    return s
-    
-                # Cache Anchor-Embeddings je Ziel-URL
-                anchor_emb_cache: Dict[str, Tuple[List[str], List[str], Optional[np.ndarray]]] = {}
-
-                coverage_rows = []  # eine Zeile pro URL+Query
-
-                for u, grp in df_top.groupby(df.columns[url_i], sort=False):
-                    url_raw = str(u)
-                    url_norm = normalize_url(url_raw)
-                    inv = inv_map.get(url_norm, {})
+            
+            # ✅ Top 3 Queries je URL (für Tab 2 und Tab 3)
+            top_rows = []
+            for u, grp in df.groupby(df.columns[url_i], sort=False):
+                top_rows.append(grp.head(3))  # Top 3 für Tab 2, Top 1 für Tab 3
+            
+            df_top = pd.concat(top_rows) if top_rows else pd.DataFrame(columns=df.columns)
+            
+            # Anchor-Inventar für GSC-Coverage
+            inlinks_gsc = filter_inlinks_by_position(
+                inlinks_df,
+                pos_idx,
+                key_suffix="gsc_cov",
+            )
+            anchor_inv_internal_gsc = extract_anchor_inventory(inlinks_gsc)
+            
+            # Anchor-Inventar als Multiset: target -> {anchor: count}
+            inv_map: Dict[str, Dict[str, int]] = {}
+            for _, r in anchor_inv_internal_gsc.iterrows():
+                inv_map.setdefault(str(r["target"]), {})[str(r["anchor"])] = int(r["count"])
+            
+            # ✅ Nur Exact Match - keine Embedding-Logik mehr
+            coverage_rows = []
+            for u, grp in df_top.groupby(df.columns[url_i], sort=False):
+                url_raw = str(u)
+                url_norm = normalize_url(url_raw)
+                inv = inv_map.get(url_norm, {})
+                a_names = list(inv.keys())
                 
-                    a_names = list(inv.keys())
-                    a_emb = None
-                    a_names_norm: List[str] = []
-
-                    # Embeddings je URL vorbereiten
-                    if check_embed and model is not None and len(a_names) > 0:
-                        if url_norm not in anchor_emb_cache:
-                            try:
-                                a_names_norm = [_norm_text_for_emb(a) for a in a_names]
-                                a_emb = np.asarray(
-                                    model.encode(a_names_norm, batch_size=64, show_progress_bar=False)
-                                )
-                                anchor_emb_cache[url_norm] = (a_names, a_names_norm, a_emb)
-                            except Exception:
-                                anchor_emb_cache[url_norm] = (a_names, [], None)
-                                a_emb = None
-                        else:
-                            a_names, a_names_norm, a_emb = anchor_emb_cache[url_norm]
-                
-                    for _, rr in grp.iterrows():
-                        q = str(rr.iloc[q_i]).strip()
-                        if not q:
-                            continue
-                
-                        found = False
-                        found_cnt = 0
-                        match_type_parts = []
-                
-                        # Exact Match
-                        if check_exact and a_names:
-                            cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
-                            if cnt > 0:
-                                found = True
-                                found_cnt = max(found_cnt, cnt)
-                                match_type_parts.append("Exact")
-                
-                        # Embedding Match
-                        if (not found) and check_embed and model is not None and a_emb is not None and len(a_names) > 0:
-                            try:
-                                q_norm = _norm_text_for_emb(q)
-                                q_emb = model.encode([q_norm], show_progress_bar=False)
-                                q_emb = np.asarray(q_emb)
-                
-                                S = cosine_sim_matrix(q_emb, a_emb)[0]
-                                idxs = np.where(S >= float(embed_thresh))[0]
-                                if idxs.size > 0:
-                                    found = True
-                                    cnt = int(sum(inv.get(a_names[i], 0) for i in idxs))
-                                    found_cnt = max(found_cnt, cnt)
-                                    match_type_parts.append("Embedding")
-                            except Exception:
-                                pass
-                
-                        match_type = "+".join(match_type_parts) if match_type_parts else "—"
-                
-                        coverage_rows.append([
-                            disp(url_norm),
-                            q,
-                            match_type,
-                            bool(found),
-                            int(found_cnt),
-                        ])
-    
-                cov_df = pd.DataFrame(
-                    coverage_rows,
-                    columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"]
-                )
+                for _, rr in grp.iterrows():
+                    q = str(rr.iloc[q_i]).strip()
+                    if not q:
+                        continue
+                    
+                    # ✅ Nur Exact Match
+                    found = False
+                    found_cnt = 0
+                    if a_names:
+                        cnt = sum(inv.get(a, 0) for a in a_names if a.lower() == q.lower())
+                        if cnt > 0:
+                            found = True
+                            found_cnt = cnt
+                    
+                    coverage_rows.append([
+                        disp(url_norm),
+                        q,
+                        "Exact" if found else "—",
+                        bool(found),
+                        int(found_cnt),
+                    ])
+            
+            cov_df = pd.DataFrame(
+                coverage_rows,
+                columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"]
+            )
     
             # ---------- Tabs bauen (auf Basis von cov_df) ----------
             if not cov_df.empty:
-                agg = (
-                    cov_df.groupby("Ziel-URL")
-                    .agg(
-                        Top_Queries=("Query", "size"),
-                        Treffer=("MatchBool", "sum"),
-                    )
-                    .reset_index()
-                )
-                agg["Coverage"] = np.where(
-                    agg["Top_Queries"] > 0,
-                    agg["Treffer"] / agg["Top_Queries"],
-                    0.0,
-                )
-
-                # Tab 1: URLs mit < 50 % Abdeckung ihrer Top-Queries
-                low_cov_urls = agg[agg["Coverage"] < 0.5][["Ziel-URL"]]
-                tab1 = cov_df.merge(low_cov_urls, on="Ziel-URL", how="inner")
-                tab1["Als_Anker_vorhanden?"] = np.where(tab1["MatchBool"], "ja", "nein")
-                gsc_tab1_df = tab1[["Ziel-URL", "Query", "Als_Anker_vorhanden?"]].copy()
-
-                # Tab 2: URLs, deren Top-3-Queries alle nicht als Ankertext vorkommen
                 rows2 = []
                 for url, grp in cov_df.groupby("Ziel-URL", sort=False):
-                    # ✅ WICHTIG: Mindestens 3 Queries müssen vorhanden sein
+                    # ✅ Mindestens 3 Queries müssen vorhanden sein
                     if len(grp) < 3:
-                        continue  # Überspringe URLs mit weniger als 3 Queries
+                        continue
                     
-                    # Top-3 nehmen (bereits nach Klicks/Impressions sortiert aus df_top)
+                    # ✅ Top-3 nehmen (sollte bereits nach Klicks/Impressions sortiert sein)
                     top3 = grp.head(3)
                     
-                    # ✅ Prüfe ob ALLE 3 Top-Queries fehlen (alle MatchBool sind False)
+                    # ✅ Prüfe ob ALLE 3 fehlen
                     if (top3["MatchBool"] == False).all():
-                        # ✅ Alle 3 Queries für diese URL anzeigen
+                        # ✅ Alle 3 Queries anzeigen
                         for _, r in top3.iterrows():
                             rows2.append([
                                 url,
                                 r["Query"],
                                 "nein",
                             ])
-                gsc_tab2_df = pd.DataFrame(  # ✅ KORRIGIERT: gsc_tab2_df
-                    rows2,  # ✅ KORRIGIERT: rows2
+                gsc_tab2_df = pd.DataFrame(
+                    rows2,
+                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
+                )
+                
+                # Tab 3: URLs, deren Top-Query nicht als Ankertext vorkommt
+                rows3 = []
+                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
+                    top1 = grp.head(1)
+                    if top1.empty:
+                        continue
+                    r = top1.iloc[0]
+                    if not r["MatchBool"]:
+                        rows3.append([
+                            url,
+                            r["Query"],
+                            "nein",
+                        ])
+                gsc_tab3_df = pd.DataFrame(
+                    rows3,
                     columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
                 )
                 
@@ -4068,7 +3826,6 @@ if A4_NAME in selected_analyses:
                 gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
     else:
         cov_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Match-Typ", "MatchBool", "Fund-Count"])
-        gsc_tab1_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
         gsc_tab2_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
         gsc_tab3_df = pd.DataFrame(columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"])
 
@@ -4105,63 +3862,48 @@ if A4_NAME in selected_analyses:
             except Exception:
                 pass
 
-    # 2) GSC-Query-Coverage – Tabs 1–3
+    # 2) GSC-Query-Coverage – Tabs 2–3 (Tab 1 entfernt)
     if enable_gsc_coverage:
-        st.markdown("#### 2) Search Console Query-Coverage bei Ankertexten")
-
-        st.markdown("**Tab 1: URLs mit < 50 % Abdeckung ihrer Top-Queries**")
-        if gsc_tab1_df.empty:
-            st.info("Keine URLs mit weniger als 50 % Ankertext-Abdeckung der Top-Queries gefunden.")
-        else:
-            st.dataframe(gsc_tab1_df, use_container_width=True, hide_index=True)
-            st.download_button(
-                "Download GSC-Coverage – Tab 1 (CSV)",
-                data=gsc_tab1_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name="a4_gsc_coverage_tab1_urls_unter_50_prozent.csv",
-                mime="text/csv",
-                key="a4_dl_cov_tab1_csv"
-            )
-
-        st.markdown("---")
-        st.markdown("**Tab 2: URLs, deren Top-3-Queries alle nicht als Ankertext vorkommen**")
+        st.markdown("#### 2) Search Console Query Coverage der Ankertexte")
+    
+        st.markdown("** URLs, deren Top-3-Queries alle nicht als Ankertext vorkommen**")
         if gsc_tab2_df.empty:
-            st.info("Keine URLs, bei denen keine der Top-3-Queries als Ankertext vorkommt.")
+            st.info("Keine URLs, bei denen die Top-3-Queries nicht als Ankertext vorkommen.")
         else:
             st.dataframe(gsc_tab2_df, use_container_width=True, hide_index=True)
             st.download_button(
-                "Download GSC-Coverage – Tab 2 (CSV)",
+                "Download GSC-Coverage – Top 3 Queries (CSV)",
                 data=gsc_tab2_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name="a4_gsc_coverage_tab2_top3_ohne_anchor.csv",
                 mime="text/csv",
                 key="a4_dl_cov_tab2_csv"
             )
-
+    
         st.markdown("---")
-        st.markdown("**Tab 3: URLs, deren Top-Query nicht als Ankertext vorkommt**")
+        st.markdown("**URLs, deren Top-Query nicht als Ankertext vorkommt**")
         if gsc_tab3_df.empty:
             st.info("Keine URLs, bei denen die Top-Query nicht als Ankertext vorkommt.")
         else:
             st.dataframe(gsc_tab3_df, use_container_width=True, hide_index=True)
             st.download_button(
-                "Download GSC-Coverage – Tab 3 (CSV)",
+                "Download GSC-Coverage – Top-Query (CSV)",
                 data=gsc_tab3_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name="a4_gsc_coverage_tab3_top1_ohne_anchor.csv",
                 mime="text/csv",
                 key="a4_dl_cov_tab3_csv"
             )
-
-        # XLSX mit 3 Tabs
+    
+        # XLSX mit 2 Tabs (statt 3)
         try:
             buf_cov = io.BytesIO()
             with pd.ExcelWriter(buf_cov, engine="xlsxwriter") as xw:
-                gsc_tab1_df.to_excel(xw, index=False, sheet_name="Tab1_Coverage")
                 gsc_tab2_df.to_excel(xw, index=False, sheet_name="Tab2_Top3_NoAnchor")
                 gsc_tab3_df.to_excel(xw, index=False, sheet_name="Tab3_Top1_NoAnchor")
             buf_cov.seek(0)
             st.download_button(
-                "Download GSC-Coverage (XLSX, 3 Tabs)",
+                "Download GSC-Coverage (XLSX, 2 Tabs)",
                 data=buf_cov.getvalue(),
-                file_name="a4_gsc_coverage_3tabs.xlsx",
+                file_name="a4_gsc_coverage_2tabs.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="a4_dl_cov_xlsx_multi"
             )
