@@ -2837,12 +2837,22 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
     if st.session_state.get("__show_a2__", False):
         st.markdown("## Analyse 2: Potenziell zu entfernende Links")
         st.caption("Diese Analyse legt bestehende Links zwischen semantisch nicht stark verwandten URLs offen.")
-
+    
+        # ✅ NEU: Spalten-Indizes für All Inlinks bestimmen
+        header = [str(c).strip() for c in inlinks_df.columns]
+        src_idx = find_column_index(header, POSSIBLE_SOURCE)
+        dst_idx = find_column_index(header, POSSIBLE_TARGET)
+        
+        if src_idx == -1 or dst_idx == -1:
+            st.error("In 'All Inlinks' konnten Quelle/Ziel nicht erkannt werden.")
+            st.stop()
+    
         # A2-Settings aus Sidebar-State lesen
         not_similar_threshold = float(st.session_state.get("a2_not_sim", 0.60))
         backlink_weight_2x = bool(st.session_state.get("a2_weight2x", False))
         only_content_links = bool(st.session_state.get("a2_only_content", False))
 
+       
         # Similarity-Map
         sim_map: Dict[Tuple[str, str], float] = {}
         processed_pairs2 = set()
@@ -2918,8 +2928,6 @@ if any(a in selected_analyses for a in [A1_NAME, A2_NAME, A3_NAME]) and (run_cli
                 return "niedrig", score
 
         out_rows = []
-        # header neu definieren, da es nicht im Scope ist
-        header = [str(c).strip() for c in inlinks_df.columns]
         rest_cols = [c for i, c in enumerate(header) if i not in (src_idx, dst_idx)]
         out_header = [
             "Quelle","Ziel","Waster-Klasse (Quelle)","Waster-Score (Quelle)","Semantische Ähnlichkeit",*rest_cols,
