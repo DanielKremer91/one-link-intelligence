@@ -1479,19 +1479,19 @@ with st.sidebar:
             )
             
             if enable_gsc_coverage:
-            st.markdown("**Search Console Query Coverage bei Ankertexten**")
-            st.caption(
-                "Gleicht die Top Queries je URL mit den vorhandenen Ankertexten ab (Exact Match)."
-            )
-        
-            metric_choice = st.radio(
-                "Sollen die Top Queries auf Basis der Klicks oder Impressionen analysiert werden?",
-                ["Impressions", "Clicks"],
-                index=0,
-                horizontal=True,
-                key="a4_metric_choice",
-            )
-
+                st.markdown("**Search Console Query Coverage bei Ankertexten**")
+                st.caption(
+                    "Gleicht die Top Queries je URL mit den vorhandenen Ankertexten ab (Exact Match)."
+                )
+            
+                metric_choice = st.radio(
+                    "Sollen die Top Queries auf Basis der Klicks oder Impressionen analysiert werden?",
+                    ["Impressions", "Clicks"],
+                    index=0,
+                    horizontal=True,
+                    key="a4_metric_choice",
+                )
+            
             else:
                 # Defaults setzen, wenn GSC-Coverage deaktiviert ist
                 st.session_state.setdefault("a4_metric_choice", "Impressions")
@@ -3799,24 +3799,6 @@ if A4_NAME in selected_analyses:
                         ])
                 gsc_tab3_df = pd.DataFrame(
                     rows3,
-                    columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
-                )
-                
-                # Tab 3: URLs, deren Top-Query nicht als Ankertext vorkommt
-                rows3 = []  # ✅ NEU: rows3 für Tab 3
-                for url, grp in cov_df.groupby("Ziel-URL", sort=False):
-                    top1 = grp.head(1)
-                    if top1.empty:
-                        continue
-                    r = top1.iloc[0]
-                    if not r["MatchBool"]:
-                        rows3.append([
-                            url,
-                            r["Query"],
-                            "nein",
-                        ])
-                gsc_tab3_df = pd.DataFrame(
-                    rows3,  # ✅ Jetzt existiert rows3
                     columns=["Ziel-URL", "Query", "Als_Anker_vorhanden?"],
                 )
 
